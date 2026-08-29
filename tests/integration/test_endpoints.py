@@ -738,6 +738,26 @@ def test_superadmin_suspender_cliente_bloquea_su_login(test_client_real_auth, te
     assert login.status_code == 403
 
 
+def test_eliminar_cliente_borra_tambien_sus_categorias(test_client_real_auth, test_superadmin, test_cliente, test_db):
+    """Categoria no tenía relación de cascada con Cliente: borrar un
+    restaurante dejaba sus categorías huérfanas en la tabla (invisibles,
+    todo se filtra por cliente_id, pero basura acumulándose para siempre)."""
+    from backend.models import Categoria
+
+    test_db.add(Categoria(cliente_id=test_cliente.id, nombre="Piqueos", icono="🍤"))
+    test_db.commit()
+
+    token = _login_superadmin(test_client_real_auth)
+    resp = test_client_real_auth.delete(
+        f'/api/superadmin/clientes/{test_cliente.id}',
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 204
+
+    restantes = test_db.query(Categoria).filter(Categoria.cliente_id == test_cliente.id).all()
+    assert restantes == []
+
+
 def test_superadmin_resetea_password_de_admin(test_client_real_auth, test_superadmin, test_cliente):
     from tests.conftest import TEST_USUARIO_EMAIL
     token = _login_superadmin(test_client_real_auth)

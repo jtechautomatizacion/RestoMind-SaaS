@@ -40,6 +40,11 @@ class Cliente(Base):
     mesas = relationship("Mesa", back_populates="cliente", cascade="all, delete-orphan")
     comandas = relationship("Comanda", back_populates="cliente", cascade="all, delete-orphan")
     compras = relationship("Compra", back_populates="cliente", cascade="all, delete-orphan")
+    # Categoria no tenía relación acá: borrar un cliente (superadmin →
+    # "Eliminar") dejaba sus categorías huérfanas en la tabla — invisibles
+    # en la app (todo se filtra por cliente_id) pero basura acumulándose
+    # para siempre en la BD cada vez que se borra un restaurante.
+    categorias = relationship("Categoria", cascade="all, delete-orphan")
 
 
 class Usuario(Base):
