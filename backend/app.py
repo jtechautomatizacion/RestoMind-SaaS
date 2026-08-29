@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.config import settings
 from backend.database import init_db, SessionLocal
 from backend.seed import seed_if_empty, backfill_clientes_existentes
-from backend.routes import platos, mesas, comandas, compras, dashboard, categorias
+from backend.routes import platos, mesas, comandas, compras, dashboard, categorias, auth
 
 # Initialize database + seed de demo (idempotente)
 init_db()
@@ -49,6 +49,7 @@ async def root():
 
 
 # Routers
+app.include_router(auth.router, prefix="/api", tags=["Autenticación"])
 app.include_router(platos.router, prefix="/api", tags=["Platos"])
 app.include_router(mesas.router, prefix="/api", tags=["Mesas"])
 app.include_router(comandas.router, prefix="/api", tags=["Comandas"])

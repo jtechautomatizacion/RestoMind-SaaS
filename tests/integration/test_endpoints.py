@@ -13,6 +13,70 @@ def test_health_endpoint(test_client):
     assert response.json()['status'] == 'ok'
 
 
+# ============ AUTENTICACIÓN ============
+
+def test_login_correcto_devuelve_token(test_client_real_auth, test_cliente):
+    from tests.conftest import TEST_USUARIO_EMAIL, TEST_USUARIO_PASSWORD
+    resp = test_client_real_auth.post('/api/auth/login', json={
+        "email": TEST_USUARIO_EMAIL, "password": TEST_USUARIO_PASSWORD,
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["access_token"]
+    assert data["usuario"]["email"] == TEST_USUARIO_EMAIL
+    assert data["usuario"]["rol"] == "admin"
+    assert data["usuario"]["cliente_id"] == test_cliente.id
+
+
+def test_login_password_incorrecta_rechaza(test_client_real_auth, test_cliente):
+    from tests.conftest import TEST_USUARIO_EMAIL
+    resp = test_client_real_auth.post('/api/auth/login', json={
+        "email": TEST_USUARIO_EMAIL, "password": "password-equivocado",
+    })
+    assert resp.status_code == 401
+
+
+def test_login_email_inexistente_rechaza(test_client_real_auth, test_cliente):
+    resp = test_client_real_auth.post('/api/auth/login', json={
+        "email": "no-existe@nadie.com", "password": "lo-que-sea",
+    })
+    assert resp.status_code == 401
+
+
+def test_endpoint_protegido_sin_token_rechaza(test_client_real_auth, test_cliente):
+    resp = test_client_real_auth.get('/api/platos')
+    assert resp.status_code == 401
+
+
+def test_endpoint_protegido_con_token_invalido_rechaza(test_client_real_auth, test_cliente):
+    resp = test_client_real_auth.get('/api/platos', headers={"Authorization": "Bearer token-inventado"})
+    assert resp.status_code == 401
+
+
+def test_endpoint_protegido_con_token_valido_permite_acceso(test_client_real_auth, test_cliente, test_platos):
+    from tests.conftest import TEST_USUARIO_EMAIL, TEST_USUARIO_PASSWORD
+    login = test_client_real_auth.post('/api/auth/login', json={
+        "email": TEST_USUARIO_EMAIL, "password": TEST_USUARIO_PASSWORD,
+    })
+    token = login.json()["access_token"]
+
+    resp = test_client_real_auth.get('/api/platos', headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert len(resp.json()) == len(test_platos)
+
+
+def test_auth_me_devuelve_usuario_del_token(test_client_real_auth, test_cliente):
+    from tests.conftest import TEST_USUARIO_EMAIL, TEST_USUARIO_PASSWORD
+    login = test_client_real_auth.post('/api/auth/login', json={
+        "email": TEST_USUARIO_EMAIL, "password": TEST_USUARIO_PASSWORD,
+    })
+    token = login.json()["access_token"]
+
+    resp = test_client_real_auth.get('/api/auth/me', headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.json()["email"] == TEST_USUARIO_EMAIL
+
+
 def test_root_endpoint(test_client):
     response = test_client.get('/')
     assert response.status_code == 200

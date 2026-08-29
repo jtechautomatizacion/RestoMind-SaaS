@@ -8,16 +8,23 @@ levantar el servidor, la demo ya tenga mesas y una carta cargada.
 
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
+from backend.auth import hash_password
 from backend.models import Cliente, Usuario, Mesa, Categoria, Plato, Comanda, ComandaPlato, Compra
 
 CLIENTE_DEMO_ID = "rest-001"
 
-# Debe coincidir con el default de get_usuario_actual() (backend/dependencies.py):
-# sin login real, todo request sin header X-Usuario se resuelve a este email, y
-# las acciones de administrador (crear/editar/eliminar mesas, categorías, gastos)
-# validan que exista un Usuario con este email y rol='admin'. Sin esta fila, esas
-# acciones fallaban con 403 aunque el frontend mostrara el rol "Admin".
+# Credenciales del restaurante demo. En producción cada cliente (restaurante)
+# tiene su propio usuario, creado por el onboarding manual del dueño del
+# sistema — ver backend/scripts/crear_cliente.py — nunca esta cuenta.
 USUARIO_ADMIN_EMAIL = "admin@demo.local"
+USUARIO_ADMIN_PASSWORD = "admin123"
+
+# Hash "de mentira" que usaban las versiones de antes de que existiera login
+# real (backend/auth.py). No es un bcrypt válido: bcrypt.checkpw() nunca lo
+# acepta, así que una instalación vieja con este valor tiene un admin al que
+# es imposible loguearse. El backfill lo detecta por este valor exacto y lo
+# reemplaza por un hash real.
+_HASH_FALSO_PRE_LOGIN = "$2b$12$demo.no.login.todavia"
 
 # Iconos por defecto para categorías conocidas; cualquier nombre fuera de
 # esta lista (categorías que el propio admin crea) usa el genérico 🍽️.
@@ -90,9 +97,16 @@ def backfill_clientes_existentes(db: Session) -> None:
                 cliente_id=cliente.id,
                 nombre="Administrador",
                 email=USUARIO_ADMIN_EMAIL,
-                password_hash="$2b$12$demo.no.login.todavia",
+                password_hash=hash_password(USUARIO_ADMIN_PASSWORD),
                 rol="admin",
             ))
+
+        # Instalación de antes de que existiera login real: el admin ya
+        # existe pero con un hash que ningún password real puede pasar.
+        for usuario_con_hash_falso in db.query(Usuario).filter(
+            Usuario.cliente_id == cliente.id, Usuario.password_hash == _HASH_FALSO_PRE_LOGIN
+        ).all():
+            usuario_con_hash_falso.password_hash = hash_password(USUARIO_ADMIN_PASSWORD)
 
         tiene_categorias = db.query(Categoria).filter(Categoria.cliente_id == cliente.id).first()
         if not tiene_categorias:
@@ -126,14 +140,12 @@ def seed_if_empty(db: Session) -> None:
     )
     db.add(cliente)
 
-    # Sin login real todavía (fase 2), pero las validaciones de rol admin sí
-    # están activas: sin esta fila, "solo admin puede..." fallaba siempre.
     db.add(Usuario(
         id="usr-admin-demo",
         cliente_id=cliente.id,
         nombre="Administrador",
         email=USUARIO_ADMIN_EMAIL,
-        password_hash="$2b$12$demo.no.login.todavia",
+        password_hash=hash_password(USUARIO_ADMIN_PASSWORD),
         rol="admin",
     ))
 

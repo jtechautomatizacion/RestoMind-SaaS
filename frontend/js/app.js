@@ -29,7 +29,8 @@ function getRolGuardado() {
 }
 
 const estado = {
-    clienteId: 'rest-001', // TODO: vendrá del login cuando exista auth
+    clienteId: null, // Se completa en auth.js al validar la sesión
+    usuario: null,   // { email, nombre, rol, cliente_id, cliente_nombre }
     rol: getRolGuardado(),
     platos: [],
     mesas: [],
@@ -51,11 +52,15 @@ const api = {
             ...options,
             headers: {
                 'Content-Type': 'application/json',
-                'X-Cliente-Id': estado.clienteId,
+                'Authorization': `Bearer ${getToken()}`,
                 'X-TZ-Offset': tzOffsetMinutos(),
                 ...(options.headers || {}),
             },
         });
+        if (resp.status === 401) {
+            manejarSesionExpirada();
+            throw new Error('Sesión expirada');
+        }
         if (!resp.ok) {
             let detail = `Error ${resp.status}`;
             try {
@@ -89,9 +94,13 @@ const api = {
     async postFile(endpoint, formData) {
         const resp = await fetch(`${API_BASE_URL}${endpoint}`, {
             method: 'POST',
-            headers: { 'X-Cliente-Id': estado.clienteId, 'X-TZ-Offset': tzOffsetMinutos() },
+            headers: { 'Authorization': `Bearer ${getToken()}`, 'X-TZ-Offset': tzOffsetMinutos() },
             body: formData,
         });
+        if (resp.status === 401) {
+            manejarSesionExpirada();
+            throw new Error('Sesión expirada');
+        }
         if (!resp.ok) {
             let detail = `Error ${resp.status}`;
             try {

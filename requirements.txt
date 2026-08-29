@@ -10,3 +10,5 @@ pytest-asyncio==0.21.1
 httpx==0.25.2
 anthropic==0.25.0
 openpyxl==3.1.2
+PyJWT==2.8.0
+bcrypt==4.1.2

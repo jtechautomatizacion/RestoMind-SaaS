@@ -1,22 +1,36 @@
 """
 Dependencias compartidas de FastAPI.
 
-MVP sin login: el cliente_id se resuelve desde el header X-Cliente-Id.
-Cuando se implemente autenticación (JWT), este archivo es el único punto
-a modificar: get_cliente_id pasará a leer el token en vez del header.
+Autenticación real vía JWT (Authorization: Bearer <token>). get_cliente_id
+y get_usuario_actual son el único punto de la app que sabe de dónde sale
+esa identidad — cada ruta que las usa (casi todas) queda protegida sin
+que haya que tocar el archivo de esa ruta.
 """
 
 from typing import Optional
-from fastapi import Header
-from backend.config import settings
+from fastapi import Depends, Header, HTTPException
+from backend.auth import decodificar_token
 
 
-def get_cliente_id(x_cliente_id: Optional[str] = Header(default=None, alias="X-Cliente-Id")) -> str:
-    return x_cliente_id or settings.default_cliente_id
+def _payload_del_token(authorization: Optional[str] = Header(default=None)) -> dict:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="No autenticado")
+
+    token = authorization.removeprefix("Bearer ").strip()
+    payload = decodificar_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Sesión inválida o expirada")
+
+    return payload
 
 
-def get_usuario_actual(x_usuario: Optional[str] = Header(default=None, alias="X-Usuario")) -> str:
-    return x_usuario or "admin@demo.local"
+def get_cliente_id(payload: dict = Depends(_payload_del_token)) -> str:
+    return payload["cliente_id"]
+
+
+def get_usuario_actual(payload: dict = Depends(_payload_del_token)) -> str:
+    """Devuelve el email del usuario autenticado (el 'sub' del token)."""
+    return payload["sub"]
 
 
 def get_tz_offset(x_tz_offset: Optional[str] = Header(default=None, alias="X-TZ-Offset")) -> int:

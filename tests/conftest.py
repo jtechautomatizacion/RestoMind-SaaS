@@ -6,11 +6,13 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+from backend.auth import hash_password
 from backend.database import Base
 from backend.models import Cliente, Plato, Mesa, Usuario
 
 TEST_CLIENTE_ID = "test-cliente-001"
 TEST_USUARIO_EMAIL = "admin@test.local"
+TEST_USUARIO_PASSWORD = "secreta123"
 
 
 @pytest.fixture
@@ -63,6 +65,30 @@ def test_client(test_db):
 
 
 @pytest.fixture
+def test_client_real_auth(test_db):
+    """
+    Cliente de test SIN los overrides de get_cliente_id/get_usuario_actual:
+    a diferencia de test_client (que bypasea el JWT por completo para no
+    tener que loguearse en cada test de negocio), este ejercita la cadena
+    real de autenticación — para probar login y que un token inválido/
+    ausente efectivamente bloquea el acceso.
+    """
+    from fastapi.testclient import TestClient
+    from backend.app import app
+    from backend.database import get_db
+
+    def override_get_db():
+        yield test_db
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    client = TestClient(app)
+    yield client
+
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
 def test_cliente(test_db):
     """Crea cliente de test + usuario admin en BD"""
     cliente = Cliente(
@@ -80,7 +106,7 @@ def test_cliente(test_db):
         cliente_id=TEST_CLIENTE_ID,
         nombre='Admin',
         email=TEST_USUARIO_EMAIL,
-        password_hash='$2b$12$dummy',
+        password_hash=hash_password(TEST_USUARIO_PASSWORD),
         rol='admin',
         estado='activo'
     )

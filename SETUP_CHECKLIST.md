@@ -13,9 +13,62 @@ Los 5 casos de uso más 4 features adicionales, todos implementados, probados y 
 - ✅ **Fotos de platos** — subir/reemplazar/quitar foto por plato, con compresión en navegador y validación de archivo real en servidor
 - ✅ **Gestión de Categorías** — CRUD completo con iconos emoji, asignación dinámica en formularios, protección contra eliminación si hay platos
 - ✅ **Reporte Excel** — 3 hojas (Detalle Ventas, Detalle Gastos, Resumen Diario), formato de soles "S/ X.XX", encabezados coloreados, rows congelados
-- ✅ 41 tests automáticos (`pytest tests/ -v`), todos en verde (9 nuevos tests para categorías, platos, gastos, dashboard)
-- ✅ Frontend PWA rediseñado: mobile-first, bottom nav, sin librerías externas, pensado para gama media/baja, service worker v13
-- ✅ Datos semilla automáticos al arrancar + backfill automático para BDs existentes (crea admin user si falta, categorías si faltan)
+- ✅ **Login real (JWT)** — multi-tenant de verdad: cada restaurante es un Cliente aislado, con sus propios usuarios; ya no hay acceso sin loguearse
+- ✅ 48 tests automáticos (`pytest tests/ -v`), todos en verde (16 nuevos tests: categorías, platos, gastos, dashboard, login)
+- ✅ Frontend PWA rediseñado: mobile-first, bottom nav, sin librerías externas, pensado para gama media/baja, service worker v14
+- ✅ Datos semilla automáticos al arrancar + backfill automático para BDs existentes (crea admin user si falta, categorías si faltan, repara contraseñas de instalaciones pre-login)
+
+## 🔐 Login real (JWT) — reemplaza el modo de desarrollo sin autenticación
+
+**Por qué se hizo ahora:** el modelo de negocio pasó a ser reventa del
+sistema a varios restaurantes. Sin login real, cualquiera que supiera la
+URL de la API podía leer o modificar los datos de cualquier restaurante
+con solo cambiar un header (`X-Cliente-Id`) — aceptable para una demo de
+un solo cliente, inaceptable en cuanto hay más de un tenant.
+
+**Cómo funciona:**
+- `POST /api/auth/login` — recibe `{email, password}`, devuelve un JWT
+  (`backend/auth.py`, HS256, 12h de expiración) que lleva `sub` (email),
+  `cliente_id` y `rol`. Las contraseñas se guardan con bcrypt
+  (`backend/models.py: Usuario.password_hash`), nunca en texto plano.
+- **Punto único de resolución de identidad:** `backend/dependencies.py`
+  (`get_cliente_id`, `get_usuario_actual`) decodifican el JWT del header
+  `Authorization: Bearer <token>`. Como casi todas las rutas ya dependían
+  de estas dos funciones (para el aislamiento multi-tenant que existía
+  desde el MVP original), **quedaron protegidas automáticamente sin tocar
+  ni una ruta** — el cambio fue enteramente en `dependencies.py` + `auth.py`.
+- `GET /api/auth/me` — valida un token guardado y devuelve el usuario
+  actual; lo usa el frontend al abrir la app para saber si la sesión
+  sigue viva sin pedir contraseña de nuevo.
+- **Sin registro público.** No existe `POST /clientes` ni pantalla de
+  alta. Cada restaurante nuevo lo da de alta el dueño del sistema (no el
+  cliente final) corriendo `python -m backend.scripts.crear_cliente` en
+  el servidor — pide los datos por consola (nombre del restaurante,
+  cuántas mesas, email/contraseña del admin) y crea el Cliente + su
+  primer Usuario admin. El cliente final nunca ve ni sabe que este script
+  existe: solo recibe su URL, su email y su contraseña.
+- **Frontend** (`frontend/js/auth.js`): pantalla de login antes de la app,
+  token guardado en `localStorage`, `Authorization: Bearer` en cada
+  request, redirección automática al login si el token expira o es
+  inválido (401), botón de cerrar sesión en el header.
+- **Restaurante demo:** `admin@demo.local` / `admin123` (creado por
+  `backend/seed.py`). Una instalación vieja (de antes de que existiera
+  login) tenía un hash falso que nunca hubiera podido loguearse — el
+  backfill automático (`backend/seed.py: backfill_clientes_existentes`)
+  lo detecta y lo reemplaza por esta misma contraseña real al arrancar.
+
+**Lo que NO cambió:** el selector de rol por dispositivo (Admin/Mozo/
+Cocina/Cajero, botón redondo del header) sigue igual — es una capa
+distinta: controla qué pestañas ve un celular compartido en el local,
+mientras que el login controla a qué restaurante (tenant) pertenecen los
+datos. Son ortogonales a propósito.
+
+**Pendiente para más adelante:** el rol que trae el JWT (`admin`, `mozo`,
+`jefe_cocina`) hoy solo se usa para poblar `usuario.rol` en la respuesta
+de login; las rutas siguen validando "admin" consultando la tabla
+`Usuario` en cada request (`validar_admin()`), no confiando en el rol
+del token — a propósito, así revocar o cambiar el rol de alguien surte
+efecto de inmediato sin esperar a que expire su token viejo.
 
 ## 🎨 Features agregados en la sesión final (mejoras de UX/producto)
 
@@ -163,17 +216,21 @@ DELETE /api/mesas/{id}    → Elimina la mesa
 ```
 backend/
 ├── app.py                  # FastAPI + routers + seed automático al arrancar
-├── config.py               # Settings (pydantic-settings)
+├── auth.py                 # Nuevo: JWT + hashing de contraseñas (bcrypt)
+├── config.py               # Settings (pydantic-settings) — secret_key real en .env
 ├── database.py             # SQLAlchemy engine/session
-├── dependencies.py         # get_cliente_id, get_usuario_actual, get_tz_offset
-├── models.py               # 8 tablas (Categoria agregada)
+├── dependencies.py         # get_cliente_id/get_usuario_actual (leen el JWT), get_tz_offset
+├── models.py                # 8 tablas (Categoria agregada)
 ├── schemas.py              # Pydantic: validación + respuestas
 ├── seed.py                 # Datos demo idempotentes + backfill automático
 ├── services.py             # Reglas de negocio
+├── scripts/
+│   └── crear_cliente.py    # Nuevo: onboarding manual de un restaurante nuevo (CLI)
 ├── utils/
 │   ├── __init__.py
 │   └── security.py         # validar_admin() centralizado
 └── routes/
+    ├── auth.py             # Nuevo: POST /auth/login, GET /auth/me
     ├── platos.py           # CU-01 (crear/editar/eliminar, admin-only)
     ├── categorias.py       # Nuevo: CRUD categorías con iconos
     ├── mesas.py            # Soporte + cobro de mesa
@@ -182,24 +239,25 @@ backend/
     └── dashboard.py        # CU-05 (top 3 platos/gastos, reporte Excel)
 
 frontend/
-├── index.html              # Bottom nav: Mesas / Cocina / Dinero / Admin
+├── index.html              # Login screen + bottom nav: Mesas / Cocina / Dinero / Admin
 ├── manifest.json           # PWA manifest
-├── sw.js                   # Service worker (v13)
+├── sw.js                   # Service worker (v14)
 ├── css/style.css           # Design system mobile-first (light + dark)
 ├── assets/platos/          # Fotos subidas (gitignored, la crea el backend)
 └── js/
-    ├── app.js              # API client, navegación, toasts, tz offset
+    ├── app.js              # API client (Authorization: Bearer), navegación, toasts
+    ├── auth.js             # Nuevo: login/logout, guarda el token, valida sesión al abrir
     ├── charts.js           # Gráficos SVG a mano (sin librerías)
-    ├── print.js            # Nuevo: impresión dual de comandas
+    ├── print.js            # Impresión dual de comandas
     ├── mozo.js             # Mesas, nuevo pedido, cuenta y cobro
     ├── cocina.js           # Monitor en tiempo real (polling 2s)
     ├── dashboard.js        # CU-05 mejorado (top 3, Excel, badges)
     └── admin.js            # Carta (con fotos), Categorías (CRUD), Gastos (editar/eliminar)
 
 tests/
-├── conftest.py             # Fixtures (BD en memoria con StaticPool)
+├── conftest.py             # Fixtures (BD en memoria con StaticPool) + fixture de auth real
 ├── unit/test_models.py
-└── integration/test_endpoints.py   # 41 tests, cubren el ciclo completo
+└── integration/test_endpoints.py   # 48 tests, cubren el ciclo completo + login
 ```
 
 ## 📋 Cómo correrlo
@@ -211,28 +269,38 @@ pip install -r requirements.txt    # si falta algo
 uvicorn backend.app:app --reload --host 0.0.0.0 --port 8000
 ```
 
-- App (PWA): `http://localhost:8000/static/index.html`
+- App (PWA): `http://localhost:8000/static/index.html` → pide login
 - Docs (Swagger): `http://localhost:8000/docs`
 - Tests: `pytest tests/ -v`
+- Restaurante demo: `admin@demo.local` / `admin123`
+- Dar de alta un restaurante nuevo: `python -m backend.scripts.crear_cliente` (interactivo, por consola)
 
-El primer arranque crea `restomind.db` con datos de demo (restaurante "La Marisquería del Chef", 8 mesas, 12 platos). Es idempotente: si borras el archivo `restomind.db`, se vuelve a sembrar solo.
+El primer arranque crea `restomind.db` con datos de demo (restaurante "La Marisquería del Chef", 8 mesas, 12 platos, usuario admin). Es idempotente: si borras el archivo `restomind.db`, se vuelve a sembrar solo. Una instalación con una BD de antes de que existiera login se repara sola al arrancar (ver sección "Login real" arriba).
+
+**`.env` en el servidor de producción:** el `SECRET_KEY` con el que se firman los JWT vive en `.env` (gitignored, nunca se sube al repo). Generar uno propio por instalación:
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+Si dos instalaciones (dev y prod, por ejemplo) comparten el mismo `SECRET_KEY` por accidente, un token válido en una serviría en la otra — cada entorno necesita el suyo.
 
 ## 🔑 Decisiones de diseño a tener en cuenta
 
-- **Multi-tenant sin login todavía:** `cliente_id` se resuelve en `backend/dependencies.py` desde el header `X-Cliente-Id`; si no llega, usa `settings.default_cliente_id` (`rest-001`). Cuando se agregue autenticación, ese es el único archivo a tocar.
+- **Multi-tenant con login real:** `cliente_id` se resuelve en `backend/dependencies.py` decodificando el JWT del header `Authorization: Bearer <token>` (ver sección "Login real" arriba). Un solo punto de cambio si el día de mañana se agrega SSO, OAuth, etc.
 - **El dinero solo cuenta cuando se cobra**, no cuando se crea la comanda. El dashboard filtra por `estado == 'cobrado'`.
 - **Charts sin librerías**: se generan como SVG puro en `charts.js` a propósito, para no depender de un CDN (rompería el modo offline de la PWA) y para mantener el bundle liviano en celulares de gama baja.
+- **Selector de rol por dispositivo vs. login**: son dos capas distintas a propósito. El login dice "estos datos son del restaurante X"; el selector de rol (botón redondo del header) dice "este celular compartido hoy actúa como Mozo/Cocina/Admin". Fusionarlos requeriría que cada mesero tenga su propia cuenta — decisión de producto, no técnica, pendiente de que el usuario la pida.
 
 ## 📞 Próximos pasos sugeridos (post-MVP)
 
-1. **Autenticación real** (JWT) para reemplazar el header `X-Cliente-Id` de desarrollo — y junto con eso, mover la validación de rol (Admin/Mozo/Cajero/Cocina, hoy solo en el frontend) al backend, para que los endpoints la exijan de verdad.
-2. **Multi-restaurante**: pantalla de registro para que un nuevo cliente se dé de alta solo.
-3. **IA + Claude API**: reportes inteligentes sobre los datos que ya arroja el Dashboard (ver guía de negocio de JTech).
-4. **Pagos**: integración Stripe/Culqi para cobro con QR.
-5. **Zona horaria por cliente**: hoy el corte de "día" del dashboard usa UTC; con clientes en distintos países convendría guardar el timezone del restaurante.
+1. **Rate limiting en `/auth/login`** — hoy nada impide probar contraseñas al voleo (fuerza bruta). Un límite simple (ej. 5 intentos/minuto por IP) cierra ese hueco antes de exponer el sistema a internet público.
+2. **Refresh tokens / logout del lado servidor** — hoy un JWT robado sigue siendo válido hasta que expira (12h) aunque el usuario "cierre sesión" (el logout actual solo borra el token del navegador). Para revocación real haría falta una lista negra o tokens de vida más corta + refresh.
+3. **Multi-restaurante con self-service**: hoy el alta es manual (`crear_cliente.py`, la corre el dueño del sistema). Si el negocio escala a que restaurantes se den de alta solos, hace falta una pantalla de registro + verificación de email + cobro.
+4. **IA + Claude API**: reportes inteligentes sobre los datos que ya arroja el Dashboard (ver guía de negocio de JTech).
+5. **Pagos**: integración Stripe/Culqi para cobro con QR.
+6. **Zona horaria por cliente**: hoy el corte de "día" del dashboard usa UTC; con clientes en distintos países convendría guardar el timezone del restaurante (columna en `Cliente`, hoy `tz_offset` viaja por header y lo decide el navegador del que hace la consulta, no el restaurante en sí).
 
 ---
 
-**Última actualización:** 2026-08-29 (sesión final con enhancements de dashboard/producto)
-**Estado:** ✅ MVP+ funcional, probado (41/41 tests), listo para producción básica
-**Próxima prioridad:** Autenticación real (JWT) + validación de rol en backend
+**Última actualización:** 2026-08-29 (sesión de login real + multi-tenant para reventa)
+**Estado:** ✅ MVP+ funcional, probado (48/48 tests), con autenticación real — listo para dar de alta el primer restaurante de pago
+**Próxima prioridad:** rate limiting en login antes de exponer el servidor a internet público

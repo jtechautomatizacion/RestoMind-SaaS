@@ -231,8 +231,12 @@ async function descargarReporteExcel() {
             : `?dias=${dashboardPeriodo}`;
 
         const resp = await fetch(url, {
-            headers: { 'X-Cliente-Id': estado.clienteId, 'X-TZ-Offset': tzOffsetMinutos() },
+            headers: { 'Authorization': `Bearer ${getToken()}`, 'X-TZ-Offset': tzOffsetMinutos() },
         });
+        if (resp.status === 401) {
+            manejarSesionExpirada();
+            return;
+        }
         if (!resp.ok) throw new Error('No se pudo generar el reporte');
 
         const blob = await resp.blob();

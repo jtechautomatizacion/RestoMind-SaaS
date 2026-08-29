@@ -3,6 +3,27 @@ from typing import List, Optional
 from datetime import datetime
 
 
+# ============ AUTENTICACIÓN ============
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., min_length=1, max_length=150)
+    password: str = Field(..., min_length=1, max_length=200)
+
+
+class UsuarioMe(BaseModel):
+    email: str
+    nombre: str
+    rol: str
+    cliente_id: str
+    cliente_nombre: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    usuario: UsuarioMe
+
+
 # ============ GENÉRICO ============
 
 class EstadoUpdate(BaseModel):
