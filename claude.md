@@ -1,8 +1,14 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
-**Desarrollador:** Claude Sonnet (futuro)  
-**Fecha de Inicio:** 2026-08-28  
-**Versión MVP:** 0.1
+**Versión MVP:** 1.0 — implementado y probado (20/20 tests)
+**Última actualización:** 2026-08-29
+
+> Este documento describe el diseño original. El estado real de la
+> implementación, los bugs corregidos en el camino y las decisiones
+> tomadas durante el desarrollo están en `SETUP_CHECKLIST.md`.
+> Dos cosas se agregaron durante el desarrollo porque el MVP no
+> cerraba sin ellas: **CU-05 Dashboard Financiero** y el **cobro de
+> mesa** (`POST /api/mesas/{id}/cobrar`) — ver el final de este archivo.
 
 ---
 
@@ -314,6 +320,44 @@ PATCH /api/compras/{id}/estado → Cancelar gasto
 - ✅ descripción: no vacía, máx 100 caracteres
 - ✅ monto: > 0, decimal con 2 decimales
 - ✅ fecha: No puede ser futura
+
+---
+
+### 💰 Cobro de Mesa (agregado durante la implementación)
+
+**Por qué existe:** la especificación original no contemplaba cómo cerrar
+una mesa. Sin esto, `mesa.estado` nunca volvía a `disponible` y no había
+forma de que una venta contara como dinero real en ningún reporte.
+
+```
+POST /api/mesas/{mesa_id}/cobrar
+```
+
+- Cierra (`estado='cobrado'`) todas las comandas activas de esa mesa y la libera.
+- Regla de negocio: **rechaza el cobro (400)** si alguna comanda de la mesa
+  sigue en `'cocina'` — no se puede cobrar comida que el cliente no recibió.
+- Respuesta: `{ "mesa_numero": 5, "total_cobrado": 95.00, "comandas_cerradas": 1 }`
+
+---
+
+### CU-05: Dashboard Financiero (agregado durante la implementación)
+
+**Descripción:** "Cómo viaja mi dinero" — serie de ventas/gastos/ganancia
+por día + ranking de platos más vendidos, para el panel del administrador.
+
+```
+GET /api/dashboard/resumen?dias=7   (1-30, default 7)
+```
+
+**Lógica:**
+- Una venta cuenta cuando la comanda llega a `estado='cobrado'` (no al crearse).
+- Gastos = suma de `compras` con `estado='registrado'` en el rango.
+- Devuelve serie diaria completa (rellena días sin datos con ceros), totales
+  del periodo y top 5 platos por ingresos.
+- **Importante:** el rango de fechas se calcula en UTC porque los timestamps
+  de la BD están en UTC (`datetime.utcnow()`). Mezclar con fecha local causaba
+  que ventas cercanas a medianoche "desaparecieran" en zonas horarias como
+  Perú (UTC-5). Ver `SETUP_CHECKLIST.md` para el detalle del bug.
 
 ---
 

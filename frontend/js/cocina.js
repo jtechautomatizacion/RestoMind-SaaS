@@ -1,21 +1,19 @@
 /**
  * CU-03: Monitor de Cocina en Tiempo Real
- * Pantalla de cocina para visualizar y marcar comandas como listas
+ * El backend ya entrega minutos_transcurridos calculado, ordenado por
+ * antigüedad (FIFO), para que el celular/tablet de cocina no tenga
+ * que hacer ningún cálculo de fechas.
  */
 
+const ALERTA_MINUTOS = 15;
 let cocinaRefreshInterval = null;
 
 function initCocina() {
     refreshCocina();
-    // Refresh every 2 seconds
-    cocinaRefreshInterval = setInterval(refreshCocina, 2000);
+    cocinaRefreshInterval = setInterval(refreshCocina, 4000);
 }
 
-function refreshCocina() {
-    renderComandas();
-}
-
-async function renderComandas() {
+async function refreshCocina() {
     const container = document.getElementById('cocina-comandas');
     const emptyMsg = document.getElementById('cocina-empty');
 
@@ -24,84 +22,57 @@ async function renderComandas() {
 
         if (!comandas || comandas.length === 0) {
             container.innerHTML = '';
-            emptyMsg.style.display = 'block';
+            emptyMsg.classList.remove('hidden');
             return;
         }
 
-        emptyMsg.style.display = 'none';
-        container.innerHTML = '';
+        emptyMsg.classList.add('hidden');
+        container.innerHTML = comandas.map(comanda => {
+            const alerta = comanda.minutos_transcurridos > ALERTA_MINUTOS;
+            const platosHtml = comanda.platos
+                .map(p => `<div class="cocina-plato">${p.cantidad}x ${escapeHtml(p.nombre)}</div>`)
+                .join('');
 
-        comandas.forEach(comanda => {
-            const minutosTranscurridos = calcularMinutosTranscurridos(comanda.creado_en);
-            const alertaEstilo = minutosTranscurridos > 15 ? 'alerta' : '';
-
-            const tarjeta = document.createElement('div');
-            tarjeta.className = 'cocina-tarjeta';
-            tarjeta.id = `cocina-${comanda.id}`;
-
-            let platosHtml = '';
-            comanda.platos.forEach(p => {
-                platosHtml += `<div class="cocina-plato">• ${p.nombre} (x${p.cantidad})</div>`;
-            });
-
-            tarjeta.innerHTML = `
-                <div class="cocina-mesa">MESA ${comanda.numero_mesa}</div>
-                <div class="cocina-tiempo ${alertaEstilo}">⏱️ ${minutosTranscurridos} min</div>
-                <div class="cocina-platos">
-                    ${platosHtml}
+            return `
+                <div class="cocina-tarjeta ${alerta ? 'alerta' : ''}" id="cocina-${comanda.id}">
+                    <div class="cocina-tarjeta-top">
+                        <div class="cocina-mesa">Mesa ${comanda.numero_mesa}</div>
+                        <div class="cocina-tiempo ${alerta ? 'alerta' : ''}">${comanda.minutos_transcurridos} min</div>
+                    </div>
+                    <div class="cocina-platos">${platosHtml}</div>
+                    <button class="btn-listo" onclick="marcarListo(${comanda.id})">✓ Listo</button>
                 </div>
-                <button class="btn-listo" onclick="marcarListo(${comanda.id})">
-                    ✓ LISTO
-                </button>
             `;
-
-            container.appendChild(tarjeta);
-        });
+        }).join('');
     } catch (err) {
-        console.error('Error renderizando comandas:', err);
+        console.error('Error cargando monitor de cocina:', err);
     }
-}
-
-function calcularMinutosTranscurridos(fecha) {
-    const ahora = new Date();
-    const fechaComanda = new Date(fecha);
-    const minutos = Math.floor((ahora - fechaComanda) / 60000);
-    return minutos;
 }
 
 async function marcarListo(comandaId) {
     try {
         await api.patch(`/comandas/${comandaId}/estado`, { estado: 'entregado' });
-        console.log(`Comanda ${comandaId} marcada como entregada`);
 
-        // Smooth removal animation
         const tarjeta = document.getElementById(`cocina-${comandaId}`);
         if (tarjeta) {
+            tarjeta.style.transition = 'opacity 0.25s, transform 0.25s';
             tarjeta.style.opacity = '0';
-            tarjeta.style.transition = 'opacity 0.3s';
+            tarjeta.style.transform = 'scale(0.97)';
             setTimeout(() => {
                 tarjeta.remove();
-                // Check if all done
                 if (document.getElementById('cocina-comandas').children.length === 0) {
-                    document.getElementById('cocina-empty').style.display = 'block';
+                    document.getElementById('cocina-empty').classList.remove('hidden');
                 }
-            }, 300);
+            }, 250);
         }
 
-        showToast('✓ Comanda lista', 'success');
-
-        // Refresh mozo display if open
-        if (typeof refreshMozo === 'function') {
-            refreshMozo();
-        }
+        showToast('Comanda entregada', 'success');
+        if (typeof refreshMozo === 'function') refreshMozo();
     } catch (err) {
-        showToast('Error al marcar como listo: ' + err.message, 'error');
+        showToast(err.message || 'Error al marcar como listo', 'error');
     }
 }
 
-// Cleanup on tab change
 function stopCocinaRefresh() {
-    if (cocinaRefreshInterval) {
-        clearInterval(cocinaRefreshInterval);
-    }
+    if (cocinaRefreshInterval) clearInterval(cocinaRefreshInterval);
 }

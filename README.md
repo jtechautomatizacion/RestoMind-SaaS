@@ -53,58 +53,49 @@ Abre: http://localhost:8000/static/index.html
 ```
 RestoMind-SaaS/
 ├── backend/
-│   ├── __init__.py
-│   ├── app.py                 # Aplicación FastAPI principal
-│   ├── config.py              # Configuración
-│   ├── database.py            # Setup de SQLite
-│   ├── models.py              # Modelos SQLAlchemy (tablas BD)
-│   ├── schemas.py             # Schemas Pydantic (validación)
-│   ├── routes/
-│   │   ├── __init__.py
-│   │   ├── platos.py          # GET/POST /api/platos
-│   │   ├── comandas.py        # GET/POST /api/comandas
-│   │   ├── compras.py         # GET/POST /api/compras
-│   │   └── mesas.py           # GET/POST /api/mesas
-│   └── schemas/               # (alt: Pydantic schemas por ruta)
+│   ├── app.py                 # FastAPI + routers + seed automático
+│   ├── config.py               # Configuración (pydantic-settings)
+│   ├── database.py             # Setup de SQLite/SQLAlchemy
+│   ├── dependencies.py          # get_cliente_id, get_usuario_actual
+│   ├── models.py                # Modelos SQLAlchemy (7 tablas)
+│   ├── schemas.py                # Schemas Pydantic (validación)
+│   ├── seed.py                   # Datos demo idempotentes
+│   ├── services.py               # Reglas de negocio (estados, cobro)
+│   └── routes/
+│       ├── platos.py             # CU-01
+│       ├── mesas.py              # Soporte + cobro de mesa
+│       ├── comandas.py           # CU-02 + CU-03
+│       ├── compras.py            # CU-04
+│       └── dashboard.py          # CU-05
 ├── frontend/
-│   ├── index.html             # App PWA principal
-│   ├── manifest.json          # PWA manifest (standalone mode)
-│   ├── sw.js                  # Service Worker (offline)
+│   ├── index.html              # PWA: bottom nav Mesas/Cocina/Dinero/Admin
+│   ├── manifest.json            # PWA manifest (standalone mode)
+│   ├── sw.js                    # Service Worker (offline)
 │   ├── css/
-│   │   └── style.css
+│   │   └── style.css            # Design system mobile-first
 │   └── js/
-│       ├── app.js             # Lógica principal
-│       ├── mozo.js            # Interfaz del mozo
-│       ├── cocina.js          # Monitor de cocina
-│       └── admin.js           # Dashboard administrador
+│       ├── app.js                # API client, navegación, toasts
+│       ├── charts.js             # Gráficos SVG sin librerías
+│       ├── mozo.js               # Mesas, pedido, cuenta, cobro
+│       ├── cocina.js             # Monitor de cocina (polling)
+│       ├── dashboard.js          # CU-05
+│       └── admin.js              # Carta + Gastos
 ├── tests/
-│   ├── integration/           # Tests de endpoints
-│   └── unit/                  # Tests unitarios
-├── docs/
-│   ├── api-endpoints.md
-│   └── database-schema.md
+│   ├── conftest.py               # Fixtures (BD en memoria)
+│   ├── integration/              # 20 tests de endpoints
+│   └── unit/                     # Tests de modelos
 ├── requirements.txt
 ├── .env.example
 ├── README.md
-├── claude.md                  # Documentación para Claude (TÚ)
+├── claude.md                     # Especificación técnica
+├── SETUP_CHECKLIST.md            # Estado real + bugs corregidos
 └── .gitignore
 ```
 
-## 📋 Requerimientos (Documentación Técnica)
+## 📋 Documentación
 
-Ver `claude.md` para:
-- Especificaciones técnicas completas
-- Casos de uso y criterios de aceptación
-- Estructura de base de datos
-- API endpoints
-- Estrategia de negocio
-
-## 🔄 Flujo de Desarrollo (con Claude)
-
-1. Claude lee `claude.md`
-2. Claude crea/edita archivos según requerimientos
-3. Tú ejecutas tests y validas
-4. Iterate until MVP ready
+- `claude.md` — especificación técnica: casos de uso, base de datos, endpoints.
+- `SETUP_CHECKLIST.md` — estado real de la implementación, bugs encontrados y corregidos, decisiones de diseño.
 
 ## 📝 Testing
 

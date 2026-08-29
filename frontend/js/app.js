@@ -1,112 +1,127 @@
 /**
  * RestoMind - Aplicación Compartida
- * API client, auth, utilidades globales
+ * API client, estado global, navegación y utilidades.
  */
 
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = '/api';
 
-// Estado global
 const estado = {
-    clienteId: 'rest-001', // TODO: obtener de login
+    clienteId: 'rest-001', // TODO: vendrá del login cuando exista auth
     platos: [],
     mesas: [],
-    comandas: [],
-    compras: [],
     currentTab: 'mozo'
 };
 
-// API Client
+// ============ API CLIENT ============
+
 const api = {
-    async get(endpoint) {
-        const resp = await fetch(`${API_BASE_URL}${endpoint}`);
-        if (!resp.ok) throw new Error(`GET ${endpoint} failed`);
+    async _fetch(endpoint, options = {}) {
+        const resp = await fetch(`${API_BASE_URL}${endpoint}`, {
+            ...options,
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Cliente-Id': estado.clienteId,
+                ...(options.headers || {}),
+            },
+        });
+        if (!resp.ok) {
+            let detail = `Error ${resp.status}`;
+            try {
+                const body = await resp.json();
+                if (body.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+            } catch (_) { /* respuesta sin JSON */ }
+            throw new Error(detail);
+        }
+        if (resp.status === 204) return null;
         return resp.json();
     },
 
-    async post(endpoint, data) {
-        const resp = await fetch(`${API_BASE_URL}${endpoint}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        if (!resp.ok) throw new Error(`POST ${endpoint} failed`);
-        return resp.json();
+    get(endpoint) {
+        return this._fetch(endpoint);
     },
 
-    async patch(endpoint, data) {
-        const resp = await fetch(`${API_BASE_URL}${endpoint}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        if (!resp.ok) throw new Error(`PATCH ${endpoint} failed`);
-        return resp.json();
-    }
+    post(endpoint, data) {
+        return this._fetch(endpoint, { method: 'POST', body: JSON.stringify(data || {}) });
+    },
+
+    patch(endpoint, data) {
+        return this._fetch(endpoint, { method: 'PATCH', body: JSON.stringify(data || {}) });
+    },
 };
 
-// Initialize App
-async function init() {
-    console.log('RestoMind iniciándose...');
+// ============ INIT ============
 
-    // Load data
+async function init() {
+    setupBottomNav();
+    setupAdminTabs();
+
     try {
-        estado.platos = await api.get('/platos');
-        estado.mesas = await api.get('/mesas');
-        estado.comandas = await api.get('/comandas');
-        estado.compras = await api.get('/compras');
+        await refreshCatalogo();
     } catch (err) {
-        console.error('Error cargando datos:', err);
+        showToast('No se pudo conectar con el servidor', 'error');
+        console.error(err);
     }
 
-    // Setup nav
+    if (typeof initMozo === 'function') initMozo();
+    if (typeof initCocina === 'function') initCocina();
+    if (typeof initDashboard === 'function') initDashboard();
+    if (typeof initAdmin === 'function') initAdmin();
+}
+
+async function refreshCatalogo() {
+    const [platos, mesas] = await Promise.all([
+        api.get('/platos'),
+        api.get('/mesas'),
+    ]);
+    estado.platos = platos;
+    estado.mesas = mesas;
+}
+
+// ============ NAVEGACIÓN ============
+
+function setupBottomNav() {
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', () => cambiarTab(btn.dataset.tab));
     });
-
-    // Setup admin tabs
-    document.querySelectorAll('.admin-tab-btn').forEach(btn => {
-        btn.addEventListener('click', () => cambiarAdminTab(btn.dataset.adminTab));
-    });
-
-    // Initialize modules
-    if (typeof initMozo === 'function') initMozo();
-    if (typeof initCocina === 'function') initCocina();
-    if (typeof initAdmin === 'function') initAdmin();
-
-    console.log('RestoMind listo');
 }
 
 function cambiarTab(tabName) {
     estado.currentTab = tabName;
 
-    // Update nav
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tabName);
+        if (btn.dataset.tab === tabName) {
+            document.getElementById('page-title').textContent = btn.dataset.title;
+        }
     });
 
-    // Update content
     document.querySelectorAll('.tab-content').forEach(tab => {
         tab.classList.toggle('active', tab.id === `${tabName}-tab`);
     });
 
-    // Refresh data if needed
-    if (tabName === 'cocina') refreshCocina();
-    if (tabName === 'mozo') refreshMozo();
+    if (tabName === 'cocina' && typeof refreshCocina === 'function') refreshCocina();
+    if (tabName === 'mozo' && typeof refreshMozo === 'function') refreshMozo();
+    if (tabName === 'dashboard' && typeof refreshDashboard === 'function') refreshDashboard();
+    if (tabName === 'admin' && typeof refreshAdmin === 'function') refreshAdmin();
+}
+
+function setupAdminTabs() {
+    document.querySelectorAll('.admin-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => cambiarAdminTab(btn.dataset.adminTab));
+    });
 }
 
 function cambiarAdminTab(tabName) {
-    // Update buttons
     document.querySelectorAll('.admin-tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.adminTab === tabName);
     });
-
-    // Update sections
     document.querySelectorAll('.admin-section').forEach(sec => {
         sec.classList.toggle('active', sec.id === `admin-${tabName}`);
     });
 }
 
-// Modal utilities
+// ============ MODALES ============
+
 function abrirModal(id) {
     document.getElementById(id).classList.remove('hidden');
 }
@@ -125,26 +140,42 @@ function cerrarModalCompra() {
     document.getElementById('form-compra').reset();
 }
 
-// Utility functions
+// ============ UTILIDADES ============
+
 function formatCurrency(num) {
-    return `S/ ${parseFloat(num).toFixed(2)}`;
+    return `S/ ${parseFloat(num || 0).toFixed(2)}`;
 }
 
 function formatDate(dateStr) {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('es-PE');
+    const [y, m, d] = dateStr.split('-');
+    return `${d}/${m}/${y}`;
 }
 
-function formatDateInput(dateStr) {
-    const date = new Date(dateStr);
+function formatDateInput(date) {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
 }
 
-// Toast notifications (simple)
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str == null ? '' : String(str);
+    return div.innerHTML;
+}
+
+let toastTimer = null;
+
 function showToast(message, type = 'info') {
-    console.log(`[${type.toUpperCase()}] ${message}`);
-    // TODO: Implementar UI toast
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.style.transition = 'opacity 0.25s';
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 250);
+    }, 2600);
 }

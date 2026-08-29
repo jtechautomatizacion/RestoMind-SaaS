@@ -2,65 +2,71 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#000000">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#FF5A3C">
     <meta name="description" content="RestoMind - Sistema inteligente de comandas">
     <link rel="manifest" href="/static/manifest.json">
-    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' fill='%23000'/><text x='90' y='90' font-size='70' fill='%23fff' text-anchor='middle' dy='.3em' font-weight='bold'>RM</text></svg>">
-    <title>RestoMind - Sistema de Comandas</title>
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' rx='36' fill='%23FF5A3C'/><text x='90' y='90' font-size='72' fill='%23fff' text-anchor='middle' dy='.32em' font-family='sans-serif' font-weight='800'>R</text></svg>">
+    <title>RestoMind</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
+    <div id="toast-container" class="toast-container"></div>
+
     <div id="app" class="app-container">
-        <!-- Navigation Tabs -->
-        <nav class="nav-tabs">
-            <button class="nav-btn active" data-tab="mozo">
-                <span class="nav-label">🧑‍💼 Mozo</span>
-            </button>
-            <button class="nav-btn" data-tab="cocina">
-                <span class="nav-label">🍳 Cocina</span>
-            </button>
-            <button class="nav-btn" data-tab="admin">
-                <span class="nav-label">⚙️ Admin</span>
-            </button>
-        </nav>
+        <header class="top-bar">
+            <h1 id="page-title">Mesas</h1>
+        </header>
 
-        <!-- Content Sections -->
         <main class="content">
-            <!-- MOZO TAB: CU-02 -->
+            <!-- MESAS TAB: CU-02 -->
             <section id="mozo-tab" class="tab-content active">
-                <h1>Mesas</h1>
-                <div id="mozo-mesas" class="mesas-grid">
-                    <!-- Populated by JS -->
-                </div>
+                <div id="mozo-mesas" class="mesas-grid"></div>
 
-                <!-- Modal: Seleccionar Platos -->
+                <!-- Modal: Nuevo Pedido -->
                 <div id="modal-comanda" class="modal hidden">
                     <div class="modal-content">
                         <div class="modal-header">
                             <h2 id="modal-title">Mesa</h2>
                             <button class="btn-close" onclick="cerrarModal()">✕</button>
                         </div>
-                        <div id="mozo-categorias" class="categorias-tabs">
-                            <!-- Populated by JS -->
+                        <div id="mozo-categorias" class="categorias-tabs"></div>
+                        <div class="modal-scroll">
+                            <div id="mozo-platos" class="platos-list"></div>
                         </div>
-                        <div id="mozo-platos" class="platos-list">
-                            <!-- Populated by JS -->
-                        </div>
-                        <div class="modal-carrito">
-                            <h3>Carrito</h3>
-                            <div id="mozo-carrito" class="carrito-items">
-                                <!-- Populated by JS -->
-                            </div>
+                        <div class="modal-footer">
+                            <div id="mozo-carrito" class="carrito-items"></div>
                             <div class="carrito-total">
-                                <span>Total:</span>
-                                <span id="mozo-total">S/ 0.00</span>
+                                <span>Total</span>
+                                <strong id="mozo-total">S/ 0.00</strong>
                             </div>
-                            <button id="btn-enviar-comanda" class="btn btn-primary btn-large" onclick="enviarComanda()">
-                                Enviar Comanda
+                            <button class="btn btn-primary btn-large" onclick="enviarComanda()">
+                                Enviar a cocina
                             </button>
-                            <button class="btn btn-secondary" onclick="cerrarModal()">
-                                Cancelar
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal: Cuenta de Mesa / Cobro -->
+                <div id="modal-cuenta" class="modal hidden">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h2 id="modal-cuenta-title">Mesa</h2>
+                            <button class="btn-close" onclick="cerrarModalCuenta()">✕</button>
+                        </div>
+                        <div class="modal-scroll">
+                            <div id="cuenta-comandas"></div>
+                        </div>
+                        <div class="modal-footer">
+                            <div class="cuenta-total-global">
+                                <span class="label">Total a cobrar</span>
+                                <span class="value" id="cuenta-total">S/ 0.00</span>
+                            </div>
+                            <button class="btn btn-secondary btn-large" style="margin-bottom:8px;" onclick="agregarPedidoAMesa()">
+                                + Agregar pedido
+                            </button>
+                            <button id="btn-cobrar" class="btn btn-success btn-large" onclick="cobrarMesaActual()">
+                                Cobrar y liberar mesa
                             </button>
                         </div>
                     </div>
@@ -69,134 +75,171 @@
 
             <!-- COCINA TAB: CU-03 -->
             <section id="cocina-tab" class="tab-content hidden">
-                <h1>Monitor de Cocina</h1>
-                <div id="cocina-comandas" class="cocina-grid">
-                    <!-- Populated by JS -->
+                <div id="cocina-comandas" class="cocina-grid"></div>
+                <div class="empty-state hidden" id="cocina-empty">
+                    <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+                    <p>Sin comandas pendientes</p>
                 </div>
-                <p class="text-muted" id="cocina-empty" style="display: none;">
-                    Sin comandas pendientes
-                </p>
+            </section>
+
+            <!-- DASHBOARD TAB: CU-05 -->
+            <section id="dashboard-tab" class="tab-content hidden">
+                <div class="periodo-selector">
+                    <button class="periodo-btn active" data-dias="7">7 días</button>
+                    <button class="periodo-btn" data-dias="14">14 días</button>
+                    <button class="periodo-btn" data-dias="30">30 días</button>
+                </div>
+
+                <div id="dashboard-stats" class="stats-row"></div>
+
+                <div class="card">
+                    <div class="card-title">
+                        <span>Ventas vs Gastos</span>
+                    </div>
+                    <div id="chart-ventas-gastos"></div>
+                    <div class="chart-legend">
+                        <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#FF5A3C"></span>Ventas</span>
+                        <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#94A3B8"></span>Gastos</span>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">
+                        <span>Platos más vendidos</span>
+                        <span class="card-title-hint">por ingresos</span>
+                    </div>
+                    <div id="top-platos-list"></div>
+                </div>
             </section>
 
             <!-- ADMIN TAB: CU-01, CU-04 -->
             <section id="admin-tab" class="tab-content hidden">
-                <h1>Administración</h1>
-
-                <!-- Admin Tabs -->
                 <div class="admin-tabs">
-                    <button class="admin-tab-btn active" data-admin-tab="platos">
-                        📋 Platos
-                    </button>
-                    <button class="admin-tab-btn" data-admin-tab="compras">
-                        🛒 Compras
-                    </button>
+                    <button class="admin-tab-btn active" data-admin-tab="platos">Carta</button>
+                    <button class="admin-tab-btn" data-admin-tab="compras">Gastos</button>
                 </div>
 
                 <!-- Platos Section: CU-01 -->
                 <div id="admin-platos" class="admin-section active">
-                    <button class="btn btn-primary" onclick="abrirModalNuevoPlato()">
-                        ➕ Nuevo Plato
+                    <button class="btn btn-primary btn-fab" onclick="abrirModalNuevoPlato()">
+                        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Nuevo plato
                     </button>
-                    <div id="admin-platos-list" class="platos-admin-list">
-                        <!-- Populated by JS -->
-                    </div>
+                    <div id="admin-platos-list"></div>
 
-                    <!-- Modal: Nuevo Plato -->
                     <div id="modal-plato" class="modal hidden">
                         <div class="modal-content modal-small">
                             <div class="modal-header">
-                                <h2>Nuevo Plato</h2>
+                                <h2 id="modal-plato-title">Nuevo Plato</h2>
                                 <button class="btn-close" onclick="cerrarModalPlato()">✕</button>
                             </div>
-                            <form id="form-plato" onsubmit="guardarPlato(event)">
-                                <div class="form-group">
-                                    <label>Nombre:</label>
-                                    <input type="text" id="plato-nombre" placeholder="Ceviche Clásico" required>
-                                </div>
-                                <div class="form-group">
-                                    <label>Categoría:</label>
-                                    <input type="text" id="plato-categoria" placeholder="Cebiches" required>
-                                </div>
-                                <div class="form-group">
-                                    <label>Precio (S/):</label>
-                                    <input type="number" id="plato-precio" placeholder="45.00" step="0.01" required>
-                                </div>
-                                <div class="form-group">
-                                    <label>Descripción:</label>
-                                    <textarea id="plato-descripcion" placeholder="Con leche de tigre..."></textarea>
-                                </div>
-                                <button type="submit" class="btn btn-primary btn-block">
-                                    Guardar Plato
-                                </button>
-                            </form>
+                            <div class="modal-scroll">
+                                <form id="form-plato" onsubmit="guardarPlato(event)">
+                                    <div class="form-group">
+                                        <label>Nombre</label>
+                                        <input type="text" id="plato-nombre" placeholder="Ceviche Clásico" required maxlength="100">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Categoría</label>
+                                        <input type="text" id="plato-categoria" placeholder="Cebiches" required maxlength="50">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Precio de venta (S/)</label>
+                                        <input type="number" id="plato-precio" placeholder="45.00" step="0.01" min="0.01" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Descripción (opcional)</label>
+                                        <textarea id="plato-descripcion" placeholder="Con leche de tigre..." maxlength="300"></textarea>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary btn-block">
+                                        Guardar
+                                    </button>
+                                </form>
+                            </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- Compras Section: CU-04 -->
                 <div id="admin-compras" class="admin-section hidden">
-                    <button class="btn btn-primary" onclick="abrirModalNuevaCompra()">
-                        ➕ Registrar Gasto
+                    <button class="btn btn-primary btn-fab" onclick="abrirModalNuevaCompra()">
+                        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Registrar gasto
                     </button>
-                    <div id="admin-compras-list" class="compras-admin-list">
-                        <!-- Populated by JS -->
-                    </div>
+                    <div id="admin-compras-list"></div>
 
-                    <!-- Modal: Nueva Compra -->
                     <div id="modal-compra" class="modal hidden">
                         <div class="modal-content modal-small">
                             <div class="modal-header">
                                 <h2>Registrar Gasto</h2>
                                 <button class="btn-close" onclick="cerrarModalCompra()">✕</button>
                             </div>
-                            <form id="form-compra" onsubmit="guardarCompra(event)">
-                                <div class="form-group">
-                                    <label>Descripción:</label>
-                                    <input type="text" id="compra-descripcion" placeholder="Pescado rojo" required>
-                                </div>
-                                <div class="form-group">
-                                    <label>Categoría:</label>
-                                    <select id="compra-categoria">
-                                        <option value="">Seleccionar</option>
-                                        <option value="Insumos">Insumos</option>
-                                        <option value="Servicios">Servicios</option>
-                                        <option value="Otros">Otros</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label>Monto (S/):</label>
-                                    <input type="number" id="compra-monto" placeholder="85.50" step="0.01" required>
-                                </div>
-                                <div class="form-group">
-                                    <label>Fecha:</label>
-                                    <input type="date" id="compra-fecha" required>
-                                </div>
-                                <button type="submit" class="btn btn-primary btn-block">
-                                    Guardar Gasto
-                                </button>
-                            </form>
+                            <div class="modal-scroll">
+                                <form id="form-compra" onsubmit="guardarCompra(event)">
+                                    <div class="form-group">
+                                        <label>Descripción</label>
+                                        <input type="text" id="compra-descripcion" placeholder="Pescado rojo" required maxlength="100">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Categoría</label>
+                                        <select id="compra-categoria">
+                                            <option value="">Sin categoría</option>
+                                            <option value="Insumos">Insumos</option>
+                                            <option value="Servicios">Servicios</option>
+                                            <option value="Otros">Otros</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Monto (S/)</label>
+                                        <input type="number" id="compra-monto" placeholder="85.50" step="0.01" min="0.01" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Fecha</label>
+                                        <input type="date" id="compra-fecha" required>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary btn-block">
+                                        Guardar
+                                    </button>
+                                </form>
+                            </div>
                         </div>
                     </div>
                 </div>
             </section>
         </main>
+
+        <nav class="bottom-nav">
+            <button class="nav-btn active" data-tab="mozo" data-title="Mesas">
+                <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+                <span class="nav-label">Mesas</span>
+            </button>
+            <button class="nav-btn" data-tab="cocina" data-title="Cocina">
+                <svg viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg>
+                <span class="nav-label">Cocina</span>
+            </button>
+            <button class="nav-btn" data-tab="dashboard" data-title="Dashboard">
+                <svg viewBox="0 0 24 24"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+                <span class="nav-label">Dinero</span>
+            </button>
+            <button class="nav-btn" data-tab="admin" data-title="Administración">
+                <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                <span class="nav-label">Admin</span>
+            </button>
+        </nav>
     </div>
 
     <!-- Scripts -->
     <script src="/static/js/app.js"></script>
+    <script src="/static/js/charts.js"></script>
     <script src="/static/js/mozo.js"></script>
     <script src="/static/js/cocina.js"></script>
+    <script src="/static/js/dashboard.js"></script>
     <script src="/static/js/admin.js"></script>
 
     <script>
-        // Service Worker Registration (PWA)
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/static/sw.js')
-                .then(reg => console.log('SW registered'))
-                .catch(err => console.log('SW registration failed'));
+            navigator.serviceWorker.register('/static/sw.js').catch(() => {});
         }
-
-        // Initialize on load
         document.addEventListener('DOMContentLoaded', init);
     </script>
 </body>
