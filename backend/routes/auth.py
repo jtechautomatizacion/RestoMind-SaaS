@@ -9,27 +9,60 @@ dueño del sistema (no el cliente final) con el script de onboarding
 pueda tocar desde internet.
 """
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from backend.auth import crear_token, verificar_password
+from backend.auth import crear_token, verificar_password, crear_token_superadmin
 from backend.database import get_db
 from backend.dependencies import get_cliente_id, get_usuario_actual
-from backend.models import Cliente, Usuario
+from backend.models import Cliente, Usuario, SuperAdmin
 from backend.schemas import LoginRequest, LoginResponse, UsuarioMe, LoginStaffRequest
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 @router.post("/auth/login", response_model=LoginResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
-    usuario = db.query(Usuario).filter(Usuario.email == payload.email.strip().lower()).first()
+    email = payload.email.strip().lower()
+    logger.info(f"[LOGIN] Intento con email: {email}")
+
+    # Intentar primero con Usuario (admin del restaurante)
+    usuario = db.query(Usuario).filter(Usuario.email == email).first()
+
+    if usuario:
+        logger.info(f"[LOGIN] Usuario encontrado: {usuario.id}, rol: {usuario.rol}")
+    else:
+        logger.info(f"[LOGIN] Usuario NO encontrado, intentando SuperAdmin...")
+        # Intentar con SuperAdmin
+        superadmin = db.query(SuperAdmin).filter(SuperAdmin.email == email).first()
+        if superadmin:
+            logger.info(f"[LOGIN] SuperAdmin encontrado: {superadmin.id}")
+            if not verificar_password(payload.password, superadmin.password_hash):
+                logger.warning(f"[LOGIN] SuperAdmin {email}: contraseña incorrecta")
+                raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
+            logger.info(f"[LOGIN] SuperAdmin {email}: login exitoso")
+            token = crear_token_superadmin(superadmin.email)
+            return LoginResponse(
+                access_token=token,
+                usuario=UsuarioMe(
+                    email=superadmin.email,
+                    nombre=superadmin.nombre,
+                    rol="superadmin",
+                    cliente_id="superadmin",
+                    cliente_nombre="Panel General",
+                ),
+            )
+        else:
+            logger.warning(f"[LOGIN] Email {email} no encontrado en ninguna tabla")
 
     # Mismo mensaje de error para "no existe" y "contraseña incorrecta":
     # decirle a alguien "ese email no existe" es una fuga que le permite
-    # enumerar cuentas válidas probando emails al voleo.
+    # enumerar cuentas válidas probando emails al voelo.
     credenciales_invalidas = HTTPException(status_code=401, detail="Email o contraseña incorrectos")
 
     if not usuario or not verificar_password(payload.password, usuario.password_hash):
+        logger.warning(f"[LOGIN] Usuario {email}: contraseña incorrecta o usuario no existe")
         raise credenciales_invalidas
 
     if usuario.estado != "activo":
