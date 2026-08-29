@@ -1,14 +1,19 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
-**Versión MVP:** 1.1 — implementado y probado (26/26 tests)
+**Versión MVP:** 2.0 — con Login Real + Panel General (Superadmin) + Personal por Rol
+**Implementado y probado:** 64/64 tests en verde
 **Última actualización:** 2026-08-29
 
-> Este documento describe el diseño original. El estado real de la
-> implementación, los bugs corregidos en el camino y las decisiones
+> Este documento describe el diseño original (MVPv1). El estado real de la
+> implementación actual, bugs corregidos, features agregados y decisiones
 > tomadas durante el desarrollo están en `SETUP_CHECKLIST.md`.
-> Dos cosas se agregaron durante el desarrollo porque el MVP no
-> cerraba sin ellas: **CU-05 Dashboard Financiero** y el **cobro de
-> mesa** (`POST /api/mesas/{id}/cobrar`) — ver el final de este archivo.
+>
+> **Lo que cambió desde MVPv1:**
+> - ✅ **Login real con JWT** — ya no hay botones sin validar en el header
+> - ✅ **Panel General (Superadmin)** — el dueño del sistema ve todos sus restaurantes clientes
+> - ✅ **Personal con login individual** — cada mozo/cajero/cocinero tiene su propia cuenta
+> - ✅ **Cuentas que mandos sobre el selector de dispositivo** — el rol viene del JWT, no de un click
+> - ✅ 64 tests automáticos (3x el MVP original)
 
 ---
 
@@ -632,6 +637,52 @@ if usuario.rol != "admin":
 
 ---
 
+## 👥 Personal con Login Real por Rol
+
+**Contexto:** El MVP original tenía un botón en el header para "elegir rol" (Mozo/Cocina/Admin) sin que nada lo validara. Esto servía para desarrollo y prototipos. Con login JWT implementado, el siguiente paso era dar cuentas reales a cada miembro del equipo.
+
+### Cómo funciona
+
+1. **El admin del restaurante crea cuentas** desde Admin → Personal (nueva pestaña)
+   - Nombre, email, contraseña, rol (Mozo / Cajero / Cocina / Administrador)
+   - El email debe ser único en todo el sistema (evita duplicados entre clientes)
+
+2. **Cada cuenta se loguea con su email y contraseña**
+   - El JWT que se emite lleva el rol de verdad (no es un click sin validar)
+   - El rol del JWT manda sobre el selector de dispositivo — si Pedro se loguea como mozo, el celular se comporta como el de un mozo, automáticamente
+
+3. **Backend valida permisos usando el rol del JWT**
+   - `POST /api/platos` solo funciona si `rol == "admin"`
+   - `POST /api/usuarios` solo funciona si `rol == "admin"`
+   - Endpoints de mozo (mesas, comandas) aceptan cualquier rol excepto superadmin
+
+### Endpoints de Personal
+
+Todos admin-only (requieren `rol == "admin"` en el JWT):
+```
+GET    /api/usuarios                 → lista el personal del restaurante
+POST   /api/usuarios                 → crea una cuenta (nombre, email, password, rol)
+PATCH  /api/usuarios/{id}            → edita nombre/rol/estado
+PATCH  /api/usuarios/{id}/password   → resetea contraseña de alguien
+DELETE /api/usuarios/{id}            → elimina la cuenta
+```
+
+### Protecciones contra auto-bloqueo
+
+- Un admin **no puede desactivarse a sí mismo** (`PATCH /api/usuarios/{mi_id}` con `estado='inactivo'` → 400)
+- Un admin **no puede quitarse su propio rol de admin** (`PATCH /api/usuarios/{mi_id}` con `rol='mozo'` → 400)
+- Un admin **no puede eliminarse a sí mismo** (`DELETE /api/usuarios/{mi_id}` → 400)
+
+Estas tres reglas juntas garantizan que un restaurante **nunca** se queda sin ningún admin.
+
+### El selector de dispositivo sigue existiendo
+
+Para restaurantes que prefieren compartir un solo celular sin cuentas individuales, el botón redondo del header (selector manual de rol) continúa funcionando como respaldo. Las dos formas conviven:
+- **Con cuentas:** login real + el rol viene del JWT ← preferible para múltiples personas
+- **Sin cuentas:** un solo login compartido + selector manual en cada dispositivo ← para almacenes pequeños
+
+---
+
 ## 📝 NOTAS PARA EL DESARROLLADOR
 
 **Importante:**
@@ -654,6 +705,8 @@ if usuario.rol != "admin":
 
 ---
 
-**Versión:** 1.0 MVP  
-**Estado:** Listo para Implementación  
-**Última Actualización:** 2026-08-28
+**Versión:** 2.0 (Login Real + Panel General + Personal)  
+**Estado:** ✅ MVP+ Funcional — Listo para dar de alta clientes de pago  
+**Última Actualización:** 2026-08-29  
+**Tests:** 64/64 pasando  
+**Documentación de cambios:** Ver `SETUP_CHECKLIST.md`
