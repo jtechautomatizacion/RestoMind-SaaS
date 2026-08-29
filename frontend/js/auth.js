@@ -86,6 +86,16 @@ async function manejarLogin(event) {
 function aplicarUsuarioDeSesion(usuario) {
     estado.clienteId = usuario.cliente_id;
     estado.usuario = usuario;
+
+    // El rol de una cuenta real manda sobre el selector manual del
+    // dispositivo (el botón redondo del header): si Pedro se loguea como
+    // mozo, el celular pasa a comportarse como el de un mozo automáticamente,
+    // sin que nadie tenga que tocar el selector. Este último queda como
+    // respaldo para el caso "seguimos con un celular compartido sin cuentas
+    // individuales", no como la fuente de verdad cuando sí hay login real.
+    localStorage.setItem('restomind_rol', usuario.rol);
+    estado.rol = usuario.rol;
+
     const nombreCliente = document.getElementById('nombre-cliente-header');
     if (nombreCliente) nombreCliente.textContent = usuario.cliente_nombre;
 }

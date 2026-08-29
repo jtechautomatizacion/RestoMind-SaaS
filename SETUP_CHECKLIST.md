@@ -15,8 +15,9 @@ Los 5 casos de uso más 4 features adicionales, todos implementados, probados y 
 - ✅ **Reporte Excel** — 3 hojas (Detalle Ventas, Detalle Gastos, Resumen Diario), formato de soles "S/ X.XX", encabezados coloreados, rows congelados
 - ✅ **Login real (JWT)** — multi-tenant de verdad: cada restaurante es un Cliente aislado, con sus propios usuarios; ya no hay acceso sin loguearse
 - ✅ **Panel General (superadmin)** — pantalla aparte para el dueño del sistema: ve todos los restaurantes dados de alta, sus estadísticas, puede crear uno nuevo desde el navegador, suspenderlo o resetear la contraseña de su admin
-- ✅ 56 tests automáticos (`pytest tests/ -v`), todos en verde (24 nuevos tests: categorías, platos, gastos, dashboard, login, panel general)
-- ✅ Frontend PWA rediseñado: mobile-first, bottom nav, sin librerías externas, pensado para gama media/baja, service worker v14
+- ✅ **Personal (mozos/cajeros/cocina)** — cada restaurante puede dar de alta cuentas reales para su equipo, con login individual y rol verificado en el backend (ya no un botón de "elegir rol" sin validar)
+- ✅ 64 tests automáticos (`pytest tests/ -v`), todos en verde (32 nuevos tests: categorías, platos, gastos, dashboard, login, panel general, personal)
+- ✅ Frontend PWA rediseñado: mobile-first, bottom nav, sin librerías externas, pensado para gama media/baja, service worker v15
 - ✅ Datos semilla automáticos al arrancar + backfill automático para BDs existentes (crea admin user si falta, categorías si faltan, repara contraseñas de instalaciones pre-login)
 
 ## 🔐 Login real (JWT) — reemplaza el modo de desarrollo sin autenticación
@@ -128,6 +129,61 @@ tildes — "Pollería" se cortaba mal ("poller-a-...") porque el regex
 un espacio. Se corrigió normalizando el texto (`unicodedata.normalize`)
 antes de aplicar el regex, en los dos lugares donde existía esta función
 (`backend/routes/superadmin.py` y `backend/scripts/crear_cliente.py`).
+
+## 👥 Personal (mozos, cajeros, cocina) con login real
+
+**Por qué existe:** antes de esto, "el rol" de un dispositivo era un botón
+en el header que cualquiera tocaba sin validar nada — documentado desde
+el principio como una solución temporal del MVP (ver "Roles por
+dispositivo" más abajo). Con login real ya implementado, era el momento
+de dar el siguiente paso: que cada mesero tenga su propia cuenta.
+
+**Ninguna tabla nueva hizo falta.** `Usuario` (`backend/models.py`) ya
+tenía `email`, `password_hash`, `rol`, `cliente_id`, `estado` desde el
+diseño original — solo faltaban los endpoints y la pantalla. Se amplió el
+conjunto de roles válidos para incluir `cajero` (antes solo admin/mozo/
+jefe_cocina existían como roles reales de `Usuario`, aunque el selector
+del frontend ya ofrecía "Cajero" sin que existiera como rol de verdad).
+
+**Endpoints** (`backend/routes/usuarios.py`, todos exigen ser admin del
+restaurante vía `validar_admin()`):
+```
+GET    /usuarios                 → lista el personal del restaurante
+POST   /usuarios                 → crea una cuenta (nombre, email, password, rol)
+PATCH  /usuarios/{id}            → edita nombre/rol/estado
+PATCH  /usuarios/{id}/password   → resetea la contraseña de alguien
+DELETE /usuarios/{id}            → elimina la cuenta
+```
+
+**Protecciones contra quedarse sin acceso**, ambas en `editar_usuario` /
+`eliminar_usuario`:
+- Un admin no puede desactivar su propia cuenta ni quitarse su propio rol
+  de admin (`PATCH /usuarios/{mi_id}` con `estado='inactivo'` o
+  `rol` distinto de `admin` → 400).
+- Un admin no puede eliminar su propia cuenta (400). Esto por sí solo ya
+  garantiza que un restaurante nunca se queda sin ningún admin: quien
+  ejecuta la acción tuvo que pasar `validar_admin()` para llegar hasta
+  ahí, así que siempre queda como mínimo esa cuenta. (Se había escrito
+  primero un chequeo aparte de "no soy el único admin", pero era código
+  inalcanzable dado que el chequeo de "no te borres a ti mismo" ya lo
+  cubre — se sacó al notar que el test que lo ejercitaba solo pasaba
+  forzando un escenario artificial que no ocurre en el uso real de la API.)
+
+**El login real ahora manda sobre el selector de dispositivo, no al
+revés:** al loguearse, `aplicarUsuarioDeSesion()` (`frontend/js/auth.js`)
+sincroniza `estado.rol` (y lo guarda en `localStorage`) con el rol que
+trae el usuario real. Si Pedro se loguea como mozo, el celular pasa a
+comportarse como el de un mozo automáticamente. El botón redondo del
+header (selector manual) sigue existiendo para el restaurante que prefiere
+seguir compartiendo un solo dispositivo sin cuentas individuales — las dos
+formas conviven, el restaurante elige cuál usar.
+
+**Frontend:** tercera pestaña dentro de Admin ("Personal"), mismo patrón
+visual que Categorías/Compras — lista con nombre/email/rol, acciones de
+editar, resetear contraseña y eliminar. La propia cuenta (`estado.usuario.email`)
+se marca con una etiqueta "Tú" y no muestra el botón de eliminar (la
+validación real sigue estando en el backend; esto es solo para no
+mostrarle a alguien un botón que de todas formas le va a rechazar el 400).
 
 ## 🎨 Features agregados en la sesión final (mejoras de UX/producto)
 
@@ -297,30 +353,31 @@ backend/
     ├── mesas.py            # Soporte + cobro de mesa
     ├── comandas.py         # CU-02 + CU-03 (monitor de cocina)
     ├── compras.py          # CU-04 (crear/editar/eliminar mismo día)
+    ├── usuarios.py          # Nuevo: personal del restaurante (mozos/cajeros/cocina)
     └── dashboard.py        # CU-05 (top 3 platos/gastos, reporte Excel)
 
 frontend/
 ├── index.html              # App de UN restaurante: login + bottom nav (Mesas/Cocina/Dinero/Admin)
-├── superadmin.html         # Nuevo: Panel General — ve y administra TODOS los restaurantes
+├── superadmin.html         # Panel General — ve y administra TODOS los restaurantes
 ├── manifest.json           # PWA manifest
-├── sw.js                   # Service worker (v14)
+├── sw.js                   # Service worker (v15)
 ├── css/style.css           # Design system mobile-first (light + dark) — compartido por ambas páginas
 ├── assets/platos/          # Fotos subidas (gitignored, la crea el backend)
 └── js/
     ├── app.js              # API client (Authorization: Bearer), navegación, toasts
-    ├── auth.js             # Login/logout de restaurante, guarda el token, valida sesión al abrir
-    ├── superadmin.js        # Nuevo: login/CRUD del Panel General — independiente de app.js/auth.js
+    ├── auth.js             # Login/logout de restaurante, sincroniza el rol real con el selector
+    ├── superadmin.js        # login/CRUD del Panel General — independiente de app.js/auth.js
     ├── charts.js           # Gráficos SVG a mano (sin librerías)
     ├── print.js            # Impresión dual de comandas
     ├── mozo.js             # Mesas, nuevo pedido, cuenta y cobro
     ├── cocina.js           # Monitor en tiempo real (polling 2s)
     ├── dashboard.js        # CU-05 mejorado (top 3, Excel, badges)
-    └── admin.js            # Carta (con fotos), Categorías (CRUD), Gastos (editar/eliminar)
+    └── admin.js            # Carta, Categorías, Gastos, Personal (mozos/cajeros/cocina)
 
 tests/
 ├── conftest.py             # Fixtures (BD en memoria con StaticPool) + fixture de auth real
 ├── unit/test_models.py
-└── integration/test_endpoints.py   # 48 tests, cubren el ciclo completo + login
+└── integration/test_endpoints.py   # 64 tests, cubren el ciclo completo + login + personal
 ```
 
 ## 📋 Cómo correrlo
@@ -364,9 +421,10 @@ Si dos instalaciones (dev y prod, por ejemplo) comparten el mismo `SECRET_KEY` p
 5. **IA + Claude API**: reportes inteligentes sobre los datos que ya arroja el Dashboard (ver guía de negocio de JTech).
 6. **Pagos**: integración Stripe/Culqi para cobro con QR (tanto para que el restaurante le cobre a sus clientes, como para que el sistema le cobre al restaurante).
 7. **Zona horaria por cliente**: hoy el corte de "día" del dashboard usa UTC; con clientes en distintos países convendría guardar el timezone del restaurante (columna en `Cliente`, hoy `tz_offset` viaja por header y lo decide el navegador del que hace la consulta, no el restaurante en sí).
+8. **Que cada mesero cambie su propia contraseña**: hoy solo el admin puede resetear la contraseña de alguien (`PATCH /usuarios/{id}/password`); no existe un "cambiar mi contraseña" para que el propio mozo lo haga sin pedirle al admin.
 
 ---
 
-**Última actualización:** 2026-08-29 (sesión de login real + Panel General para multi-tenant de reventa)
-**Estado:** ✅ MVP+ funcional, probado (56/56 tests), con autenticación real y panel de administración general — listo para dar de alta el primer restaurante de pago
+**Última actualización:** 2026-08-29 (sesión de login real + Panel General + Personal para multi-tenant de reventa)
+**Estado:** ✅ MVP+ funcional, probado (64/64 tests), con autenticación real, panel de administración general y cuentas de personal por rol — listo para dar de alta el primer restaurante de pago
 **Próxima prioridad:** rate limiting en login antes de exponer el servidor a internet público

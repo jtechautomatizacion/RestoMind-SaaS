@@ -129,6 +129,33 @@ class PlatoResponse(BaseModel):
         from_attributes = True
 
 
+# ============ PERSONAL (usuarios de un restaurante) ============
+
+class UsuarioCreate(BaseModel):
+    nombre: str = Field(..., min_length=1, max_length=100)
+    email: str = Field(..., min_length=1, max_length=150)
+    password: str = Field(..., min_length=6, max_length=200)
+    rol: str = Field(..., pattern="^(admin|mozo|jefe_cocina|cajero)$")
+
+
+class UsuarioUpdate(BaseModel):
+    nombre: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    rol: Optional[str] = Field(default=None, pattern="^(admin|mozo|jefe_cocina|cajero)$")
+    estado: Optional[str] = Field(default=None, pattern="^(activo|inactivo)$")
+
+
+class UsuarioResponse(BaseModel):
+    id: str
+    nombre: str
+    email: str
+    rol: str
+    estado: str
+    creado_en: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ============ MESAS ============
 
 class MesaCreate(BaseModel):

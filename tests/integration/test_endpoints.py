@@ -709,3 +709,95 @@ def test_token_de_superadmin_no_sirve_en_rutas_de_restaurante(test_client_real_a
     token = _login_superadmin(test_client_real_auth)
     resp = test_client_real_auth.get('/api/platos', headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403
+
+
+# ============ PERSONAL (usuarios de un restaurante) ============
+
+def test_crear_y_listar_usuario_personal(test_client, test_cliente):
+    resp = test_client.post('/api/usuarios', json={
+        "nombre": "Pedro Mozo", "email": "pedro@test-restaurant.com", "password": "clave123", "rol": "mozo",
+    })
+    assert resp.status_code == 201
+    assert resp.json()["rol"] == "mozo"
+
+    resp = test_client.get('/api/usuarios')
+    emails = [u["email"] for u in resp.json()]
+    assert "pedro@test-restaurant.com" in emails
+
+
+def test_nuevo_mozo_puede_loguearse_con_su_propio_rol(test_client_real_auth, test_cliente):
+    from tests.conftest import TEST_CLIENTE_ID
+    token_admin = _login_restaurante(test_client_real_auth)
+    test_client_real_auth.post('/api/usuarios', json={
+        "nombre": "Pedro Mozo", "email": "pedro2@test-restaurant.com", "password": "clave123456", "rol": "mozo",
+    }, headers={"Authorization": f"Bearer {token_admin}"})
+
+    login = test_client_real_auth.post('/api/auth/login', json={
+        "email": "pedro2@test-restaurant.com", "password": "clave123456",
+    })
+    assert login.status_code == 200
+    assert login.json()["usuario"]["rol"] == "mozo"
+    assert login.json()["usuario"]["cliente_id"] == TEST_CLIENTE_ID
+
+
+def test_crear_usuario_email_duplicado_falla(test_client, test_cliente):
+    test_client.post('/api/usuarios', json={
+        "nombre": "A", "email": "dup@test.com", "password": "clave123", "rol": "mozo",
+    })
+    resp = test_client.post('/api/usuarios', json={
+        "nombre": "B", "email": "dup@test.com", "password": "clave123", "rol": "cajero",
+    })
+    assert resp.status_code == 400
+
+
+def test_admin_no_puede_desactivarse_a_si_mismo(test_client, test_cliente):
+    from tests.conftest import TEST_USUARIO_EMAIL
+    usuarios = test_client.get('/api/usuarios').json()
+    mi_id = next(u["id"] for u in usuarios if u["email"] == TEST_USUARIO_EMAIL)
+
+    resp = test_client.patch(f'/api/usuarios/{mi_id}', json={"estado": "inactivo"})
+    assert resp.status_code == 400
+
+
+def test_admin_no_puede_quitarse_su_propio_rol(test_client, test_cliente):
+    from tests.conftest import TEST_USUARIO_EMAIL
+    usuarios = test_client.get('/api/usuarios').json()
+    mi_id = next(u["id"] for u in usuarios if u["email"] == TEST_USUARIO_EMAIL)
+
+    resp = test_client.patch(f'/api/usuarios/{mi_id}', json={"rol": "mozo"})
+    assert resp.status_code == 400
+
+
+def test_admin_no_puede_eliminar_su_propia_cuenta(test_client, test_cliente):
+    from tests.conftest import TEST_USUARIO_EMAIL
+    usuarios = test_client.get('/api/usuarios').json()
+    mi_id = next(u["id"] for u in usuarios if u["email"] == TEST_USUARIO_EMAIL)
+
+    resp = test_client.delete(f'/api/usuarios/{mi_id}')
+    assert resp.status_code == 400
+
+
+def test_un_admin_puede_eliminar_a_otro_admin_distinto(test_client, test_cliente):
+    """No puedes borrarte a vos mismo, pero sí a otro admin del mismo
+    restaurante (quedando vos como el admin restante)."""
+    otro_admin = test_client.post('/api/usuarios', json={
+        "nombre": "Otro Admin", "email": "otroadmin@test-restaurant.com", "password": "clave123", "rol": "admin",
+    }).json()
+
+    resp = test_client.delete(f'/api/usuarios/{otro_admin["id"]}')
+    assert resp.status_code == 204
+
+
+def test_resetear_password_de_usuario_personal(test_client, test_cliente):
+    creado = test_client.post('/api/usuarios', json={
+        "nombre": "Cajero", "email": "cajero@test-restaurant.com", "password": "vieja12345", "rol": "cajero",
+    }).json()
+
+    resp = test_client.patch(f'/api/usuarios/{creado["id"]}/password', json={"nueva_password": "nueva12345"})
+    assert resp.status_code == 200
+
+
+def _login_restaurante(client):
+    from tests.conftest import TEST_USUARIO_EMAIL, TEST_USUARIO_PASSWORD
+    resp = client.post('/api/auth/login', json={"email": TEST_USUARIO_EMAIL, "password": TEST_USUARIO_PASSWORD})
+    return resp.json()["access_token"]

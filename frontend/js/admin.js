@@ -6,8 +6,11 @@
 
 let editingPlatoId = null;
 let editingCompraId = null;
+let editingUsuarioId = null;
+let usuarioEnResetPassword = null;
 let adminCompras = [];
 let adminCategorias = [];
+let adminPersonal = [];
 let archivoImagenPendiente = null; // Blob ya comprimido, listo para subir tras guardar
 let platoImagenActualUrl = null;   // imagen_url ya guardada en el server (si se está editando)
 
@@ -35,19 +38,22 @@ async function refreshAdmin() {
         // Sin incluir_inactivos: un plato "eliminado" (aunque internamente se
         // haya archivado por tener historial de ventas) debe desaparecer de
         // la carta que ve el admin, igual que si de verdad se hubiera borrado.
-        const [platos, compras, categorias] = await Promise.all([
+        const [platos, compras, categorias, personal] = await Promise.all([
             api.get('/platos'),
             api.get('/compras'),
             api.get('/categorias'),
+            api.get('/usuarios'),
         ]);
         estado.platos = platos;
         adminCompras = compras;
         adminCategorias = categorias;
+        adminPersonal = personal;
     } catch (err) {
         console.error('Error cargando datos de administración:', err);
     }
     renderPlatosAdmin();
     renderCompras();
+    renderPersonal();
 }
 
 // ============ CU-01: PLATOS ============
@@ -482,5 +488,134 @@ async function cancelarCompra(compraId) {
         showToast(`Gasto ${nuevoEstado}`, 'success');
     } catch (err) {
         showToast(err.message || 'Error al cambiar estado', 'error');
+    }
+}
+
+// ============ PERSONAL (mozos, cajeros, cocina) ============
+
+function renderPersonal() {
+    const container = document.getElementById('admin-personal-list');
+
+    if (adminPersonal.length === 0) {
+        container.innerHTML = '<p class="empty-hint">Aún no registras personal.</p>';
+        return;
+    }
+
+    const miEmail = estado.usuario ? estado.usuario.email : null;
+
+    container.innerHTML = adminPersonal.map(u => {
+        const esUnoMismo = u.email === miEmail;
+        return `
+        <div class="admin-item ${u.estado === 'inactivo' ? 'inactivo' : ''}">
+            <div class="admin-item-info">
+                <h4>${escapeHtml(u.nombre)} ${esUnoMismo ? '<span class="cantidad-badge">Tú</span>' : ''}</h4>
+                <p>${escapeHtml(u.email)} · ${ROL_LABELS[u.rol] || u.rol}</p>
+            </div>
+            <div class="admin-item-actions">
+                <button class="icon-btn" title="Editar" onclick="abrirModalEditarUsuario('${u.id}')">${ICON_EDIT}</button>
+                <button class="icon-btn" title="Resetear contraseña" onclick="abrirModalResetPasswordUsuario('${u.id}')">🔑</button>
+                ${esUnoMismo ? '' : `<button class="icon-btn danger" title="Eliminar" onclick="eliminarUsuario('${u.id}')">${ICON_DELETE}</button>`}
+            </div>
+        </div>
+    `;
+    }).join('');
+}
+
+function abrirModalNuevoUsuario() {
+    editingUsuarioId = null;
+    document.getElementById('modal-usuario-title').textContent = 'Nueva Cuenta';
+    document.getElementById('form-usuario').reset();
+    document.getElementById('usuario-email').disabled = false;
+    document.getElementById('usuario-password-group').classList.remove('hidden');
+    document.getElementById('usuario-password').required = true;
+    abrirModal('modal-usuario');
+}
+
+function abrirModalEditarUsuario(usuarioId) {
+    const usuario = adminPersonal.find(u => u.id === usuarioId);
+    if (!usuario) return;
+
+    editingUsuarioId = usuarioId;
+    document.getElementById('modal-usuario-title').textContent = 'Editar Cuenta';
+    document.getElementById('usuario-nombre').value = usuario.nombre;
+    document.getElementById('usuario-email').value = usuario.email;
+    // El email es el identificador de login: cambiarlo es re-crear la
+    // cuenta, no editarla — más simple no permitirlo acá.
+    document.getElementById('usuario-email').disabled = true;
+    document.getElementById('usuario-rol').value = usuario.rol;
+    // La contraseña se cambia solo desde "Resetear contraseña", no mezclado
+    // en este formulario (evita que quede en blanco por accidente y alguien
+    // piense que la borró).
+    document.getElementById('usuario-password-group').classList.add('hidden');
+    document.getElementById('usuario-password').required = false;
+    abrirModal('modal-usuario');
+}
+
+function cerrarModalUsuario() {
+    document.getElementById('modal-usuario').classList.add('hidden');
+    document.getElementById('form-usuario').reset();
+    editingUsuarioId = null;
+}
+
+async function guardarUsuario(event) {
+    event.preventDefault();
+
+    const nombre = document.getElementById('usuario-nombre').value.trim();
+    const rol = document.getElementById('usuario-rol').value;
+
+    try {
+        if (editingUsuarioId) {
+            await api.patch(`/usuarios/${editingUsuarioId}`, { nombre, rol });
+        } else {
+            const email = document.getElementById('usuario-email').value.trim();
+            const password = document.getElementById('usuario-password').value;
+            await api.post('/usuarios', { nombre, email, password, rol });
+        }
+        cerrarModalUsuario();
+        await refreshAdmin();
+        showToast(editingUsuarioId ? 'Cuenta actualizada' : 'Cuenta creada', 'success');
+    } catch (err) {
+        showToast(err.message || 'Error al guardar la cuenta', 'error');
+    }
+}
+
+async function eliminarUsuario(usuarioId) {
+    const usuario = adminPersonal.find(u => u.id === usuarioId);
+    if (usuario && !confirm(`¿Eliminar la cuenta de "${usuario.nombre}"?`)) return;
+
+    try {
+        await api.delete(`/usuarios/${usuarioId}`);
+        await refreshAdmin();
+        showToast('Cuenta eliminada', 'success');
+    } catch (err) {
+        showToast(err.message || 'Error al eliminar la cuenta', 'error');
+    }
+}
+
+function abrirModalResetPasswordUsuario(usuarioId) {
+    const usuario = adminPersonal.find(u => u.id === usuarioId);
+    if (!usuario) return;
+
+    usuarioEnResetPassword = usuarioId;
+    document.getElementById('form-reset-password-usuario').reset();
+    document.getElementById('reset-usuario-nombre').textContent = `Cuenta: ${usuario.nombre} (${usuario.email})`;
+    abrirModal('modal-reset-password-usuario');
+}
+
+function cerrarModalResetPasswordUsuario() {
+    document.getElementById('modal-reset-password-usuario').classList.add('hidden');
+    usuarioEnResetPassword = null;
+}
+
+async function confirmarResetPasswordUsuario(event) {
+    event.preventDefault();
+    const nuevaPassword = document.getElementById('reset-usuario-password').value;
+
+    try {
+        await api.patch(`/usuarios/${usuarioEnResetPassword}/password`, { nueva_password: nuevaPassword });
+        cerrarModalResetPasswordUsuario();
+        showToast('Contraseña actualizada', 'success');
+    } catch (err) {
+        showToast(err.message || 'Error al resetear la contraseña', 'error');
     }
 }
