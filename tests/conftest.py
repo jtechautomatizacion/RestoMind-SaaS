@@ -5,14 +5,26 @@ Fixtures compartidas para tests
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from backend.database import Base
 from backend.models import Cliente, Plato, Mesa
+
+TEST_CLIENTE_ID = "test-cliente-001"
 
 
 @pytest.fixture
 def test_db():
-    """Crea una BD en memoria para tests"""
-    engine = create_engine('sqlite:///:memory:')
+    """Crea una BD en memoria para tests.
+
+    StaticPool es obligatorio aquí: sin él, cada conexión que SQLAlchemy
+    abre desde el pool (p.ej. al ejecutarse en el threadpool de FastAPI)
+    apunta a una base ':memory:' NUEVA y vacía, y las tablas 'desaparecen'.
+    """
+    engine = create_engine(
+        'sqlite:///:memory:',
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     Base.metadata.create_all(bind=engine)
     SessionLocal = sessionmaker(bind=engine)
     db = SessionLocal()
@@ -24,23 +36,32 @@ def test_db():
 
 @pytest.fixture
 def test_client(test_db):
-    """Cliente de test FastAPI"""
+    """Cliente de test FastAPI, aislado de la BD real y fijado a TEST_CLIENTE_ID."""
     from fastapi.testclient import TestClient
     from backend.app import app
     from backend.database import get_db
+    from backend.dependencies import get_cliente_id
 
     def override_get_db():
-        return test_db
+        yield test_db
+
+    def override_get_cliente_id():
+        return TEST_CLIENTE_ID
 
     app.dependency_overrides[get_db] = override_get_db
-    return TestClient(app)
+    app.dependency_overrides[get_cliente_id] = override_get_cliente_id
+
+    client = TestClient(app)
+    yield client
+
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
 def test_cliente(test_db):
     """Crea cliente de test en BD"""
     cliente = Cliente(
-        id='test-cliente-001',
+        id=TEST_CLIENTE_ID,
         nombre='Test Restaurant',
         email='test@restaurant.com',
         pais='Perú',

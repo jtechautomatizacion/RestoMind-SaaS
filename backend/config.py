@@ -10,7 +10,10 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "sqlite:///./restomind.db"
-    database_echo: bool = True
+    database_echo: bool = False
+
+    # Multi-tenant (MVP: sin login todavía, cliente por defecto)
+    default_cliente_id: str = "rest-001"
 
     # CORS
     cors_origins: List[str] = ["http://localhost:3000", "http://localhost:8000"]

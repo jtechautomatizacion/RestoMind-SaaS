@@ -2,10 +2,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from backend.config import settings
-from backend.database import init_db
+from backend.database import init_db, SessionLocal
+from backend.seed import seed_if_empty
+from backend.routes import platos, mesas, comandas, compras, dashboard
 
-# Initialize database
+# Initialize database + seed de demo (idempotente)
 init_db()
+_seed_db = SessionLocal()
+try:
+    seed_if_empty(_seed_db)
+finally:
+    _seed_db.close()
 
 # Create FastAPI app
 app = FastAPI(
@@ -40,12 +47,12 @@ async def root():
     return {"message": "RestoMind API", "docs": "/docs"}
 
 
-# TODO: Include routers
-# from backend.routes import platos, comandas, compras, mesas
-# app.include_router(platos.router, prefix="/api", tags=["Platos"])
-# app.include_router(comandas.router, prefix="/api", tags=["Comandas"])
-# app.include_router(compras.router, prefix="/api", tags=["Compras"])
-# app.include_router(mesas.router, prefix="/api", tags=["Mesas"])
+# Routers
+app.include_router(platos.router, prefix="/api", tags=["Platos"])
+app.include_router(mesas.router, prefix="/api", tags=["Mesas"])
+app.include_router(comandas.router, prefix="/api", tags=["Comandas"])
+app.include_router(compras.router, prefix="/api", tags=["Compras"])
+app.include_router(dashboard.router, prefix="/api", tags=["Dashboard"])
 
 
 if __name__ == "__main__":
