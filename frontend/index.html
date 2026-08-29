@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#000000">
+    <meta name="description" content="RestoMind - Sistema inteligente de comandas">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' fill='%23000'/><text x='90' y='90' font-size='70' fill='%23fff' text-anchor='middle' dy='.3em' font-weight='bold'>RM</text></svg>">
+    <title>RestoMind - Sistema de Comandas</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div id="app" class="app-container">
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs">
+            <button class="nav-btn active" data-tab="mozo">
+                <span class="nav-label">🧑‍💼 Mozo</span>
+            </button>
+            <button class="nav-btn" data-tab="cocina">
+                <span class="nav-label">🍳 Cocina</span>
+            </button>
+            <button class="nav-btn" data-tab="admin">
+                <span class="nav-label">⚙️ Admin</span>
+            </button>
+        </nav>
+
+        <!-- Content Sections -->
+        <main class="content">
+            <!-- MOZO TAB: CU-02 -->
+            <section id="mozo-tab" class="tab-content active">
+                <h1>Mesas</h1>
+                <div id="mozo-mesas" class="mesas-grid">
+                    <!-- Populated by JS -->
+                </div>
+
+                <!-- Modal: Seleccionar Platos -->
+                <div id="modal-comanda" class="modal hidden">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h2 id="modal-title">Mesa</h2>
+                            <button class="btn-close" onclick="cerrarModal()">✕</button>
+                        </div>
+                        <div id="mozo-categorias" class="categorias-tabs">
+                            <!-- Populated by JS -->
+                        </div>
+                        <div id="mozo-platos" class="platos-list">
+                            <!-- Populated by JS -->
+                        </div>
+                        <div class="modal-carrito">
+                            <h3>Carrito</h3>
+                            <div id="mozo-carrito" class="carrito-items">
+                                <!-- Populated by JS -->
+                            </div>
+                            <div class="carrito-total">
+                                <span>Total:</span>
+                                <span id="mozo-total">S/ 0.00</span>
+                            </div>
+                            <button id="btn-enviar-comanda" class="btn btn-primary btn-large" onclick="enviarComanda()">
+                                Enviar Comanda
+                            </button>
+                            <button class="btn btn-secondary" onclick="cerrarModal()">
+                                Cancelar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- COCINA TAB: CU-03 -->
+            <section id="cocina-tab" class="tab-content hidden">
+                <h1>Monitor de Cocina</h1>
+                <div id="cocina-comandas" class="cocina-grid">
+                    <!-- Populated by JS -->
+                </div>
+                <p class="text-muted" id="cocina-empty" style="display: none;">
+                    Sin comandas pendientes
+                </p>
+            </section>
+
+            <!-- ADMIN TAB: CU-01, CU-04 -->
+            <section id="admin-tab" class="tab-content hidden">
+                <h1>Administración</h1>
+
+                <!-- Admin Tabs -->
+                <div class="admin-tabs">
+                    <button class="admin-tab-btn active" data-admin-tab="platos">
+                        📋 Platos
+                    </button>
+                    <button class="admin-tab-btn" data-admin-tab="compras">
+                        🛒 Compras
+                    </button>
+                </div>
+
+                <!-- Platos Section: CU-01 -->
+                <div id="admin-platos" class="admin-section active">
+                    <button class="btn btn-primary" onclick="abrirModalNuevoPlato()">
+                        ➕ Nuevo Plato
+                    </button>
+                    <div id="admin-platos-list" class="platos-admin-list">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <!-- Modal: Nuevo Plato -->
+                    <div id="modal-plato" class="modal hidden">
+                        <div class="modal-content modal-small">
+                            <div class="modal-header">
+                                <h2>Nuevo Plato</h2>
+                                <button class="btn-close" onclick="cerrarModalPlato()">✕</button>
+                            </div>
+                            <form id="form-plato" onsubmit="guardarPlato(event)">
+                                <div class="form-group">
+                                    <label>Nombre:</label>
+                                    <input type="text" id="plato-nombre" placeholder="Ceviche Clásico" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Categoría:</label>
+                                    <input type="text" id="plato-categoria" placeholder="Cebiches" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Precio (S/):</label>
+                                    <input type="number" id="plato-precio" placeholder="45.00" step="0.01" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Descripción:</label>
+                                    <textarea id="plato-descripcion" placeholder="Con leche de tigre..."></textarea>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-block">
+                                    Guardar Plato
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Compras Section: CU-04 -->
+                <div id="admin-compras" class="admin-section hidden">
+                    <button class="btn btn-primary" onclick="abrirModalNuevaCompra()">
+                        ➕ Registrar Gasto
+                    </button>
+                    <div id="admin-compras-list" class="compras-admin-list">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <!-- Modal: Nueva Compra -->
+                    <div id="modal-compra" class="modal hidden">
+                        <div class="modal-content modal-small">
+                            <div class="modal-header">
+                                <h2>Registrar Gasto</h2>
+                                <button class="btn-close" onclick="cerrarModalCompra()">✕</button>
+                            </div>
+                            <form id="form-compra" onsubmit="guardarCompra(event)">
+                                <div class="form-group">
+                                    <label>Descripción:</label>
+                                    <input type="text" id="compra-descripcion" placeholder="Pescado rojo" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Categoría:</label>
+                                    <select id="compra-categoria">
+                                        <option value="">Seleccionar</option>
+                                        <option value="Insumos">Insumos</option>
+                                        <option value="Servicios">Servicios</option>
+                                        <option value="Otros">Otros</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Monto (S/):</label>
+                                    <input type="number" id="compra-monto" placeholder="85.50" step="0.01" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Fecha:</label>
+                                    <input type="date" id="compra-fecha" required>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-block">
+                                    Guardar Gasto
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/mozo.js"></script>
+    <script src="/static/js/cocina.js"></script>
+    <script src="/static/js/admin.js"></script>
+
+    <script>
+        // Service Worker Registration (PWA)
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/static/sw.js')
+                .then(reg => console.log('SW registered'))
+                .catch(err => console.log('SW registration failed'));
+        }
+
+        // Initialize on load
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

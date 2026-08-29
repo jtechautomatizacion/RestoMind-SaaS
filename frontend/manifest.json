@@ -1,0 +1,33 @@
+{
+  "name": "RestoMind - Sistema de Comandas",
+  "short_name": "RestoMind",
+  "description": "Sistema inteligente de comandas para restaurantes",
+  "start_url": "/static/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' fill='%23000'/><text x='96' y='96' font-size='80' fill='%23fff' text-anchor='middle' dy='.3em' font-weight='bold'>RM</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' fill='%23000'/><text x='256' y='256' font-size='200' fill='%23fff' text-anchor='middle' dy='.3em' font-weight='bold'>RM</text></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 540 720'><rect width='540' height='720' fill='%23f5f5f5'/><text x='270' y='360' font-size='60' fill='%23000' text-anchor='middle' dy='.3em'>RestoMind MVP</text></svg>",
+      "sizes": "540x720",
+      "type": "image/svg+xml",
+      "form_factor": "narrow"
+    }
+  ]
+}
