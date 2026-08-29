@@ -490,23 +490,21 @@
                             </div>
                             <div class="modal-scroll">
                                 <div class="form-group">
-                                    <label>Email (se usa para recuperación de contraseña)</label>
-                                    <input type="email" id="cuenta-email" maxlength="150">
+                                    <label>Email</label>
+                                    <input type="email" id="cuenta-email" disabled>
+                                    <p style="font-size: 12px; color: #6b7280; margin: 4px 0 0 0;">Se usará para recuperación de contraseña (próximamente)</p>
                                 </div>
                                 <div class="form-group">
                                     <label>Nombre</label>
                                     <p id="cuenta-nombre" style="margin: 8px 0; padding: 8px 12px; background: var(--bg-light); border-radius: 4px;"></p>
                                 </div>
 
-                                <div class="form-group">
-                                    <label>Contraseña Actual (requerida para cambiar email)</label>
-                                    <input type="password" id="cuenta-password-actual" maxlength="200">
-                                </div>
-
-                                <button class="btn btn-secondary btn-block" onclick="cambiarMiEmail()" style="margin-bottom: 12px;">Cambiar Email</button>
-
                                 <hr style="margin: 20px 0; border: 1px solid var(--border);">
 
+                                <div class="form-group">
+                                    <label>Contraseña Actual</label>
+                                    <input type="password" id="cuenta-password-actual" maxlength="200">
+                                </div>
                                 <div class="form-group">
                                     <label>Nueva Contraseña (mínimo 6 caracteres)</label>
                                     <input type="password" id="cuenta-password-nueva" minlength="6" maxlength="200">

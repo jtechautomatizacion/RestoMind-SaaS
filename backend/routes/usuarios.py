@@ -24,7 +24,6 @@ from backend.schemas import (
     UsuarioCreate,
     UsuarioResponse,
     UsuarioUpdate,
-    UsuarioUpdateMeRequest,
 )
 from backend.utils.security import validar_admin
 
@@ -117,49 +116,6 @@ def cambiar_mi_password(
     usuario.password_hash = hash_password(payload.nueva_password)
     db.commit()
     return {"detail": "Contraseña actualizada exitosamente"}
-
-
-@router.patch("/usuarios/me")
-def actualizar_mi_perfil(
-    payload: UsuarioUpdateMeRequest,
-    db: Session = Depends(get_db),
-    cliente_id: str = Depends(get_cliente_id),
-    usuario_actual: str = Depends(get_usuario_actual),
-):
-    """Actualizar email del usuario actual (requiere contraseña actual)."""
-    usuario = db.query(Usuario).filter(
-        Usuario.email == usuario_actual,
-        Usuario.cliente_id == cliente_id
-    ).first()
-    if not usuario:
-        raise HTTPException(status_code=401, detail="Sesión inválida")
-
-    # Si quiere cambiar email, necesita proporcionar contraseña actual
-    if payload.email:
-        nuevo_email = payload.email.strip().lower()
-
-        # Si es el mismo email, no hacer nada
-        if nuevo_email == usuario.email.lower():
-            db.commit()
-            db.refresh(usuario)
-            return UsuarioResponse.from_orm(usuario)
-
-        if not payload.password_actual:
-            raise HTTPException(status_code=400, detail="Se requiere contraseña actual para cambiar el email")
-
-        if not verificar_password(payload.password_actual, usuario.password_hash):
-            raise HTTPException(status_code=400, detail="Contraseña actual incorrecta")
-
-        # Validar que el nuevo email sea único en TODO el sistema
-        otro = db.query(Usuario).filter(Usuario.email == nuevo_email, Usuario.id != usuario.id).first()
-        if otro:
-            raise HTTPException(status_code=400, detail=f"Ya existe un usuario con el email '{nuevo_email}'")
-
-        usuario.email = nuevo_email
-
-    db.commit()
-    db.refresh(usuario)
-    return UsuarioResponse.from_orm(usuario)
 
 
 @router.patch("/usuarios/{usuario_id}", response_model=UsuarioResponse)

@@ -30,7 +30,6 @@ from backend.schemas import (
     SuperAdminLoginResponse,
     SuperAdminMe,
     SuperAdminUpdateRequest,
-    UsuarioUpdateMeRequest,
 )
 
 router = APIRouter()

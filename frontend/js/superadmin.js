@@ -303,19 +303,18 @@ function cerrarModalMiPerfil() {
 
 async function guardarMiPerfil() {
     const nombre = document.getElementById('perfil-nombre').value.trim();
-    const email = document.getElementById('perfil-email').value.trim();
 
-    if (!nombre && !email) {
-        showToast('Completa al menos un campo', 'error');
+    if (!nombre) {
+        showToast('Ingresa tu nombre', 'error');
         return;
     }
 
     try {
         await saFetch('/superadmin/me', {
             method: 'PATCH',
-            body: JSON.stringify({ nombre: nombre || undefined, email: email || undefined }),
+            body: JSON.stringify({ nombre }),
         });
-        showToast('Perfil actualizado', 'success');
+        showToast('Nombre actualizado', 'success');
     } catch (err) {
         showToast(err.message || 'Error al guardar el perfil', 'error');
     }
