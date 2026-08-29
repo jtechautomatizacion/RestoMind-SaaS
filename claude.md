@@ -819,6 +819,16 @@ Estas reglas juntas garantizan que un restaurante **nunca** se queda sin ningún
 - El selector de Rol al crear solo ofrece Mozo / Cajero / Cocina (sin "Administrador").
 - Al editar la fila del propio admin ("Tú"), el email y el rol se muestran como texto fijo no editable, en vez de inputs — visualmente distinto a poder cambiar algo y que el backend lo rechace después.
 
+### Validación de celular (formato peruano)
+
+Todo campo de celular/teléfono en la app —el del personal, el de contacto del restaurante en el panel de superadmin, y el del login de Personal— exige el formato de un celular peruano real: **9 dígitos, empieza con 9** (ej. `987654321`).
+
+- **Frontend:** `soloDigitos(event)` (en `app.js` y `superadmin.js`) filtra cualquier tecla que no sea número mientras el usuario escribe — no deja ni llegar a escribir una letra. Los inputs además usan `inputmode="numeric"` y `maxlength="9"`.
+- **Backend:** `_validar_celular_peru()` en `schemas.py` es la validación real (la del frontend es solo UX; nunca hay que confiar en el cliente). Aplica a:
+  - `StaffCreateRequest.celular` — obligatorio, para crear mozo/cajero/cocina
+  - `ClienteCreateRequest.telefono` — opcional, pero si el superadmin lo llena al crear/editar un restaurante, tiene que ser un celular válido
+- Si el formato no cumple, el backend responde 422 con un mensaje como *"El celular debe tener 9 dígitos y empezar con 9 (ej: 987654321)"*. `extraerMensajeError()` (en `app.js`/`superadmin.js`) es lo que traduce la respuesta 422 de FastAPI (una lista de objetos) a ese texto legible para el toast — sin esto, el usuario vería JSON crudo en la notificación de error.
+
 ### El selector de dispositivo sigue existiendo
 
 Para restaurantes que prefieren compartir un solo celular sin cuentas individuales, el botón redondo del header (selector manual de rol) continúa funcionando como respaldo. Las dos formas conviven:
