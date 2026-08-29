@@ -12,3 +12,4 @@ anthropic==0.25.0
 openpyxl==3.1.2
 PyJWT==2.8.0
 bcrypt==4.1.2
+Pillow==12.3.0

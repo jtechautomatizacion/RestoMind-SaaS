@@ -473,11 +473,51 @@ def test_subir_imagen_plato_valida(test_client, test_cliente):
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["imagen_url"] == f"/static/assets/platos/{plato_id}.png"
+    # Se guarda siempre como .jpg tras recomprimir server-side, sin importar
+    # el formato de entrada — ver _recomprimir_a_jpeg en backend/routes/platos.py.
+    assert data["imagen_url"] == f"/static/assets/platos/{plato_id}.jpg"
 
     # Debe reflejarse también al releer el plato
     resp = test_client.get('/api/platos')
-    assert resp.json()[0]["imagen_url"] == f"/static/assets/platos/{plato_id}.png"
+    assert resp.json()[0]["imagen_url"] == f"/static/assets/platos/{plato_id}.jpg"
+
+
+def test_subir_imagen_grande_se_recomprime_y_reduce_de_peso(test_client, test_cliente):
+    """El frontend ya manda la foto liviana en el caso normal; esto prueba
+    el caso "alguien llama a la API directo" (curl, otro cliente) con una
+    imagen sin comprimir de verdad — debe seguir aceptándose, pero el
+    servidor debe reducirla, no guardarla tal cual."""
+    from PIL import Image
+    import io as _io
+
+    plato_id = _crear_plato(test_client)
+
+    import random
+    random.seed(42)
+    buf = _io.BytesIO()
+    # Ruido aleatorio: a diferencia de un color sólido, no comprime casi nada
+    # sin redimensionar — asegura que la reducción de peso venga del resize,
+    # no de que PNG comprima un fondo liso a casi nada por su cuenta. Tamaño
+    # elegido para pesar bastante pero seguir bajo el límite de 5MB de subida.
+    pixeles = bytes(random.getrandbits(8) for _ in range(1200 * 900 * 3))
+    ruido = Image.frombytes("RGB", (1200, 900), pixeles)
+    ruido.save(buf, format="PNG", compress_level=1)
+    imagen_grande = buf.getvalue()
+    assert 500_000 < len(imagen_grande) < 5 * 1024 * 1024  # confirma que pesa, pero pasa el límite de subida
+
+    resp = test_client.post(
+        f'/api/platos/{plato_id}/imagen',
+        files={"archivo": ("foto_grande.png", imagen_grande, "image/png")},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["imagen_url"] == f"/static/assets/platos/{plato_id}.jpg"
+
+    from backend.routes import platos as platos_module
+    guardado = (platos_module.CARPETA_IMAGENES / f"{plato_id}.jpg").read_bytes()
+
+    assert len(guardado) < len(imagen_grande)
+    with Image.open(_io.BytesIO(guardado)) as img:
+        assert max(img.size) <= platos_module.MAX_LADO_PX
 
 
 def test_subir_imagen_con_extension_falsa_falla(test_client, test_cliente):
@@ -516,8 +556,16 @@ def test_reemplazar_imagen_no_deja_huerfanos(test_client, test_cliente, tmp_path
     plato_id = _crear_plato(test_client)
 
     test_client.post(f'/api/platos/{plato_id}/imagen', files={"archivo": ("a.png", PNG_1PX, "image/png")})
-    jpeg_1px = bytes.fromhex("ffd8ffe000104a46494600010100000100010000ffd9")
-    resp = test_client.post(f'/api/platos/{plato_id}/imagen', files={"archivo": ("b.jpg", jpeg_1px, "image/jpeg")})
+
+    # JPEG real y decodificable (no solo la firma binaria) — el endpoint ahora
+    # recomprime con Pillow, así que necesita poder abrir la imagen de verdad.
+    from PIL import Image
+    import io as _io
+    buf = _io.BytesIO()
+    Image.new("RGB", (10, 10), color=(0, 128, 255)).save(buf, format="JPEG")
+    jpeg_real = buf.getvalue()
+
+    resp = test_client.post(f'/api/platos/{plato_id}/imagen', files={"archivo": ("b.jpg", jpeg_real, "image/jpeg")})
 
     assert resp.status_code == 200
     assert resp.json()["imagen_url"] == f"/static/assets/platos/{plato_id}.jpg"
