@@ -16,7 +16,12 @@
 > - ✅ **Rol desde JWT** — el rol viene del token, no de un click en el header
 > - ✅ **Redirección inteligente** — superadmin → panel general, staff/admin → panel restaurante
 > - ✅ **Logs de autenticación** — debugging detallado sin exponer datos sensibles
-> - ✅ 64 tests automáticos (3x el MVP original)
+> - ✅ 86 tests automáticos (9x el MVP original, con cobertura de seguridad)
+
+> **Para un análisis técnico COMPLETO del sistema de autenticación:**  
+> → Ver [`LOGIN_ANALYSIS.md`](LOGIN_ANALYSIS.md)  
+> Incluye: flujo completo, estructura de tokens, dependencias de validación, rate limiting,
+> auditoría, tests, matriz de permisos, seguridad y problemas conocidos.
 
 ---
 
