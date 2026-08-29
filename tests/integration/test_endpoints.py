@@ -78,9 +78,11 @@ def test_auth_me_devuelve_usuario_del_token(test_client_real_auth, test_cliente)
 
 
 def test_root_endpoint(test_client):
-    response = test_client.get('/')
-    assert response.status_code == 200
-    assert 'message' in response.json()
+    # "/" redirige al frontend (no devuelve JSON): así el link de credenciales
+    # por email lleva directo a la app, no a un endpoint de la API.
+    response = test_client.get('/', follow_redirects=False)
+    assert response.status_code in (302, 307)
+    assert response.headers['location'] == '/static/index.html'
 
 
 # ============ CU-01: PLATOS ============
@@ -777,15 +779,51 @@ def test_admin_no_puede_eliminar_su_propia_cuenta(test_client, test_cliente):
     assert resp.status_code == 400
 
 
-def test_un_admin_puede_eliminar_a_otro_admin_distinto(test_client, test_cliente):
+def test_un_admin_puede_eliminar_a_otro_admin_distinto(test_client, test_db, test_cliente):
     """No puedes borrarte a vos mismo, pero sí a otro admin del mismo
-    restaurante (quedando vos como el admin restante)."""
-    otro_admin = test_client.post('/api/usuarios', json={
-        "nombre": "Otro Admin", "email": "otroadmin@test-restaurant.com", "password": "clave123", "rol": "admin",
+    restaurante (quedando vos como el admin restante).
+
+    El segundo admin se crea directo en la BD (no vía API): un admin ya
+    no puede crear otro admin desde el panel — ver
+    test_admin_no_puede_crear_otro_admin — así que para probar el borrado
+    hay que insertarlo como si viniera de antes de esa restricción.
+    """
+    from backend.auth import hash_password
+    from backend.models import Usuario
+
+    otro_admin = Usuario(
+        id='usr-otro-admin',
+        cliente_id=test_cliente.id,
+        nombre='Otro Admin',
+        email='otroadmin@test-restaurant.com',
+        password_hash=hash_password('clave123'),
+        rol='admin',
+        estado='activo',
+    )
+    test_db.add(otro_admin)
+    test_db.commit()
+
+    resp = test_client.delete(f'/api/usuarios/{otro_admin.id}')
+    assert resp.status_code == 204
+
+
+def test_admin_no_puede_crear_otro_admin(test_client, test_cliente):
+    """Cada restaurante tiene un solo admin, dado de alta por el superadmin.
+    Un admin no puede crearse un "repuesto" con su mismo nivel de acceso."""
+    resp = test_client.post('/api/usuarios', json={
+        "nombre": "Otro Admin", "email": "repuesto@test-restaurant.com", "password": "clave123", "rol": "admin",
+    })
+    assert resp.status_code == 403
+
+
+def test_admin_no_puede_ascender_a_otro_usuario_a_admin(test_client, test_cliente):
+    """Tampoco puede lograrlo en dos pasos: crear un mozo y luego editarlo a admin."""
+    creado = test_client.post('/api/usuarios', json={
+        "nombre": "Mozo", "email": "mozo-ascenso@test-restaurant.com", "password": "clave123", "rol": "mozo",
     }).json()
 
-    resp = test_client.delete(f'/api/usuarios/{otro_admin["id"]}')
-    assert resp.status_code == 204
+    resp = test_client.patch(f'/api/usuarios/{creado["id"]}', json={"rol": "admin"})
+    assert resp.status_code == 403
 
 
 def test_resetear_password_de_usuario_personal(test_client, test_cliente):

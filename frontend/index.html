@@ -487,22 +487,32 @@
                                         <label>Nombre</label>
                                         <input type="text" id="usuario-nombre" required maxlength="100">
                                     </div>
-                                    <div class="form-group">
-                                        <label>Email de login</label>
-                                        <input type="email" id="usuario-email" required maxlength="150">
+                                    <!-- Personal (mozo/cajero/cocina): entra con celular, no email -->
+                                    <div class="form-group" id="usuario-celular-group">
+                                        <label>Celular de acceso</label>
+                                        <input type="tel" id="usuario-celular" placeholder="987654321" maxlength="20">
+                                    </div>
+                                    <!-- Admin (fila "Tú"): el email es fijo, solo se muestra -->
+                                    <div class="form-group hidden" id="usuario-email-fijo-group">
+                                        <label>Email de acceso</label>
+                                        <p class="campo-fijo" id="usuario-email-fijo"></p>
                                     </div>
                                     <div class="form-group" id="usuario-password-group">
                                         <label>Contraseña (mínimo 6 caracteres)</label>
                                         <input type="text" id="usuario-password" minlength="6" maxlength="200">
                                     </div>
-                                    <div class="form-group">
+                                    <div class="form-group" id="usuario-rol-group">
                                         <label>Rol</label>
                                         <select id="usuario-rol" required>
                                             <option value="mozo">Mozo</option>
                                             <option value="cajero">Cajero</option>
                                             <option value="jefe_cocina">Cocina</option>
-                                            <option value="admin">Administrador</option>
                                         </select>
+                                    </div>
+                                    <!-- Admin (fila "Tú"): el rol no se puede tocar desde acá -->
+                                    <div class="form-group hidden" id="usuario-rol-fijo-group">
+                                        <label>Rol</label>
+                                        <p class="campo-fijo">Administrador (no editable)</p>
                                     </div>
                                     <button type="submit" class="btn btn-primary btn-block">Guardar</button>
                                 </form>

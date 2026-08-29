@@ -173,11 +173,15 @@ class UsuarioResponse(BaseModel):
 
 
 class StaffCreateRequest(BaseModel):
-    """Crear mozo, cajero o cocinero. Usa celular, no email."""
+    """Crear mozo, cajero o cocinero. Usa celular, no email.
+
+    El valor de rol para cocina es 'jefe_cocina' — así se llama en toda la
+    app (ROLES_PERMITIDOS, dashboard, permisos), no 'cocinero'.
+    """
     nombre: str = Field(..., min_length=1, max_length=100)
     celular: str = Field(..., min_length=1, max_length=20)
     password: str = Field(..., min_length=6, max_length=200)
-    rol: str = Field(..., pattern="^(mozo|cajero|cocinero)$")
+    rol: str = Field(..., pattern="^(mozo|cajero|jefe_cocina)$")
 
 
 class StaffUpdateRequest(BaseModel):

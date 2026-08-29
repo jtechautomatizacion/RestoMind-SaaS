@@ -509,7 +509,7 @@ function renderPersonal() {
         <div class="admin-item ${u.estado === 'inactivo' ? 'inactivo' : ''}">
             <div class="admin-item-info">
                 <h4>${escapeHtml(u.nombre)} ${esUnoMismo ? '<span class="cantidad-badge">Tú</span>' : ''}</h4>
-                <p>${escapeHtml(u.email)} · ${ROL_LABELS[u.rol] || u.rol}</p>
+                <p>${escapeHtml(u.email || u.celular || '')} · ${ROL_LABELS[u.rol] || u.rol}</p>
             </div>
             <div class="admin-item-actions">
                 <button class="icon-btn" title="Editar" onclick="abrirModalEditarUsuario('${u.id}')">${ICON_EDIT}</button>
@@ -522,12 +522,24 @@ function renderPersonal() {
 }
 
 function abrirModalNuevoUsuario() {
+    // Solo se crea personal (mozo/cajero/cocina) desde acá — con celular,
+    // no email. Un admin no puede crear otro admin: ese lo da de alta el
+    // superadmin al registrar el restaurante.
     editingUsuarioId = null;
     document.getElementById('modal-usuario-title').textContent = 'Nueva Cuenta';
     document.getElementById('form-usuario').reset();
-    document.getElementById('usuario-email').disabled = false;
+
+    document.getElementById('usuario-celular-group').classList.remove('hidden');
+    document.getElementById('usuario-celular').disabled = false;
+    document.getElementById('usuario-celular').required = true;
+    document.getElementById('usuario-email-fijo-group').classList.add('hidden');
+
     document.getElementById('usuario-password-group').classList.remove('hidden');
     document.getElementById('usuario-password').required = true;
+
+    document.getElementById('usuario-rol-group').classList.remove('hidden');
+    document.getElementById('usuario-rol-fijo-group').classList.add('hidden');
+
     abrirModal('modal-usuario');
 }
 
@@ -538,16 +550,34 @@ function abrirModalEditarUsuario(usuarioId) {
     editingUsuarioId = usuarioId;
     document.getElementById('modal-usuario-title').textContent = 'Editar Cuenta';
     document.getElementById('usuario-nombre').value = usuario.nombre;
-    document.getElementById('usuario-email').value = usuario.email;
-    // El email es el identificador de login: cambiarlo es re-crear la
-    // cuenta, no editarla — más simple no permitirlo acá.
-    document.getElementById('usuario-email').disabled = true;
-    document.getElementById('usuario-rol').value = usuario.rol;
+
     // La contraseña se cambia solo desde "Resetear contraseña", no mezclado
     // en este formulario (evita que quede en blanco por accidente y alguien
     // piense que la borró).
     document.getElementById('usuario-password-group').classList.add('hidden');
     document.getElementById('usuario-password').required = false;
+
+    if (usuario.rol === 'admin') {
+        // El admin (fila "Tú"): ni el email ni el rol se pueden tocar acá.
+        document.getElementById('usuario-celular-group').classList.add('hidden');
+        document.getElementById('usuario-email-fijo-group').classList.remove('hidden');
+        document.getElementById('usuario-email-fijo').textContent = usuario.email;
+
+        document.getElementById('usuario-rol-group').classList.add('hidden');
+        document.getElementById('usuario-rol-fijo-group').classList.remove('hidden');
+    } else {
+        // Personal: el celular es el identificador de login, no se puede
+        // cambiar (cambiarlo sería re-crear la cuenta), pero el rol sí.
+        document.getElementById('usuario-celular-group').classList.remove('hidden');
+        document.getElementById('usuario-celular').value = usuario.celular;
+        document.getElementById('usuario-celular').disabled = true;
+        document.getElementById('usuario-email-fijo-group').classList.add('hidden');
+
+        document.getElementById('usuario-rol-group').classList.remove('hidden');
+        document.getElementById('usuario-rol-fijo-group').classList.add('hidden');
+        document.getElementById('usuario-rol').value = usuario.rol;
+    }
+
     abrirModal('modal-usuario');
 }
 
@@ -561,15 +591,22 @@ async function guardarUsuario(event) {
     event.preventDefault();
 
     const nombre = document.getElementById('usuario-nombre').value.trim();
-    const rol = document.getElementById('usuario-rol').value;
 
     try {
         if (editingUsuarioId) {
-            await api.patch(`/usuarios/${editingUsuarioId}`, { nombre, rol });
+            const usuario = adminPersonal.find(u => u.id === editingUsuarioId);
+            const datos = { nombre };
+            // El rol de un admin nunca se manda: es fijo, y el backend lo
+            // rechazaría igual si se intentara cambiar.
+            if (usuario && usuario.rol !== 'admin') {
+                datos.rol = document.getElementById('usuario-rol').value;
+            }
+            await api.patch(`/usuarios/${editingUsuarioId}`, datos);
         } else {
-            const email = document.getElementById('usuario-email').value.trim();
+            const celular = document.getElementById('usuario-celular').value.trim();
             const password = document.getElementById('usuario-password').value;
-            await api.post('/usuarios', { nombre, email, password, rol });
+            const rol = document.getElementById('usuario-rol').value;
+            await api.post('/usuarios/staff', { nombre, celular, password, rol });
         }
         cerrarModalUsuario();
         await refreshAdmin();
@@ -598,7 +635,7 @@ function abrirModalResetPasswordUsuario(usuarioId) {
 
     usuarioEnResetPassword = usuarioId;
     document.getElementById('form-reset-password-usuario').reset();
-    document.getElementById('reset-usuario-nombre').textContent = `Cuenta: ${usuario.nombre} (${usuario.email})`;
+    document.getElementById('reset-usuario-nombre').textContent = `Cuenta: ${usuario.nombre} (${usuario.email || usuario.celular})`;
     abrirModal('modal-reset-password-usuario');
 }
 

@@ -1615,6 +1615,15 @@ body {
     min-height: 70px;
 }
 
+/* Valor no editable dentro de un form (email de admin, rol fijo, etc.) */
+.campo-fijo {
+    padding: 11px 12px;
+    background: var(--surface-alt);
+    border-radius: var(--radius-sm);
+    font-size: 14.5px;
+    color: var(--text-muted);
+}
+
 /* ============ TOASTS ============ */
 
 .toast-container {

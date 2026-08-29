@@ -57,6 +57,13 @@ def crear_usuario(
 ):
     validar_admin(db, usuario_actual, cliente_id)
 
+    # Un admin no puede crear otro admin: cada restaurante tiene exactamente
+    # un admin, dado de alta por el superadmin al crear el cliente. Permitir
+    # esto abriría una forma de que un admin se cubra las espaldas creando
+    # un "repuesto" con el mismo nivel de acceso sin que el dueño lo sepa.
+    if payload.rol == "admin":
+        raise HTTPException(status_code=403, detail="Un administrador no puede crear otra cuenta de administrador")
+
     email = payload.email.strip().lower()
     # Usuario.email es único en TODO el sistema (no solo por restaurante):
     # el login resuelve el restaurante a partir del email, así que dos
@@ -197,6 +204,11 @@ def editar_usuario(
             raise HTTPException(status_code=400, detail="No puedes quitarte tu propio rol de administrador")
         if datos.get("estado") == "inactivo":
             raise HTTPException(status_code=400, detail="No puedes desactivar tu propia cuenta")
+
+    # Tampoco puede ascender a otra cuenta a admin (mismo motivo que en la
+    # creación: un solo admin por restaurante, dado de alta por el superadmin).
+    if datos.get("rol") == "admin" and usuario.rol != "admin":
+        raise HTTPException(status_code=403, detail="No puedes ascender esta cuenta a administrador")
 
     # No permitir cambiar email de admin ni celular de staff
     if "email" in datos and usuario.email:  # Es admin
