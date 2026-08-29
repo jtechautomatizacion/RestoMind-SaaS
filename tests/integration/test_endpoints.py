@@ -13,6 +13,16 @@ def test_health_endpoint(test_client):
     assert response.json()['status'] == 'ok'
 
 
+def test_respuestas_incluyen_cabeceras_de_seguridad(test_client):
+    """CSP, X-Frame-Options, etc. deben ir en TODA respuesta, no solo en
+    login — cualquier endpoint sirve para verificarlo."""
+    response = test_client.get('/health')
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert "default-src 'self'" in response.headers["content-security-policy"]
+    assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+
+
 # ============ AUTENTICACIÓN ============
 
 def test_login_correcto_devuelve_token(test_client_real_auth, test_cliente):

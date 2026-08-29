@@ -4,6 +4,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from backend.config import settings
 from backend.database import init_db, SessionLocal
+from backend.middleware import SecurityHeadersMiddleware
 from backend.seed import seed_if_empty, backfill_clientes_existentes
 from backend.routes import platos, mesas, comandas, compras, dashboard, categorias, auth, superadmin, usuarios
 from backend.migrate import migrate
@@ -36,6 +37,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Cabeceras de seguridad (CSP, X-Frame-Options, etc.) en toda respuesta.
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Mount static files (frontend)
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
