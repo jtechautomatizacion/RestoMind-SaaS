@@ -35,13 +35,21 @@ function limpiarSesion() {
 function mostrarLogin(mensaje) {
     document.getElementById('login-screen').classList.remove('hidden');
     document.getElementById('app').classList.add('hidden');
-    const error = document.getElementById('login-error');
-    if (mensaje) {
-        error.textContent = mensaje;
-        error.classList.remove('hidden');
-    } else {
-        error.classList.add('hidden');
-    }
+}
+
+function cambiarTabLogin(tab) {
+    // Actualizar pestañas activas
+    document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
+    document.querySelector(`[onclick="cambiarTabLogin('${tab}')"]`).classList.add('active');
+
+    // Actualizar formularios
+    document.getElementById('form-login-admin').classList.remove('active');
+    document.getElementById('form-login-staff').classList.remove('active');
+    document.getElementById(`form-login-${tab}`).classList.add('active');
+
+    // Limpiar errores
+    document.getElementById('login-error-admin').classList.add('hidden');
+    document.getElementById('login-error-staff').classList.add('hidden');
 }
 
 function mostrarApp() {
@@ -49,14 +57,16 @@ function mostrarApp() {
     document.getElementById('app').classList.remove('hidden');
 }
 
-async function manejarLogin(event) {
+async function loginAdmin(event) {
     event.preventDefault();
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
-    const boton = document.getElementById('btn-login');
+    const boton = event.target.querySelector('button[type="submit"]');
+    const errorEl = document.getElementById('login-error-admin');
 
     boton.disabled = true;
     boton.textContent = 'Ingresando...';
+    errorEl.classList.add('hidden');
 
     try {
         const resp = await fetch(`${API_BASE_URL}/auth/login`, {
@@ -76,11 +86,54 @@ async function manejarLogin(event) {
         mostrarApp();
         init();
     } catch (err) {
-        mostrarLogin(err.message);
+        errorEl.textContent = err.message;
+        errorEl.classList.remove('hidden');
     } finally {
         boton.disabled = false;
         boton.textContent = 'Ingresar';
     }
+}
+
+async function loginStaff(event) {
+    event.preventDefault();
+    const celular = document.getElementById('login-celular').value.trim();
+    const password = document.getElementById('login-password-staff').value;
+    const boton = event.target.querySelector('button[type="submit"]');
+    const errorEl = document.getElementById('login-error-staff');
+
+    boton.disabled = true;
+    boton.textContent = 'Ingresando...';
+    errorEl.classList.add('hidden');
+
+    try {
+        const resp = await fetch(`${API_BASE_URL}/auth/login-staff`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ celular, password }),
+        });
+
+        if (!resp.ok) {
+            const body = await resp.json().catch(() => ({}));
+            throw new Error(body.detail || 'No se pudo iniciar sesión');
+        }
+
+        const data = await resp.json();
+        guardarSesion(data.access_token, data.usuario);
+        aplicarUsuarioDeSesion(data.usuario);
+        mostrarApp();
+        init();
+    } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.classList.remove('hidden');
+    } finally {
+        boton.disabled = false;
+        boton.textContent = 'Ingresar';
+    }
+}
+
+async function manejarLogin(event) {
+    // Función legacy para compatibilidad (ahora se llamará loginAdmin o loginStaff según la pestaña)
+    return loginAdmin(event);
 }
 
 function aplicarUsuarioDeSesion(usuario) {

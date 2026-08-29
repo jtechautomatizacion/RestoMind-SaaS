@@ -12,6 +12,7 @@ const SA_TOKEN_KEY = 'restomind_superadmin_token';
 
 let clientesCache = [];
 let clienteEnResetPassword = null;
+let clienteEnEdicion = null;
 
 // ============ UTILIDADES (copiadas de app.js: esta página no lo carga) ============
 
@@ -186,10 +187,12 @@ function renderClientes() {
                 <div class="cliente-stat"><div class="num">${formatCurrency(c.ventas_mes_actual)}</div><div class="label">Este mes</div></div>
             </div>
             <div class="cliente-card-actions">
+                <button class="btn btn-secondary" onclick="abrirModalEditarCliente('${c.id}')">Editar</button>
                 ${c.estado === 'activo'
                     ? `<button class="btn btn-secondary" onclick="cambiarEstadoCliente('${c.id}', 'suspendido')">Suspender</button>`
                     : `<button class="btn btn-secondary" onclick="cambiarEstadoCliente('${c.id}', 'activo')">Reactivar</button>`}
                 <button class="btn btn-secondary" onclick="abrirModalResetPassword('${c.id}', '${escapeHtml(c.nombre)}')">Resetear contraseña</button>
+                <button class="btn btn-secondary" onclick="eliminarCliente('${c.id}', '${escapeHtml(c.nombre)}')">Eliminar</button>
             </div>
         </div>
     `).join('');
@@ -344,5 +347,138 @@ async function cambiarMiPassword() {
         showToast('Contraseña actualizada exitosamente', 'success');
     } catch (err) {
         showToast(err.message || 'Error al cambiar la contraseña', 'error');
+    }
+}
+
+async function abrirModalEditarCliente(clienteId) {
+    const cliente = clientesCache.find(c => c.id === clienteId);
+    if (!cliente) return;
+
+    clienteEnEdicion = clienteId;
+    document.getElementById('ec-nombre').value = cliente.nombre;
+    document.getElementById('ec-email').value = cliente.email;
+    document.getElementById('ec-telefono').value = cliente.telefono || '';
+    document.getElementById('ec-admin-nombre').value = cliente.nombre;
+    document.getElementById('ec-admin-email').value = cliente.email;
+    document.getElementById('ec-admin-password').value = '';
+    abrirModal('modal-editar-cliente');
+}
+
+function cerrarModalEditarCliente() {
+    document.getElementById('modal-editar-cliente').classList.add('hidden');
+    clienteEnEdicion = null;
+}
+
+async function guardarEditarCliente(event) {
+    event.preventDefault();
+
+    if (!clienteEnEdicion) return;
+
+    const payload = {
+        nombre: document.getElementById('ec-nombre').value.trim(),
+        email: document.getElementById('ec-email').value.trim(),
+        telefono: document.getElementById('ec-telefono').value.trim() || null,
+        num_mesas: 0,
+        admin_nombre: document.getElementById('ec-admin-nombre').value.trim(),
+        admin_email: document.getElementById('ec-admin-email').value.trim(),
+        admin_password: document.getElementById('ec-admin-password').value,
+        pais: 'Perú',
+        moneda: 'PEN',
+    };
+
+    try {
+        await saFetch(`/superadmin/clientes/${clienteEnEdicion}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+        });
+        cerrarModalEditarCliente();
+        await refreshClientes();
+        showToast('Restaurante actualizado. Si cambió el email del admin, se le envió un email con las nuevas credenciales.', 'success');
+    } catch (err) {
+        showToast(err.message || 'Error al guardar cambios', 'error');
+    }
+}
+
+async function eliminarCliente(clienteId, nombreCliente) {
+    if (!confirm(`¿Estás seguro de que quieres ELIMINAR "${nombreCliente}"? Esta acción no se puede deshacer.`)) return;
+
+    try {
+        await saFetch(`/superadmin/clientes/${clienteId}`, { method: 'DELETE' });
+        await refreshClientes();
+        showToast(`Restaurante "${nombreCliente}" eliminado`, 'success');
+    } catch (err) {
+        showToast(err.message || 'Error al eliminar el restaurante', 'error');
+    }
+}
+
+// ============ EDITAR CLIENTE ============
+
+async function abrirModalEditarCliente(clienteId) {
+    const cliente = clientesCache.find(c => c.id === clienteId);
+    if (!cliente) return;
+
+    clienteEnEdicion = clienteId;
+    document.getElementById('ec-nombre').value = cliente.nombre;
+    document.getElementById('ec-email').value = cliente.email;
+    document.getElementById('ec-telefono').value = cliente.telefono || '';
+
+    // Obtener datos del admin
+    try {
+        const resp = await saFetch(`/superadmin/clientes/${clienteId}/admin`);
+        document.getElementById('ec-admin-nombre').value = resp.nombre;
+        document.getElementById('ec-admin-email').value = resp.email;
+    } catch (err) {
+        showToast('Error al cargar datos del admin', 'error');
+        return;
+    }
+
+    document.getElementById('ec-admin-password').value = '';
+    abrirModal('modal-editar-cliente');
+}
+
+function cerrarModalEditarCliente() {
+    document.getElementById('modal-editar-cliente').classList.add('hidden');
+    clienteEnEdicion = null;
+}
+
+async function guardarEditarCliente(event) {
+    event.preventDefault();
+
+    if (!clienteEnEdicion) return;
+
+    const payload = {
+        nombre: document.getElementById('ec-nombre').value.trim(),
+        email: document.getElementById('ec-email').value.trim(),
+        telefono: document.getElementById('ec-telefono').value.trim() || null,
+        num_mesas: 0,  // no se puede cambiar desde aquí
+        admin_nombre: document.getElementById('ec-admin-nombre').value.trim(),
+        admin_email: document.getElementById('ec-admin-email').value.trim(),
+        admin_password: document.getElementById('ec-admin-password').value,
+        pais: 'Perú',
+        moneda: 'PEN',
+    };
+
+    try {
+        await saFetch(`/superadmin/clientes/${clienteEnEdicion}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+        });
+        cerrarModalEditarCliente();
+        await refreshClientes();
+        showToast('Restaurante actualizado. Si cambió el email del admin, se le envió un email con las nuevas credenciales.', 'success');
+    } catch (err) {
+        showToast(err.message || 'Error al guardar cambios', 'error');
+    }
+}
+
+async function eliminarCliente(clienteId, nombreCliente) {
+    if (!confirm(`¿Estás seguro de que quieres ELIMINAR "${nombreCliente}"? Esta acción no se puede deshacer.`)) return;
+
+    try {
+        await saFetch(`/superadmin/clientes/${clienteId}`, { method: 'DELETE' });
+        await refreshClientes();
+        showToast(`Restaurante "${nombreCliente}" eliminado`, 'success');
+    } catch (err) {
+        showToast(err.message || 'Error al eliminar el restaurante', 'error');
     }
 }

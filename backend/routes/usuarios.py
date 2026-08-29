@@ -24,6 +24,9 @@ from backend.schemas import (
     UsuarioCreate,
     UsuarioResponse,
     UsuarioUpdate,
+    UsuarioUpdateMeRequest,
+    StaffCreateRequest,
+    StaffUpdateRequest,
 )
 from backend.utils.security import validar_admin
 
@@ -75,6 +78,35 @@ def crear_usuario(
     return usuario
 
 
+@router.post("/usuarios/staff", response_model=UsuarioResponse, status_code=201)
+def crear_staff(
+    payload: StaffCreateRequest,
+    db: Session = Depends(get_db),
+    cliente_id: str = Depends(get_cliente_id),
+    usuario_actual: str = Depends(get_usuario_actual),
+):
+    """Crear mozo, cajero o cocinero. Usa celular en lugar de email."""
+    validar_admin(db, usuario_actual, cliente_id)
+
+    # Validar que el celular no exista ya
+    if db.query(Usuario).filter(Usuario.celular == payload.celular.strip()).first():
+        raise HTTPException(status_code=400, detail=f"Ya existe un usuario con el celular '{payload.celular}'")
+
+    usuario = Usuario(
+        id=f"usr-{cliente_id}-{payload.celular}",
+        cliente_id=cliente_id,
+        nombre=payload.nombre,
+        celular=payload.celular.strip(),
+        email=None,  # Staff NO tiene email
+        password_hash=hash_password(payload.password),
+        rol=payload.rol,
+    )
+    db.add(usuario)
+    db.commit()
+    db.refresh(usuario)
+    return usuario
+
+
 # Endpoints /me DEBEN ir ANTES de /{usuario_id} para que FastAPI los
 # matchee antes (en orden de definición, rutas parametrizadas capturan lo que quieran)
 @router.get("/usuarios/me", response_model=UsuarioResponse)
@@ -83,15 +115,38 @@ def obtener_mi_perfil(
     cliente_id: str = Depends(get_cliente_id),
     usuario_actual: str = Depends(get_usuario_actual),
 ):
-    """Obtener datos de la cuenta actual del usuario."""
+    """Obtener datos de la cuenta actual del usuario. Funciona con email (admin) o celular (staff)."""
     usuario = db.query(Usuario).filter(
-        Usuario.email == usuario_actual,
-        Usuario.cliente_id == cliente_id
+        Usuario.cliente_id == cliente_id,
+        (Usuario.email == usuario_actual) | (Usuario.celular == usuario_actual)
     ).first()
     if not usuario:
         raise HTTPException(status_code=401, detail="Sesión inválida")
 
-    return UsuarioResponse.from_orm(usuario)
+    return usuario
+
+
+@router.patch("/usuarios/me")
+def editar_mi_perfil(
+    payload: UsuarioUpdateMeRequest,
+    db: Session = Depends(get_db),
+    cliente_id: str = Depends(get_cliente_id),
+    usuario_actual: str = Depends(get_usuario_actual),
+):
+    """Editar solo el nombre. Email y rol NO se pueden cambiar."""
+    usuario = db.query(Usuario).filter(
+        Usuario.cliente_id == cliente_id,
+        (Usuario.email == usuario_actual) | (Usuario.celular == usuario_actual)
+    ).first()
+    if not usuario:
+        raise HTTPException(status_code=401, detail="Sesión inválida")
+
+    if payload.nombre:
+        usuario.nombre = payload.nombre.strip()
+
+    db.commit()
+    db.refresh(usuario)
+    return usuario
 
 
 @router.patch("/usuarios/me/password")
@@ -103,8 +158,8 @@ def cambiar_mi_password(
 ):
     """Cambiar la propia contraseña del usuario (admin, mozo, etc.)."""
     usuario = db.query(Usuario).filter(
-        Usuario.email == usuario_actual,
-        Usuario.cliente_id == cliente_id
+        Usuario.cliente_id == cliente_id,
+        (Usuario.email == usuario_actual) | (Usuario.celular == usuario_actual)
     ).first()
     if not usuario:
         raise HTTPException(status_code=401, detail="Sesión inválida")
@@ -132,17 +187,22 @@ def editar_usuario(
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-    es_uno_mismo = usuario.email == usuario_actual
+    # Verificar si es el mismo usuario (por email o celular)
+    es_uno_mismo = (usuario.email == usuario_actual) or (usuario.celular == usuario_actual)
     datos = payload.model_dump(exclude_unset=True)
 
-    # Sin este chequeo, un admin solitario podría quitarse su propio rol de
-    # admin o desactivarse a sí mismo y quedar sin forma de deshacerlo —
-    # nadie más en el restaurante podría volver a darle acceso.
-    if es_uno_mismo:
+    # Protecciones para que un admin no se auto-bloquee
+    if es_uno_mismo and usuario.rol == "admin":
         if datos.get("rol") and datos["rol"] != "admin":
             raise HTTPException(status_code=400, detail="No puedes quitarte tu propio rol de administrador")
         if datos.get("estado") == "inactivo":
             raise HTTPException(status_code=400, detail="No puedes desactivar tu propia cuenta")
+
+    # No permitir cambiar email de admin ni celular de staff
+    if "email" in datos and usuario.email:  # Es admin
+        raise HTTPException(status_code=400, detail="No puedes cambiar tu email")
+    if "celular" in datos and usuario.celular:  # Es staff
+        raise HTTPException(status_code=400, detail="No puedes cambiar tu celular")
 
     for campo, valor in datos.items():
         setattr(usuario, campo, valor)

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from backend.auth import crear_token_superadmin, hash_password, verificar_password
 from backend.database import get_db
 from backend.dependencies import get_superadmin_email
+from backend.email import enviar_email_credenciales
 from backend.models import Cliente, Comanda, Mesa, Plato, SuperAdmin, Usuario
 from backend.schemas import (
     ChangePasswordRequest,
@@ -58,6 +59,19 @@ def me_superadmin(
     if not admin:
         raise HTTPException(status_code=401, detail="Sesión inválida")
     return SuperAdminMe(nombre=admin.nombre, email=admin.email)
+
+
+@router.get("/superadmin/clientes/{cliente_id}/admin")
+def obtener_admin_cliente(
+    cliente_id: str,
+    db: Session = Depends(get_db),
+    _superadmin: str = Depends(get_superadmin_email),
+):
+    """Obtener datos del admin de un cliente (para editar)."""
+    admin = db.query(Usuario).filter(Usuario.cliente_id == cliente_id, Usuario.rol == "admin").first()
+    if not admin:
+        raise HTTPException(status_code=404, detail="Admin no encontrado")
+    return {"nombre": admin.nombre, "email": admin.email}
 
 
 @router.get("/superadmin/clientes", response_model=List[ClienteConStats])
@@ -144,6 +158,15 @@ def crear_cliente(
 
     db.commit()
 
+    # Enviar email de bienvenida con credenciales (no bloquea si falla)
+    enviar_email_credenciales(
+        destinatario=admin_email,
+        nombre_admin=payload.admin_nombre,
+        email_login=admin_email,
+        password=payload.admin_password,
+        nombre_restaurante=payload.nombre,
+    )
+
     return ClienteConStats(
         id=cliente.id, nombre=cliente.nombre, email=cliente.email, telefono=cliente.telefono,
         pais=cliente.pais, estado=cliente.estado, creado_en=cliente.creado_en,
@@ -172,6 +195,90 @@ def cambiar_estado_cliente(
     cliente.estado = payload.estado
     db.commit()
     return {"id": cliente.id, "estado": cliente.estado}
+
+
+@router.patch("/superadmin/clientes/{cliente_id}")
+def editar_cliente(
+    cliente_id: str,
+    payload: ClienteCreateRequest,
+    db: Session = Depends(get_db),
+    _superadmin: str = Depends(get_superadmin_email),
+):
+    """Editar datos del cliente y su admin."""
+    cliente = db.query(Cliente).filter(Cliente.id == cliente_id).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Restaurante no encontrado")
+
+    admin = db.query(Usuario).filter(Usuario.cliente_id == cliente_id, Usuario.rol == "admin").first()
+    if not admin:
+        raise HTTPException(status_code=404, detail="Este restaurante no tiene un usuario admin")
+
+    # Validar email único (si cambió)
+    if payload.email and payload.email != cliente.email:
+        otro = db.query(Cliente).filter(Cliente.email == payload.email, Cliente.id != cliente_id).first()
+        if otro:
+            raise HTTPException(status_code=400, detail=f"Ya existe un restaurante con el email '{payload.email}'")
+
+    # Actualizar cliente
+    cliente.nombre = payload.nombre
+    cliente.email = payload.email
+    cliente.telefono = payload.telefono
+    cliente.pais = payload.pais or cliente.pais
+    cliente.moneda = payload.moneda or cliente.moneda
+
+    # Actualizar admin (email y/o contraseña)
+    email_admin_cambio = False
+    new_admin_email = payload.admin_email.strip().lower()
+    old_admin_email = admin.email
+
+    if new_admin_email != old_admin_email:
+        # Validar que el nuevo email no existe en otro usuario
+        otro = db.query(Usuario).filter(Usuario.email == new_admin_email, Usuario.id != admin.id).first()
+        if otro:
+            raise HTTPException(status_code=400, detail=f"Ya existe un usuario con el email '{new_admin_email}'")
+        admin.email = new_admin_email
+        email_admin_cambio = True
+
+    # Actualizar contraseña si se proporcionó
+    if payload.admin_password:
+        admin.password_hash = hash_password(payload.admin_password)
+
+    db.commit()
+
+    # Si cambió el email del admin, reenviar credenciales
+    if email_admin_cambio:
+        enviar_email_credenciales(
+            destinatario=new_admin_email,
+            nombre_admin=admin.nombre,
+            email_login=new_admin_email,
+            password=payload.admin_password or "***",  # Si no cambió password, no la reenviamos
+            nombre_restaurante=cliente.nombre,
+        )
+
+    return ClienteConStats(
+        id=cliente.id, nombre=cliente.nombre, email=cliente.email, telefono=cliente.telefono,
+        pais=cliente.pais, estado=cliente.estado, creado_en=cliente.creado_en,
+        num_usuarios=db.query(Usuario).filter(Usuario.cliente_id == cliente.id).count(),
+        num_platos=db.query(Plato).filter(Plato.cliente_id == cliente.id).count(),
+        num_mesas=db.query(Mesa).filter(Mesa.cliente_id == cliente.id).count(),
+        ventas_mes_actual=0.0,  # TODO: recalcular
+    )
+
+
+@router.delete("/superadmin/clientes/{cliente_id}", status_code=204)
+def eliminar_cliente(
+    cliente_id: str,
+    db: Session = Depends(get_db),
+    _superadmin: str = Depends(get_superadmin_email),
+):
+    """Eliminar un cliente y todos sus datos (usuarios, platos, mesas, comandas, etc)."""
+    cliente = db.query(Cliente).filter(Cliente.id == cliente_id).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Restaurante no encontrado")
+
+    # Eliminar en cascada (SQLAlchemy lo hace automáticamente si está bien configurado)
+    db.delete(cliente)
+    db.commit()
 
 
 @router.patch("/superadmin/clientes/{cliente_id}/reset-password")

@@ -25,6 +25,15 @@ class Settings(BaseSettings):
     # Claude API (futuro)
     anthropic_api_key: str = ""
 
+    # SMTP (para envío de emails)
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_from_name: str = "RestoMind"
+    app_url: str = "http://localhost:8000"
+
     class Config:
         env_file = ".env"
         case_sensitive = False

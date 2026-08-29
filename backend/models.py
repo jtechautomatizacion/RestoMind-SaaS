@@ -48,9 +48,10 @@ class Usuario(Base):
     id = Column(String, primary_key=True)
     cliente_id = Column(String, ForeignKey("clientes.id"), nullable=False)
     nombre = Column(String, nullable=False)
-    email = Column(String, unique=True, nullable=False)
+    email = Column(String, unique=True, nullable=True)  # Admin/superadmin. NULL para staff (mozo, cajero, cocinero)
+    celular = Column(String, nullable=True)  # Staff (mozo, cajero, cocinero). NULL para admin
     password_hash = Column(String, nullable=False)
-    rol = Column(String, default="mozo")  # admin, jefe_cocina, mozo
+    rol = Column(String, default="mozo")  # admin, mozo, cajero, cocinero
     estado = Column(String, default="activo")
     creado_en = Column(DateTime, default=datetime.utcnow)
 

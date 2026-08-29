@@ -15,7 +15,7 @@ from backend.auth import crear_token, verificar_password
 from backend.database import get_db
 from backend.dependencies import get_cliente_id, get_usuario_actual
 from backend.models import Cliente, Usuario
-from backend.schemas import LoginRequest, LoginResponse, UsuarioMe
+from backend.schemas import LoginRequest, LoginResponse, UsuarioMe, LoginStaffRequest
 
 router = APIRouter()
 
@@ -44,6 +44,37 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         access_token=token,
         usuario=UsuarioMe(
             email=usuario.email,
+            nombre=usuario.nombre,
+            rol=usuario.rol,
+            cliente_id=usuario.cliente_id,
+            cliente_nombre=cliente.nombre,
+        ),
+    )
+
+
+@router.post("/auth/login-staff", response_model=LoginResponse)
+def login_staff(payload: LoginStaffRequest, db: Session = Depends(get_db)):
+    """Login para mozo, cajero, cocinero. Usa celular + contraseña."""
+    usuario = db.query(Usuario).filter(Usuario.celular == payload.celular.strip()).first()
+
+    credenciales_invalidas = HTTPException(status_code=401, detail="Celular o contraseña incorrectos")
+
+    if not usuario or not verificar_password(payload.password, usuario.password_hash):
+        raise credenciales_invalidas
+
+    if usuario.estado != "activo":
+        raise HTTPException(status_code=403, detail="Este usuario está deshabilitado")
+
+    cliente = db.query(Cliente).filter(Cliente.id == usuario.cliente_id).first()
+    if not cliente or cliente.estado != "activo":
+        raise HTTPException(status_code=403, detail="Esta cuenta de restaurante está deshabilitada")
+
+    # Para staff, usamos celular en lugar de email en el token
+    token = crear_token(email=usuario.celular, cliente_id=usuario.cliente_id, rol=usuario.rol)
+    return LoginResponse(
+        access_token=token,
+        usuario=UsuarioMe(
+            email=usuario.nombre,  # Mostrar nombre en lugar de email para staff
             nombre=usuario.nombre,
             rol=usuario.rol,
             cliente_id=usuario.cliente_id,

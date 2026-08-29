@@ -123,6 +123,43 @@ body {
     margin-bottom: 14px;
 }
 
+.login-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+.login-tab {
+    flex: 1;
+    padding: 12px 8px;
+    background: none;
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.2s;
+}
+
+.login-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+.login-form {
+    display: none;
+}
+
+.login-form.active {
+    display: block;
+}
+
 /* ============ TOP BAR ============ */
 
 .top-bar {

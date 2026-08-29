@@ -85,8 +85,8 @@ class SuperAdminUpdateRequest(BaseModel):
 
 
 class UsuarioUpdateMeRequest(BaseModel):
-    email: Optional[str] = Field(default=None, min_length=1, max_length=150)
-    password_actual: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    """Solo nombre. Email y rol NO se pueden cambiar."""
+    nombre: Optional[str] = Field(default=None, min_length=1, max_length=100)
 
 
 # ============ GENÉRICO ============
@@ -162,13 +162,34 @@ class UsuarioUpdate(BaseModel):
 class UsuarioResponse(BaseModel):
     id: str
     nombre: str
-    email: str
+    email: Optional[str]
+    celular: Optional[str]
     rol: str
     estado: str
     creado_en: datetime
 
     class Config:
         from_attributes = True
+
+
+class StaffCreateRequest(BaseModel):
+    """Crear mozo, cajero o cocinero. Usa celular, no email."""
+    nombre: str = Field(..., min_length=1, max_length=100)
+    celular: str = Field(..., min_length=1, max_length=20)
+    password: str = Field(..., min_length=6, max_length=200)
+    rol: str = Field(..., pattern="^(mozo|cajero|cocinero)$")
+
+
+class StaffUpdateRequest(BaseModel):
+    """Editar staff. Solo nombre y contraseña. No se puede cambiar celular ni rol."""
+    nombre: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    password: Optional[str] = Field(default=None, min_length=6, max_length=200)
+
+
+class LoginStaffRequest(BaseModel):
+    """Login para mozo, cajero, cocinero. Usa celular + contraseña."""
+    celular: str = Field(..., min_length=1, max_length=20)
+    password: str = Field(..., min_length=1)
 
 
 # ============ MESAS ============

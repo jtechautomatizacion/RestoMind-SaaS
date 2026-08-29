@@ -1,10 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from backend.config import settings
 from backend.database import init_db, SessionLocal
 from backend.seed import seed_if_empty, backfill_clientes_existentes
 from backend.routes import platos, mesas, comandas, compras, dashboard, categorias, auth, superadmin, usuarios
+from backend.migrate import migrate
+
+# Ejecutar migración antes de init_db
+migrate()
 
 # Initialize database + seed de demo (idempotente)
 init_db()
@@ -42,10 +47,10 @@ async def health_check():
     return {"status": "ok", "version": "0.1.0"}
 
 
-# Root endpoint
+# Root endpoint — redirige a la app
 @app.get("/")
 async def root():
-    return {"message": "RestoMind API", "docs": "/docs"}
+    return RedirectResponse(url="/static/index.html")
 
 
 # Routers
