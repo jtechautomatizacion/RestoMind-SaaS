@@ -51,6 +51,39 @@ def test_desactivar_plato_no_aparece_en_listado(test_client, test_platos):
     assert test_platos[0].nombre not in nombres
 
 
+def test_eliminar_plato_sin_historial_lo_borra(test_client, test_platos):
+    plato_id = test_platos[0].id
+    resp = test_client.delete(f'/api/platos/{plato_id}')
+    assert resp.status_code == 200
+    assert resp.json()["eliminado"] is True
+
+    resp = test_client.get('/api/platos?incluir_inactivos=true')
+    ids = [p["id"] for p in resp.json()]
+    assert plato_id not in ids
+
+
+def test_eliminar_plato_con_historial_lo_archiva_sin_borrar(test_client, test_platos, test_mesas):
+    plato_id = test_platos[0].id
+    test_client.post('/api/comandas', json={
+        "numero_mesa": 1,
+        "platos": [{"plato_id": plato_id, "cantidad": 1}],
+    })
+
+    resp = test_client.delete(f'/api/platos/{plato_id}')
+    assert resp.status_code == 200
+    assert resp.json()["eliminado"] is False
+
+    # Sigue existiendo (no se perdió el historial de la comanda), pero
+    # desapareció de la carta activa.
+    resp = test_client.get('/api/platos?incluir_inactivos=true')
+    plato = next(p for p in resp.json() if p["id"] == plato_id)
+    assert plato["estado"] == "inactivo"
+
+    resp = test_client.get('/api/platos')
+    ids = [p["id"] for p in resp.json()]
+    assert plato_id not in ids
+
+
 # ============ CU-02: COMANDAS ============
 
 def test_crear_comanda_calcula_total_y_ocupa_mesa(test_client, test_platos, test_mesas):
@@ -194,6 +227,29 @@ def test_cancelar_compra(test_client, test_cliente):
     assert resp.json()["estado"] == "cancelado"
 
 
+def test_eliminar_compra_mismo_dia(test_client, test_cliente):
+    from datetime import datetime
+    payload = {"descripcion": "Hielo", "monto": 15.0, "fecha": datetime.utcnow().date().isoformat()}
+    compra_id = test_client.post('/api/compras', json=payload).json()["id"]
+
+    resp = test_client.delete(f'/api/compras/{compra_id}')
+    assert resp.status_code == 204
+
+    resp = test_client.get('/api/compras')
+    ids = [c["id"] for c in resp.json()]
+    assert compra_id not in ids
+
+
+def test_eliminar_compra_dia_anterior_falla(test_client, test_cliente, test_db):
+    from backend.models import Compra
+    compra = Compra(cliente_id=test_cliente.id, descripcion="Gas", monto=50.0, fecha="2020-01-01", estado="registrado")
+    test_db.add(compra)
+    test_db.commit()
+
+    resp = test_client.delete(f'/api/compras/{compra.id}')
+    assert resp.status_code == 403
+
+
 # ============ CU-05: DASHBOARD ============
 
 def test_dashboard_refleja_venta_cobrada(test_client, test_platos, test_mesas):
@@ -214,12 +270,99 @@ def test_dashboard_refleja_venta_cobrada(test_client, test_platos, test_mesas):
     assert data["top_platos"][0]["nombre"] == "Ceviche Clásico"
 
 
+def test_dashboard_cuenta_venta_nocturna_en_el_dia_local(test_client, test_db, test_platos, test_mesas):
+    """Una venta cobrada el viernes 22:33 en Lima se guarda como sábado 03:33 UTC.
+    Debe contar el viernes (día del restaurante), no el sábado."""
+    from datetime import datetime
+    from backend.models import Comanda
+
+    payload = {"numero_mesa": 1, "platos": [{"plato_id": test_platos[0].id, "cantidad": 1}]}
+    comanda_id = test_client.post('/api/comandas', json=payload).json()["id"]
+    test_client.patch(f'/api/comandas/{comanda_id}/estado', json={"estado": "entregado"})
+
+    mesas = test_client.get('/api/mesas').json()
+    mesa1_id = next(m for m in mesas if m["numero"] == 1)["id"]
+    test_client.post(f'/api/mesas/{mesa1_id}/cobrar')
+
+    comanda = test_db.query(Comanda).filter(Comanda.id == comanda_id).first()
+    comanda.actualizado_en = datetime(2026, 8, 29, 3, 33)  # UTC
+    test_db.commit()
+
+    # Perú = UTC-5 → getTimezoneOffset() devuelve 300
+    headers = {"X-TZ-Offset": "300"}
+    resp = test_client.get('/api/dashboard/resumen?desde=2026-08-22&hasta=2026-08-28', headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["totales"]["ventas"] == 45.0
+    dia_viernes = next(d for d in data["serie"] if d["fecha"] == "2026-08-28")
+    assert dia_viernes["ventas"] == 45.0
+
+    # Sin el header (servidor en UTC) la misma venta cae fuera del rango.
+    sin_tz = test_client.get('/api/dashboard/resumen?desde=2026-08-22&hasta=2026-08-28').json()
+    assert sin_tz["totales"]["ventas"] == 0.0
+
+
+def test_reporte_excel_genera_las_3_hojas(test_client, test_platos, test_mesas):
+    from io import BytesIO
+    from openpyxl import load_workbook
+
+    payload = {"numero_mesa": 1, "platos": [{"plato_id": test_platos[0].id, "cantidad": 2}]}
+    comanda = test_client.post('/api/comandas', json=payload).json()
+    test_client.patch(f'/api/comandas/{comanda["id"]}/estado', json={"estado": "entregado"})
+    mesas = test_client.get('/api/mesas').json()
+    mesa1_id = next(m for m in mesas if m["numero"] == 1)["id"]
+    test_client.post(f'/api/mesas/{mesa1_id}/cobrar')
+
+    from datetime import datetime
+    test_client.post('/api/compras', json={
+        "descripcion": "Insumos", "categoria": "Insumos", "monto": 50.0,
+        "fecha": datetime.utcnow().date().isoformat(),
+    })
+
+    resp = test_client.get('/api/dashboard/reporte-excel?dias=7')
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+    wb = load_workbook(BytesIO(resp.content))
+    assert wb.sheetnames == ["Detalle de Ventas", "Detalle de Gastos", "Resumen Diario"]
+
+    ws_ventas = wb["Detalle de Ventas"]
+    assert ws_ventas.cell(row=1, column=1).value == "Fecha"
+    assert ws_ventas.cell(row=2, column=5).value == "Ceviche Clásico"
+    assert ws_ventas.cell(row=2, column=7).value == 2  # cantidad
+
+    ws_gastos = wb["Detalle de Gastos"]
+    assert ws_gastos.cell(row=2, column=2).value == "Insumos"
+
+    ws_resumen = wb["Resumen Diario"]
+    assert ws_resumen.cell(row=1, column=1).value == "Fecha"
+    assert len(list(ws_resumen.iter_rows(min_row=2))) == 7
+
+
 def test_dashboard_sin_ventas_no_falla(test_client, test_cliente):
     resp = test_client.get('/api/dashboard/resumen')
     assert resp.status_code == 200
     data = resp.json()
     assert data["totales"]["ventas"] == 0.0
     assert len(data["serie"]) == 7
+    assert data["top_gastos"] == []
+
+
+def test_dashboard_top_gastos_agrupa_por_categoria(test_client, test_cliente):
+    from datetime import datetime
+    hoy = datetime.utcnow().date().isoformat()
+    test_client.post('/api/compras', json={"descripcion": "Pescado", "categoria": "Insumos", "monto": 100.0, "fecha": hoy})
+    test_client.post('/api/compras', json={"descripcion": "Verduras", "categoria": "Insumos", "monto": 50.0, "fecha": hoy})
+    test_client.post('/api/compras', json={"descripcion": "Luz", "categoria": "Servicios", "monto": 30.0, "fecha": hoy})
+
+    resp = test_client.get('/api/dashboard/resumen?dias=7')
+    assert resp.status_code == 200
+    top_gastos = resp.json()["top_gastos"]
+    assert top_gastos[0]["categoria"] == "Insumos"
+    assert top_gastos[0]["monto"] == 150.0
+    assert top_gastos[0]["cantidad"] == 2
+    assert top_gastos[1]["categoria"] == "Servicios"
+    assert top_gastos[1]["monto"] == 30.0
 
 
 # ============ FOTOS DE PLATOS ============
@@ -313,3 +456,81 @@ def test_eliminar_imagen_plato(test_client, test_cliente):
     resp = test_client.delete(f'/api/platos/{plato_id}/imagen')
     assert resp.status_code == 200
     assert resp.json()["imagen_url"] is None
+
+
+# ============ GESTIÓN DE MESAS (Admin) ============
+
+def test_editar_mesa(test_client, test_mesas):
+    mesa_id = test_mesas[0].id
+    resp = test_client.patch(f'/api/mesas/{mesa_id}', json={"capacidad": 6, "ubicacion": "Patio"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["capacidad"] == 6
+    assert data["ubicacion"] == "Patio"
+    assert data["numero"] == test_mesas[0].numero  # no tocado, sigue igual
+
+
+def test_editar_mesa_numero_duplicado_falla(test_client, test_mesas):
+    mesa_id = test_mesas[0].id
+    otro_numero = test_mesas[1].numero
+    resp = test_client.patch(f'/api/mesas/{mesa_id}', json={"numero": otro_numero})
+    assert resp.status_code == 400
+
+
+def test_eliminar_mesa_disponible(test_client, test_mesas):
+    mesa_id = test_mesas[0].id
+    resp = test_client.delete(f'/api/mesas/{mesa_id}')
+    assert resp.status_code == 204
+
+    resp = test_client.get('/api/mesas')
+    numeros = [m["numero"] for m in resp.json()]
+    assert test_mesas[0].numero not in numeros
+
+
+def test_eliminar_mesa_ocupada_falla(test_client, test_platos, test_mesas):
+    mesa = test_mesas[0]
+    test_client.post('/api/comandas', json={
+        "numero_mesa": mesa.numero,
+        "platos": [{"plato_id": test_platos[0].id, "cantidad": 1}],
+    })
+
+    resp = test_client.delete(f'/api/mesas/{mesa.id}')
+    assert resp.status_code == 400
+
+
+# ============ CATEGORÍAS DE LA CARTA (Admin) ============
+
+def test_crear_y_listar_categoria(test_client, test_cliente):
+    resp = test_client.post('/api/categorias', json={"nombre": "Cebiches"})
+    assert resp.status_code == 201
+    assert resp.json()["nombre"] == "Cebiches"
+
+    resp = test_client.get('/api/categorias')
+    assert resp.status_code == 200
+    assert [c["nombre"] for c in resp.json()] == ["Cebiches"]
+
+
+def test_crear_categoria_duplicada_falla(test_client, test_cliente):
+    test_client.post('/api/categorias', json={"nombre": "Bebidas"})
+    resp = test_client.post('/api/categorias', json={"nombre": "Bebidas"})
+    assert resp.status_code == 400
+
+
+def test_eliminar_categoria_sin_platos(test_client, test_cliente):
+    categoria_id = test_client.post('/api/categorias', json={"nombre": "Postres"}).json()["id"]
+    resp = test_client.delete(f'/api/categorias/{categoria_id}')
+    assert resp.status_code == 204
+
+    resp = test_client.get('/api/categorias')
+    assert resp.json() == []
+
+
+def test_eliminar_categoria_en_uso_falla(test_client, test_cliente):
+    test_client.post('/api/categorias', json={"nombre": "Cebiches"})
+    test_client.post('/api/platos', json={"nombre": "Ceviche Clásico", "categoria": "Cebiches", "precio_venta": 45.0})
+
+    categorias = test_client.get('/api/categorias').json()
+    categoria_id = categorias[0]["id"]
+
+    resp = test_client.delete(f'/api/categorias/{categoria_id}')
+    assert resp.status_code == 400

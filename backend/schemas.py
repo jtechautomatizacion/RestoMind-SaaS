@@ -10,6 +10,23 @@ class EstadoUpdate(BaseModel):
     estado: str = Field(..., min_length=1)
 
 
+# ============ CATEGORÍAS ============
+
+class CategoriaCreate(BaseModel):
+    nombre: str = Field(..., min_length=1, max_length=50)
+    icono: str = Field(default="🍽️", min_length=1, max_length=8)
+
+
+class CategoriaResponse(BaseModel):
+    id: int
+    cliente_id: str
+    nombre: str
+    icono: str
+
+    class Config:
+        from_attributes = True
+
+
 # ============ PLATOS ============
 
 class PlatoCreate(BaseModel):
@@ -46,6 +63,12 @@ class PlatoResponse(BaseModel):
 class MesaCreate(BaseModel):
     numero: int = Field(..., gt=0)
     capacidad: int = Field(default=4, gt=0, le=50)
+    ubicacion: Optional[str] = Field(default=None, max_length=50)
+
+
+class MesaUpdate(BaseModel):
+    numero: Optional[int] = Field(default=None, gt=0)
+    capacidad: Optional[int] = Field(default=None, gt=0, le=50)
     ubicacion: Optional[str] = Field(default=None, max_length=50)
 
 
@@ -176,7 +199,13 @@ class DashboardTotales(BaseModel):
 class TopPlatoItem(BaseModel):
     nombre: str
     cantidad: int
-    revenue: float
+    ingresos: float
+
+
+class TopGastoItem(BaseModel):
+    categoria: str
+    cantidad: int
+    monto: float
 
 
 class DashboardResumen(BaseModel):
@@ -184,3 +213,4 @@ class DashboardResumen(BaseModel):
     serie: List[DashboardSerieItem]
     totales: DashboardTotales
     top_platos: List[TopPlatoItem]
+    top_gastos: List[TopGastoItem]

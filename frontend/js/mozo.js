@@ -24,23 +24,55 @@ function renderMesas() {
     const container = document.getElementById('mozo-mesas');
     container.innerHTML = '';
 
+    if (estado.mesas.length === 0) {
+        container.innerHTML = '<p class="empty-hint">Aún no hay mesas configuradas.</p>';
+        return;
+    }
+
+    // El cajero solo cobra: las mesas libres no le sirven de nada, así que
+    // se muestran apagadas y sin acción (evita toques accidentales que
+    // confundan "cobrar" con "tomar pedido").
+    const esCajero = estado.rol === 'cajero';
+
     estado.mesas.forEach(mesa => {
         const btn = document.createElement('button');
-        btn.className = `mesa-btn ${mesa.estado}`;
-        const cuentaHtml = mesa.estado === 'ocupada'
+        const deshabilitada = esCajero && mesa.estado !== 'ocupada';
+        btn.className = `mesa-btn ${mesa.estado} ${deshabilitada ? 'mesa-btn-inactiva' : ''}`;
+
+        const detalleHtml = mesa.estado === 'ocupada'
             ? `<div class="mesa-cuenta">${formatCurrency(mesa.cuenta_actual)}</div>`
+            : `<div class="mesa-capacidad">${mesa.capacidad}p</div>`;
+        const ubicacionHtml = mesa.ubicacion
+            ? `<div class="mesa-ubicacion">${escapeHtml(mesa.ubicacion)}</div>`
             : '';
+
         btn.innerHTML = `
-            <span class="mesa-estado-dot"></span>
+            <svg class="mesa-icono" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="5.5"/>
+                <circle class="mesa-icono-silla" cx="12" cy="2.2" r="1.7"/>
+                <circle class="mesa-icono-silla" cx="12" cy="21.8" r="1.7"/>
+                <circle class="mesa-icono-silla" cx="2.2" cy="12" r="1.7"/>
+                <circle class="mesa-icono-silla" cx="21.8" cy="12" r="1.7"/>
+            </svg>
             <span class="mesa-numero">${mesa.numero}</span>
-            ${cuentaHtml}
+            ${ubicacionHtml}
+            ${detalleHtml}
+            <span class="mesa-estado-dot"></span>
         `;
-        btn.onclick = () => abrirMesa(mesa);
+        if (!deshabilitada) {
+            btn.onclick = () => abrirMesa(mesa);
+        }
         container.appendChild(btn);
     });
 }
 
 function abrirMesa(mesa) {
+    if (estado.rol === 'cajero') {
+        // El cajero nunca toma pedidos, solo abre la cuenta para cobrar.
+        if (mesa.estado === 'ocupada') abrirCuentaMesa(mesa);
+        return;
+    }
+
     if (mesa.estado === 'ocupada') {
         abrirCuentaMesa(mesa);
     } else {
@@ -95,27 +127,38 @@ function renderPlatos(categoria = null) {
         return;
     }
 
+    const grid = document.createElement('div');
+    grid.className = 'platos-grid';
+
     platos.forEach(plato => {
-        const div = document.createElement('div');
-        div.className = 'plato-item';
-        const descripcion = plato.descripcion
-            ? `<div class="plato-descripcion">${escapeHtml(plato.descripcion)}</div>`
-            : '';
+        const card = document.createElement('button');
+        card.className = 'plato-card';
+        card.type = 'button';
+
         const thumb = plato.imagen_url
-            ? `<img class="item-thumb" src="${escapeHtml(plato.imagen_url)}" alt="">`
-            : '<div class="item-thumb-placeholder"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div>';
-        div.innerHTML = `
+            ? `<img class="plato-card-imagen" src="${escapeHtml(plato.imagen_url)}" alt="">`
+            : '<div class="plato-card-imagen plato-card-sin-imagen"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div>';
+
+        const descripcion = plato.descripcion
+            ? `<div class="plato-card-descripcion">${escapeHtml(plato.descripcion)}</div>`
+            : '';
+
+        card.innerHTML = `
             ${thumb}
-            <div class="plato-info">
-                <div class="plato-nombre">${escapeHtml(plato.nombre)}</div>
+            <div class="plato-card-contenido">
+                <div class="plato-card-nombre">${escapeHtml(plato.nombre)}</div>
                 ${descripcion}
-                <div class="plato-precio">${formatCurrency(plato.precio_venta)}</div>
+                <div class="plato-card-footer">
+                    <span class="plato-card-precio">${formatCurrency(plato.precio_venta)}</span>
+                    <span class="plato-card-btn-add">+</span>
+                </div>
             </div>
-            <button class="plato-btn-add" type="button">+</button>
         `;
-        div.querySelector('.plato-btn-add').onclick = () => agregarACarrito(plato.id, plato.nombre, plato.precio_venta);
-        container.appendChild(div);
+        card.onclick = () => agregarACarrito(plato.id, plato.nombre, plato.precio_venta);
+        grid.appendChild(card);
     });
+
+    container.appendChild(grid);
 }
 
 function agregarACarrito(platoId, nombre, precio) {
@@ -184,12 +227,18 @@ async function enviarComanda() {
             numero_mesa: mesaActual.numero,
             platos: carrito.map(item => ({ plato_id: item.platoId, cantidad: item.cantidad })),
         };
-        await api.post('/comandas', data);
+        const comanda = await api.post('/comandas', data);
 
         showToast('Comanda enviada a cocina', 'success');
         cerrarModal();
         await refreshMozo();
         if (typeof refreshCocina === 'function') refreshCocina();
+
+        // Dos papeles, uno por impresora: cocina (qué preparar) y la copia
+        // del mozo (con precios, para su propio registro).
+        if (typeof imprimirComandaCocinaYMozo === 'function') {
+            imprimirComandaCocinaYMozo(comanda);
+        }
     } catch (err) {
         showToast(err.message || 'Error al enviar comanda', 'error');
     }
@@ -200,6 +249,8 @@ async function enviarComanda() {
 async function abrirCuentaMesa(mesa) {
     mesaActual = mesa;
     document.getElementById('modal-cuenta-title').textContent = `Mesa ${mesa.numero}`;
+    // El cajero cobra, no toma pedidos adicionales.
+    document.getElementById('btn-agregar-pedido').classList.toggle('hidden', estado.rol === 'cajero');
 
     try {
         const comandas = await api.get(`/comandas?numero_mesa=${mesa.numero}`);
@@ -284,5 +335,107 @@ async function cobrarMesaActual() {
         if (typeof refreshDashboard === 'function') refreshDashboard();
     } catch (err) {
         showToast(err.message || 'No se pudo cobrar la mesa', 'error');
+    }
+}
+
+// ============ GESTIÓN DE MESAS (solo Admin) ============
+
+let editingMesaId = null;
+
+function abrirGestionMesas() {
+    renderGestionMesas();
+    abrirModal('modal-gestion-mesas');
+}
+
+function cerrarGestionMesas() {
+    document.getElementById('modal-gestion-mesas').classList.add('hidden');
+}
+
+function renderGestionMesas() {
+    const container = document.getElementById('gestion-mesas-list');
+
+    if (estado.mesas.length === 0) {
+        container.innerHTML = '<p class="empty-hint">Aún no hay mesas. Crea la primera.</p>';
+        return;
+    }
+
+    const ICON_EDIT_MESA = '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+    const ICON_DELETE_MESA = '<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+
+    container.innerHTML = estado.mesas.map(mesa => {
+        const ubicacion = mesa.ubicacion ? ` · ${escapeHtml(mesa.ubicacion)}` : '';
+        return `
+            <div class="admin-item">
+                <div class="admin-item-info">
+                    <h4>Mesa ${mesa.numero}</h4>
+                    <p>${mesa.capacidad} personas${ubicacion} · ${mesa.estado}</p>
+                </div>
+                <div class="admin-item-actions">
+                    <button class="icon-btn" title="Editar" onclick="abrirFormMesa(${mesa.id})">${ICON_EDIT_MESA}</button>
+                    <button class="icon-btn danger" title="Eliminar" onclick="eliminarMesa(${mesa.id})">${ICON_DELETE_MESA}</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function abrirFormMesa(mesaId = null) {
+    editingMesaId = mesaId;
+    document.getElementById('form-mesa').reset();
+
+    if (mesaId) {
+        const mesa = estado.mesas.find(m => m.id === mesaId);
+        document.getElementById('modal-mesa-form-title').textContent = `Editar Mesa ${mesa.numero}`;
+        document.getElementById('mesa-numero').value = mesa.numero;
+        document.getElementById('mesa-capacidad').value = mesa.capacidad;
+        document.getElementById('mesa-ubicacion').value = mesa.ubicacion || '';
+    } else {
+        document.getElementById('modal-mesa-form-title').textContent = 'Nueva mesa';
+        document.getElementById('mesa-capacidad').value = 4;
+    }
+
+    abrirModal('modal-mesa-form');
+}
+
+function cerrarFormMesa() {
+    document.getElementById('modal-mesa-form').classList.add('hidden');
+}
+
+async function guardarMesa(event) {
+    event.preventDefault();
+
+    const data = {
+        numero: parseInt(document.getElementById('mesa-numero').value, 10),
+        capacidad: parseInt(document.getElementById('mesa-capacidad').value, 10),
+        ubicacion: document.getElementById('mesa-ubicacion').value.trim() || null,
+    };
+
+    try {
+        if (editingMesaId) {
+            await api.patch(`/mesas/${editingMesaId}`, data);
+            showToast('Mesa actualizada', 'success');
+        } else {
+            await api.post('/mesas', data);
+            showToast('Mesa creada', 'success');
+        }
+        cerrarFormMesa();
+        await refreshMozo();
+        renderGestionMesas();
+    } catch (err) {
+        showToast(err.message || 'Error al guardar la mesa', 'error');
+    }
+}
+
+async function eliminarMesa(mesaId) {
+    const mesa = estado.mesas.find(m => m.id === mesaId);
+    if (!confirm(`¿Eliminar la Mesa ${mesa ? mesa.numero : ''}? No se puede deshacer.`)) return;
+
+    try {
+        await api.delete(`/mesas/${mesaId}`);
+        showToast('Mesa eliminada', 'success');
+        await refreshMozo();
+        renderGestionMesas();
+    } catch (err) {
+        showToast(err.message || 'No se pudo eliminar la mesa', 'error');
     }
 }

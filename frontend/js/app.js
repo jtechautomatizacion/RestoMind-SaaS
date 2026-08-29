@@ -5,14 +5,45 @@
 
 const API_BASE_URL = '/api';
 
+// Qué pestañas puede ver cada rol. Sin login todavía, el rol se elige una
+// vez por dispositivo (el celular del mozo, el de caja, etc.) y queda
+// guardado en localStorage — cuando exista autenticación real, esto se
+// reemplaza por el rol que devuelva el login, pero la lógica de abajo
+// (aplicarPermisosRol) no cambia.
+const ROLES_PERMITIDOS = {
+    admin: ['mozo', 'cocina', 'dashboard', 'admin'],
+    mozo: ['mozo'],
+    jefe_cocina: ['cocina'],
+    cajero: ['mozo'],
+};
+
+const ROL_LABELS = {
+    admin: 'Admin',
+    mozo: 'Mozo',
+    jefe_cocina: 'Cocina',
+    cajero: 'Cajero',
+};
+
+function getRolGuardado() {
+    return localStorage.getItem('restomind_rol') || 'admin';
+}
+
 const estado = {
     clienteId: 'rest-001', // TODO: vendrá del login cuando exista auth
+    rol: getRolGuardado(),
     platos: [],
     mesas: [],
     currentTab: 'mozo'
 };
 
 // ============ API CLIENT ============
+
+// Minutos que hay que sumarle a la hora local para obtener UTC (Perú = 300).
+// La BD guarda todo en UTC; el backend usa esto para que "hoy" signifique el
+// día del restaurante y no el de Greenwich.
+function tzOffsetMinutos() {
+    return String(new Date().getTimezoneOffset());
+}
 
 const api = {
     async _fetch(endpoint, options = {}) {
@@ -21,6 +52,7 @@ const api = {
             headers: {
                 'Content-Type': 'application/json',
                 'X-Cliente-Id': estado.clienteId,
+                'X-TZ-Offset': tzOffsetMinutos(),
                 ...(options.headers || {}),
             },
         });
@@ -57,7 +89,7 @@ const api = {
     async postFile(endpoint, formData) {
         const resp = await fetch(`${API_BASE_URL}${endpoint}`, {
             method: 'POST',
-            headers: { 'X-Cliente-Id': estado.clienteId },
+            headers: { 'X-Cliente-Id': estado.clienteId, 'X-TZ-Offset': tzOffsetMinutos() },
             body: formData,
         });
         if (!resp.ok) {
@@ -77,6 +109,7 @@ const api = {
 async function init() {
     setupBottomNav();
     setupAdminTabs();
+    aplicarPermisosRol();
 
     try {
         await refreshCatalogo();
@@ -134,6 +167,48 @@ function cambiarTab(tabName) {
     if (tabName === 'admin' && typeof refreshAdmin === 'function') refreshAdmin();
 }
 
+// ============ ROLES ============
+
+function aplicarPermisosRol() {
+    const permitidas = ROLES_PERMITIDOS[estado.rol] || ROLES_PERMITIDOS.mozo;
+
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.classList.toggle('hidden', !permitidas.includes(btn.dataset.tab));
+    });
+
+    const badge = document.getElementById('rol-badge');
+    if (badge) badge.textContent = ROL_LABELS[estado.rol] || estado.rol;
+
+    // Solo el Admin puede crear/editar/eliminar mesas — el mozo y el
+    // cajero solo las usan.
+    const btnGestionMesas = document.getElementById('btn-gestionar-mesas');
+    if (btnGestionMesas) btnGestionMesas.classList.toggle('hidden', estado.rol !== 'admin');
+
+    // Si la pestaña visible ya no está permitida para este rol, cambia a
+    // la primera que sí lo esté (ej: cambio de Admin a Mozo estando en Cocina).
+    if (!permitidas.includes(estado.currentTab)) {
+        cambiarTab(permitidas[0]);
+    }
+
+    if (typeof renderMesas === 'function' && estado.currentTab === 'mozo') renderMesas();
+}
+
+function abrirSelectorRol() {
+    abrirModal('modal-rol');
+}
+
+function cerrarModalRol() {
+    document.getElementById('modal-rol').classList.add('hidden');
+}
+
+function elegirRol(rol) {
+    localStorage.setItem('restomind_rol', rol);
+    estado.rol = rol;
+    aplicarPermisosRol();
+    cerrarModalRol();
+    showToast(`Dispositivo configurado como ${ROL_LABELS[rol]}`, 'success');
+}
+
 function setupAdminTabs() {
     document.querySelectorAll('.admin-tab-btn').forEach(btn => {
         btn.addEventListener('click', () => cambiarAdminTab(btn.dataset.adminTab));
@@ -167,6 +242,7 @@ function cerrarModalPlato() {
 function cerrarModalCompra() {
     document.getElementById('modal-compra').classList.add('hidden');
     document.getElementById('form-compra').reset();
+    editingCompraId = null;
 }
 
 // ============ UTILIDADES ============

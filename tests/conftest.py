@@ -7,9 +7,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from backend.database import Base
-from backend.models import Cliente, Plato, Mesa
+from backend.models import Cliente, Plato, Mesa, Usuario
 
 TEST_CLIENTE_ID = "test-cliente-001"
+TEST_USUARIO_EMAIL = "admin@test.local"
 
 
 @pytest.fixture
@@ -40,7 +41,7 @@ def test_client(test_db):
     from fastapi.testclient import TestClient
     from backend.app import app
     from backend.database import get_db
-    from backend.dependencies import get_cliente_id
+    from backend.dependencies import get_cliente_id, get_usuario_actual
 
     def override_get_db():
         yield test_db
@@ -48,8 +49,12 @@ def test_client(test_db):
     def override_get_cliente_id():
         return TEST_CLIENTE_ID
 
+    def override_get_usuario_actual():
+        return TEST_USUARIO_EMAIL
+
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_cliente_id] = override_get_cliente_id
+    app.dependency_overrides[get_usuario_actual] = override_get_usuario_actual
 
     client = TestClient(app)
     yield client
@@ -59,7 +64,7 @@ def test_client(test_db):
 
 @pytest.fixture
 def test_cliente(test_db):
-    """Crea cliente de test en BD"""
+    """Crea cliente de test + usuario admin en BD"""
     cliente = Cliente(
         id=TEST_CLIENTE_ID,
         nombre='Test Restaurant',
@@ -69,6 +74,19 @@ def test_cliente(test_db):
     )
     test_db.add(cliente)
     test_db.commit()
+
+    usuario = Usuario(
+        id='usr-admin-001',
+        cliente_id=TEST_CLIENTE_ID,
+        nombre='Admin',
+        email=TEST_USUARIO_EMAIL,
+        password_hash='$2b$12$dummy',
+        rol='admin',
+        estado='activo'
+    )
+    test_db.add(usuario)
+    test_db.commit()
+
     return cliente
 
 

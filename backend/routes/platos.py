@@ -8,9 +8,10 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 from backend.database import get_db
-from backend.dependencies import get_cliente_id
-from backend.models import Plato
+from backend.dependencies import get_cliente_id, get_usuario_actual
+from backend.models import ComandaPlato, Plato
 from backend.schemas import PlatoCreate, PlatoUpdate, PlatoResponse, EstadoUpdate
+from backend.utils.security import validar_admin
 
 router = APIRouter()
 
@@ -55,7 +56,10 @@ def crear_plato(
     payload: PlatoCreate,
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
+    usuario: str = Depends(get_usuario_actual),
 ):
+    validar_admin(db, usuario, cliente_id)
+
     plato = Plato(cliente_id=cliente_id, **payload.model_dump())
     db.add(plato)
     db.commit()
@@ -69,7 +73,10 @@ def editar_plato(
     payload: PlatoUpdate,
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
+    usuario: str = Depends(get_usuario_actual),
 ):
+    validar_admin(db, usuario, cliente_id)
+
     plato = db.query(Plato).filter(Plato.id == plato_id, Plato.cliente_id == cliente_id).first()
     if not plato:
         raise HTTPException(status_code=404, detail="Plato no encontrado")
@@ -83,13 +90,58 @@ def editar_plato(
     return plato
 
 
+@router.delete("/platos/{plato_id}")
+def eliminar_plato(
+    plato_id: int,
+    db: Session = Depends(get_db),
+    cliente_id: str = Depends(get_cliente_id),
+    usuario: str = Depends(get_usuario_actual),
+):
+    """
+    Borrado real, no un simple 'estado=inactivo': el admin pidió poder
+    eliminar platos de verdad, no solo desactivarlos.
+
+    La única excepción es un plato que ya aparece en comandas pasadas
+    (ComandaPlato): borrarlo de la BD arrastraría esas filas por el
+    cascade definido en Plato.comanda_platos, y con ellas se iría el
+    detalle de "platos más vendidos" del dashboard para ventas ya
+    cobradas. En ese caso se archiva (estado='inactivo') en su lugar:
+    desaparece de la carta igual, pero el historial de ventas queda intacto.
+    """
+    validar_admin(db, usuario, cliente_id)
+
+    plato = db.query(Plato).filter(Plato.id == plato_id, Plato.cliente_id == cliente_id).first()
+    if not plato:
+        raise HTTPException(status_code=404, detail="Plato no encontrado")
+
+    tiene_historial = db.query(ComandaPlato).filter(ComandaPlato.plato_id == plato_id).first() is not None
+
+    if tiene_historial:
+        plato.estado = "inactivo"
+        db.commit()
+        return {
+            "eliminado": False,
+            "detail": "Este plato ya tiene ventas registradas, así que se quitó de la carta sin borrar su historial.",
+        }
+
+    for previo in CARPETA_IMAGENES.glob(f"{plato_id}.*"):
+        previo.unlink()
+
+    db.delete(plato)
+    db.commit()
+    return {"eliminado": True, "detail": "Plato eliminado."}
+
+
 @router.patch("/platos/{plato_id}/estado", response_model=PlatoResponse)
 def cambiar_estado_plato(
     plato_id: int,
     payload: EstadoUpdate,
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
+    usuario: str = Depends(get_usuario_actual),
 ):
+    validar_admin(db, usuario, cliente_id)
+
     if payload.estado not in ESTADOS_PLATO_VALIDOS:
         raise HTTPException(status_code=400, detail=f"Estado inválido. Use uno de: {ESTADOS_PLATO_VALIDOS}")
 
@@ -109,7 +161,10 @@ async def subir_imagen_plato(
     archivo: UploadFile = File(...),
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
+    usuario: str = Depends(get_usuario_actual),
 ):
+    validar_admin(db, usuario, cliente_id)
+
     plato = db.query(Plato).filter(Plato.id == plato_id, Plato.cliente_id == cliente_id).first()
     if not plato:
         raise HTTPException(status_code=404, detail="Plato no encontrado")
@@ -144,7 +199,10 @@ def eliminar_imagen_plato(
     plato_id: int,
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
+    usuario: str = Depends(get_usuario_actual),
 ):
+    validar_admin(db, usuario, cliente_id)
+
     plato = db.query(Plato).filter(Plato.id == plato_id, Plato.cliente_id == cliente_id).first()
     if not plato:
         raise HTTPException(status_code=404, detail="Plato no encontrado")

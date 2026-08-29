@@ -11,10 +11,11 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from backend.database import get_db
-from backend.dependencies import get_cliente_id
+from backend.dependencies import get_cliente_id, get_usuario_actual
 from backend.models import Mesa
-from backend.schemas import MesaCreate, MesaResponse, EstadoUpdate, CobroResponse
+from backend.schemas import MesaCreate, MesaUpdate, MesaResponse, EstadoUpdate, CobroResponse
 from backend.services import get_comandas_activas_mesa, cobrar_mesa
+from backend.utils.security import validar_admin
 
 router = APIRouter()
 
@@ -50,7 +51,10 @@ def crear_mesa(
     payload: MesaCreate,
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
+    usuario: str = Depends(get_usuario_actual),
 ):
+    validar_admin(db, usuario, cliente_id)
+
     existe = db.query(Mesa).filter(Mesa.cliente_id == cliente_id, Mesa.numero == payload.numero).first()
     if existe:
         raise HTTPException(status_code=400, detail=f"La mesa {payload.numero} ya existe")
@@ -60,6 +64,68 @@ def crear_mesa(
     db.commit()
     db.refresh(mesa)
     return _to_response(db, cliente_id, mesa)
+
+
+@router.patch("/mesas/{mesa_id}", response_model=MesaResponse)
+def editar_mesa(
+    mesa_id: int,
+    payload: MesaUpdate,
+    db: Session = Depends(get_db),
+    cliente_id: str = Depends(get_cliente_id),
+    usuario: str = Depends(get_usuario_actual),
+):
+    validar_admin(db, usuario, cliente_id)
+
+    mesa = db.query(Mesa).filter(Mesa.id == mesa_id, Mesa.cliente_id == cliente_id).first()
+    if not mesa:
+        raise HTTPException(status_code=404, detail="Mesa no encontrada")
+
+    datos = payload.model_dump(exclude_unset=True)
+
+    if "numero" in datos and datos["numero"] != mesa.numero:
+        duplicada = db.query(Mesa).filter(
+            Mesa.cliente_id == cliente_id, Mesa.numero == datos["numero"]
+        ).first()
+        if duplicada:
+            raise HTTPException(status_code=400, detail=f"La mesa {datos['numero']} ya existe")
+
+    for campo, valor in datos.items():
+        setattr(mesa, campo, valor)
+
+    db.commit()
+    db.refresh(mesa)
+    return _to_response(db, cliente_id, mesa)
+
+
+@router.delete("/mesas/{mesa_id}", status_code=204)
+def eliminar_mesa(
+    mesa_id: int,
+    db: Session = Depends(get_db),
+    cliente_id: str = Depends(get_cliente_id),
+    usuario: str = Depends(get_usuario_actual),
+):
+    validar_admin(db, usuario, cliente_id)
+
+    mesa = db.query(Mesa).filter(Mesa.id == mesa_id, Mesa.cliente_id == cliente_id).first()
+    if not mesa:
+        raise HTTPException(status_code=404, detail="Mesa no encontrada")
+
+    if mesa.estado != "disponible":
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede eliminar una mesa ocupada. Cóbrala o libérala primero.",
+        )
+
+    activas = get_comandas_activas_mesa(db, cliente_id, mesa.numero)
+    if activas:
+        raise HTTPException(
+            status_code=400,
+            detail="Esta mesa tiene comandas activas. No se puede eliminar.",
+        )
+
+    db.delete(mesa)
+    db.commit()
+    return None
 
 
 @router.patch("/mesas/{mesa_id}/estado", response_model=MesaResponse)

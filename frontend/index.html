@@ -16,11 +16,16 @@
     <div id="app" class="app-container">
         <header class="top-bar">
             <h1 id="page-title">Mesas</h1>
+            <button id="rol-badge" class="rol-badge" onclick="abrirSelectorRol()">Admin</button>
         </header>
 
         <main class="content">
             <!-- MESAS TAB: CU-02 -->
             <section id="mozo-tab" class="tab-content active">
+                <button id="btn-gestionar-mesas" class="btn btn-secondary btn-fab hidden" onclick="abrirGestionMesas()">
+                    <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                    Gestionar mesas
+                </button>
                 <div id="mozo-mesas" class="mesas-grid"></div>
 
                 <!-- Modal: Nuevo Pedido -->
@@ -62,12 +67,92 @@
                                 <span class="label">Total a cobrar</span>
                                 <span class="value" id="cuenta-total">S/ 0.00</span>
                             </div>
-                            <button class="btn btn-secondary btn-large" style="margin-bottom:8px;" onclick="agregarPedidoAMesa()">
+                            <button id="btn-agregar-pedido" class="btn btn-secondary btn-large" style="margin-bottom:8px;" onclick="agregarPedidoAMesa()">
                                 + Agregar pedido
                             </button>
                             <button id="btn-cobrar" class="btn btn-success btn-large" onclick="cobrarMesaActual()">
                                 Cobrar y liberar mesa
                             </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal: Gestión de Mesas (solo Admin) -->
+                <div id="modal-gestion-mesas" class="modal hidden">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h2>Gestionar mesas</h2>
+                            <button class="btn-close" onclick="cerrarGestionMesas()">✕</button>
+                        </div>
+                        <div class="modal-scroll">
+                            <button class="btn btn-primary btn-fab" onclick="abrirFormMesa()">
+                                <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                Nueva mesa
+                            </button>
+                            <div id="gestion-mesas-list"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal: Crear/Editar Mesa -->
+                <div id="modal-mesa-form" class="modal hidden">
+                    <div class="modal-content modal-small">
+                        <div class="modal-header">
+                            <h2 id="modal-mesa-form-title">Nueva mesa</h2>
+                            <button class="btn-close" onclick="cerrarFormMesa()">✕</button>
+                        </div>
+                        <div class="modal-scroll">
+                            <form id="form-mesa" onsubmit="guardarMesa(event)">
+                                <div class="form-group">
+                                    <label>Número de mesa</label>
+                                    <input type="number" id="mesa-numero" placeholder="9" min="1" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Capacidad (personas)</label>
+                                    <input type="number" id="mesa-capacidad" placeholder="4" min="1" max="50" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Ubicación (opcional)</label>
+                                    <input type="text" id="mesa-ubicacion" placeholder="Patio, Interior..." maxlength="50">
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-block">
+                                    Guardar
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal: Selector de Rol del dispositivo -->
+                <div id="modal-rol" class="modal hidden">
+                    <div class="modal-content modal-small">
+                        <div class="modal-header">
+                            <h2>¿Quién usa este celular?</h2>
+                            <button class="btn-close" onclick="cerrarModalRol()">✕</button>
+                        </div>
+                        <div class="modal-scroll">
+                            <p class="empty-hint" style="padding:0 0 12px;">
+                                Elige el rol una sola vez por dispositivo. El dueño ve todo;
+                                el mozo solo Mesas; el cajero solo cobra.
+                            </p>
+                            <div class="rol-opciones">
+                                <button class="rol-opcion" onclick="elegirRol('admin')">
+                                    <strong>Administrador</strong>
+                                    <span>Ve todo: Mesas, Cocina, Dinero y Admin</span>
+                                </button>
+                                <button class="rol-opcion" onclick="elegirRol('mozo')">
+                                    <strong>Mozo</strong>
+                                    <span>Toma pedidos y ve las mesas</span>
+                                </button>
+                                <button class="rol-opcion" onclick="elegirRol('cajero')">
+                                    <strong>Cajero</strong>
+                                    <span>Solo cobra mesas listas</span>
+                                </button>
+                                <button class="rol-opcion" onclick="elegirRol('jefe_cocina')">
+                                    <strong>Cocina</strong>
+                                    <span>Solo ve el monitor de cocina</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -84,10 +169,28 @@
 
             <!-- DASHBOARD TAB: CU-05 -->
             <section id="dashboard-tab" class="tab-content">
-                <div class="periodo-selector">
-                    <button class="periodo-btn active" data-dias="7">7 días</button>
-                    <button class="periodo-btn" data-dias="14">14 días</button>
-                    <button class="periodo-btn" data-dias="30">30 días</button>
+                <div class="dashboard-header">
+                    <div class="periodo-selector">
+                        <div class="date-range-inputs">
+                            <div class="date-input-group">
+                                <label for="dashboard-desde">Desde</label>
+                                <input type="date" id="dashboard-desde">
+                            </div>
+                            <div class="date-input-group">
+                                <label for="dashboard-hasta">Hasta</label>
+                                <input type="date" id="dashboard-hasta">
+                            </div>
+                            <button class="btn btn-primary" id="btn-aplicar-filtro" style="align-self: flex-end;">
+                                Aplicar
+                            </button>
+                        </div>
+                        <div class="periodo-presets">
+                            <button class="periodo-btn active" data-dias="7">7d</button>
+                            <button class="periodo-btn" data-dias="14">14d</button>
+                            <button class="periodo-btn" data-dias="30">30d</button>
+                        </div>
+                    </div>
+                    <div id="dashboard-rango-label" class="dashboard-rango-label"></div>
                 </div>
 
                 <div id="dashboard-stats" class="stats-row"></div>
@@ -105,11 +208,24 @@
 
                 <div class="card">
                     <div class="card-title">
-                        <span>Platos más vendidos</span>
+                        <span>Top 3 platos</span>
                         <span class="card-title-hint">por ingresos</span>
                     </div>
                     <div id="top-platos-list"></div>
                 </div>
+
+                <div class="card">
+                    <div class="card-title">
+                        <span>Top 3 gastos</span>
+                        <span class="card-title-hint">por categoría</span>
+                    </div>
+                    <div id="top-gastos-list"></div>
+                </div>
+
+                <button id="btn-descargar-reporte" class="btn btn-secondary btn-fab" onclick="descargarReporteExcel()">
+                    <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Descargar reporte Excel
+                </button>
             </section>
 
             <!-- ADMIN TAB: CU-01, CU-04 -->
@@ -121,10 +237,16 @@
 
                 <!-- Platos Section: CU-01 -->
                 <div id="admin-platos" class="admin-section active">
-                    <button class="btn btn-primary btn-fab" onclick="abrirModalNuevoPlato()">
-                        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                        Nuevo plato
-                    </button>
+                    <div class="admin-actions-row">
+                        <button class="btn btn-primary btn-fab" onclick="abrirModalNuevoPlato()">
+                            <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            Nuevo plato
+                        </button>
+                        <button class="btn btn-secondary btn-fab btn-fab-aux" onclick="abrirModalCategorias()">
+                            <svg viewBox="0 0 24 24"><path d="M20.59 13.41L11 3.83V3H3v8h.83L13.41 20.6a2 2 0 0 0 2.83 0l4.35-4.35a2 2 0 0 0 0-2.84z"/><circle cx="6.5" cy="6.5" r="1.5"/></svg>
+                            Categorías
+                        </button>
+                    </div>
                     <div id="admin-platos-list"></div>
 
                     <div id="modal-plato" class="modal hidden">
@@ -151,11 +273,11 @@
                                     </div>
                                     <div class="form-group">
                                         <label>Nombre</label>
-                                        <input type="text" id="plato-nombre" placeholder="Ceviche Clásico" required maxlength="100">
+                                        <input type="text" id="plato-nombre" placeholder="Ej: Lomo Saltado" required maxlength="100">
                                     </div>
                                     <div class="form-group">
                                         <label>Categoría</label>
-                                        <input type="text" id="plato-categoria" placeholder="Cebiches" required maxlength="50">
+                                        <select id="plato-categoria" required></select>
                                     </div>
                                     <div class="form-group">
                                         <label>Precio de venta (S/)</label>
@@ -163,12 +285,58 @@
                                     </div>
                                     <div class="form-group">
                                         <label>Descripción (opcional)</label>
-                                        <textarea id="plato-descripcion" placeholder="Con leche de tigre..." maxlength="300"></textarea>
+                                        <textarea id="plato-descripcion" placeholder="Ingredientes principales, tamaño, acompañamiento..." maxlength="300"></textarea>
                                     </div>
                                     <button type="submit" class="btn btn-primary btn-block">
                                         Guardar
                                     </button>
                                 </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Modal: Gestión de Categorías (solo Admin) -->
+                    <div id="modal-categorias" class="modal hidden">
+                        <div class="modal-content modal-small">
+                            <div class="modal-header">
+                                <h2>Categorías de la carta</h2>
+                                <button class="btn-close" onclick="cerrarModalCategorias()">✕</button>
+                            </div>
+                            <div class="modal-scroll">
+                                <form id="form-categoria" onsubmit="guardarCategoria(event)">
+                                    <input type="hidden" id="categoria-icono" value="🍽️">
+                                    <div id="categoria-icono-picker" class="icono-picker">
+                                        <button type="button" class="icono-opcion selected" data-icono="🍽️" title="General">🍽️</button>
+                                        <button type="button" class="icono-opcion" data-icono="🐟" title="Pescados y mariscos">🐟</button>
+                                        <button type="button" class="icono-opcion" data-icono="🍤" title="Piqueos marinos">🍤</button>
+                                        <button type="button" class="icono-opcion" data-icono="🍣" title="Sushi / Nikkei">🍣</button>
+                                        <button type="button" class="icono-opcion" data-icono="🍚" title="Arroces">🍚</button>
+                                        <button type="button" class="icono-opcion" data-icono="🍜" title="Fideos / Chifa">🍜</button>
+                                        <button type="button" class="icono-opcion" data-icono="🥟" title="Chifa">🥟</button>
+                                        <button type="button" class="icono-opcion" data-icono="🥡" title="Para llevar">🥡</button>
+                                        <button type="button" class="icono-opcion" data-icono="🍲" title="Sopas / Caldos">🍲</button>
+                                        <button type="button" class="icono-opcion" data-icono="🍗" title="Pollo / Pollería">🍗</button>
+                                        <button type="button" class="icono-opcion" data-icono="🍟" title="Frituras">🍟</button>
+                                        <button type="button" class="icono-opcion" data-icono="🥩" title="Carnes / Parrilla">🥩</button>
+                                        <button type="button" class="icono-opcion" data-icono="🍕" title="Pizza">🍕</button>
+                                        <button type="button" class="icono-opcion" data-icono="🍔" title="Hamburguesas">🍔</button>
+                                        <button type="button" class="icono-opcion" data-icono="🥪" title="Sándwiches">🥪</button>
+                                        <button type="button" class="icono-opcion" data-icono="🌮" title="Antojitos">🌮</button>
+                                        <button type="button" class="icono-opcion" data-icono="🍳" title="Desayunos">🍳</button>
+                                        <button type="button" class="icono-opcion" data-icono="🥗" title="Ensaladas">🥗</button>
+                                        <button type="button" class="icono-opcion" data-icono="🥤" title="Bebidas frías">🥤</button>
+                                        <button type="button" class="icono-opcion" data-icono="☕" title="Bebidas calientes">☕</button>
+                                        <button type="button" class="icono-opcion" data-icono="🍷" title="Licores">🍷</button>
+                                        <button type="button" class="icono-opcion" data-icono="🍮" title="Postres">🍮</button>
+                                        <button type="button" class="icono-opcion" data-icono="🍰" title="Pasteles">🍰</button>
+                                        <button type="button" class="icono-opcion" data-icono="🍦" title="Helados">🍦</button>
+                                    </div>
+                                    <div class="form-inline-add">
+                                        <input type="text" id="categoria-nombre" placeholder="Nueva categoría, ej. Postres" maxlength="50" required>
+                                        <button type="submit" class="btn btn-primary">Agregar</button>
+                                    </div>
+                                </form>
+                                <div id="gestion-categorias-list"></div>
                             </div>
                         </div>
                     </div>
@@ -185,14 +353,14 @@
                     <div id="modal-compra" class="modal hidden">
                         <div class="modal-content modal-small">
                             <div class="modal-header">
-                                <h2>Registrar Gasto</h2>
+                                <h2 id="modal-compra-title">Registrar Gasto</h2>
                                 <button class="btn-close" onclick="cerrarModalCompra()">✕</button>
                             </div>
                             <div class="modal-scroll">
                                 <form id="form-compra" onsubmit="guardarCompra(event)">
                                     <div class="form-group">
                                         <label>Descripción</label>
-                                        <input type="text" id="compra-descripcion" placeholder="Pescado rojo" required maxlength="100">
+                                        <input type="text" id="compra-descripcion" placeholder="Ej: Insumos de cocina" required maxlength="100">
                                     </div>
                                     <div class="form-group">
                                         <label>Categoría</label>
@@ -245,6 +413,7 @@
     <!-- Scripts -->
     <script src="/static/js/app.js"></script>
     <script src="/static/js/charts.js"></script>
+    <script src="/static/js/print.js"></script>
     <script src="/static/js/mozo.js"></script>
     <script src="/static/js/cocina.js"></script>
     <script src="/static/js/dashboard.js"></script>

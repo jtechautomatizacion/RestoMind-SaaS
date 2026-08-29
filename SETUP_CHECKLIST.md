@@ -11,7 +11,7 @@ Los 5 casos de uso están implementados, probados y conectados de punta a punta:
 - ✅ **CU-05** Dashboard Financiero (ventas, gastos, ganancia, top platos) — agregado durante el desarrollo, no estaba en el documento de requisitos original
 - ✅ **Cobro de mesa** — flujo que no estaba en la especificación original y que hacía falta para cerrar el ciclo (ver "Bugs y huecos corregidos" abajo)
 - ✅ **Fotos de platos** — subir/reemplazar/quitar foto por plato, con compresión en el navegador y validación de archivo real en el servidor (ver abajo)
-- ✅ 26 tests automáticos (`pytest tests/ -v`), todos en verde
+- ✅ 30 tests automáticos (`pytest tests/ -v`), todos en verde
 - ✅ Frontend PWA rediseñado: mobile-first, bottom nav, sin librerías externas (ni fuentes web ni Chart.js), pensado para gama media/baja
 - ✅ Datos semilla automáticos al arrancar (`backend/seed.py`): 1 restaurante demo, 8 mesas, 12 platos de cebichería
 
@@ -33,6 +33,65 @@ Los 5 casos de uso están implementados, probados y conectados de punta a punta:
 - El nombre del archivo en disco es siempre `{plato_id}.{ext}` — nunca se usa `cliente_id` para construir la ruta, porque ese valor viene de un header sin autenticar y podría usarse para un path traversal (`../../../etc`) si se usara para armar una carpeta.
 - El frontend comprime la foto en el navegador (canvas, máx. 800px, JPEG 0.8) antes de subirla — clave para el objetivo de celulares de gama baja con datos limitados.
 - Se ve como miniatura en la carta del Mozo y en la lista de Admin; sin foto, se muestra un ícono placeholder (nunca un hueco vacío).
+
+## 👤 Roles por dispositivo (Admin / Mozo / Cajero / Cocina)
+
+**Por qué existe:** al conversar sobre quién cobra la mesa, surgió la
+pregunta de cómo evitar que el mozo o el cajero vean pantallas que no les
+corresponden sin construir un login completo todavía. La solución elegida
+fue **una sola pantalla de Mesas para todos los roles, con botones
+distintos según quién la usa** — en vez de duplicar la interfaz en un
+"módulo de caja" aparte, que hubiera significado mantener dos vistas de
+mesas sincronizadas por separado.
+
+- El rol se elige **una vez por dispositivo** (el celular del mozo, el de
+  caja) tocando el badge redondo del header ("Admin", "Mozo", etc.) y
+  queda guardado en `localStorage` — no hay login todavía, así que esto
+  es a propósito una configuración local del teléfono, no una cuenta de
+  usuario. Cuando se implemente JWT, el mismo mecanismo (`aplicarPermisosRol`
+  en `app.js`) sigue funcionando igual, solo cambia de dónde sale el rol.
+- `ROLES_PERMITIDOS` en `frontend/js/app.js` define qué pestañas ve cada
+  rol: Admin ve las 4 (Mesas/Cocina/Dinero/Admin); Mozo y Cajero solo ven
+  Mesas; Cocina solo ve el monitor.
+- **Dentro de la pestaña Mesas el comportamiento cambia según el rol**, no
+  hay una pantalla nueva:
+  - Mozo/Admin: tocar una mesa libre abre "Nuevo pedido"; tocar una
+    ocupada abre su cuenta con opción de agregar más platos o cobrar.
+  - Cajero: las mesas libres aparecen apagadas y no reaccionan al toque
+    (no le sirven de nada); tocar una ocupada abre directamente su cuenta
+    **sin** el botón "+ Agregar pedido" — el cajero cobra, no toma
+    pedidos.
+- **Importante:** esto es control de acceso en el frontend únicamente
+  (oculta botones y pestañas), no reemplaza la autorización real en el
+  backend. Los endpoints (`/comandas`, `/mesas/{id}/cobrar`, etc.) siguen
+  sin validar rol — cualquiera con la URL directa podría llamarlos. Es
+  aceptable para el MVP porque hoy el "rol" ni siquiera es una sesión
+  autenticada; hay que resolverlo junto con la autenticación real (ver
+  "Próximos pasos").
+
+## 🪑 Gestión de mesas (agregado durante la implementación)
+
+**Por qué existe:** la especificación original solo tenía `GET /api/mesas`
+como "soporte"; no había forma de crear más mesas, corregir su capacidad o
+ubicación, ni borrar una que ya no existe (mesa mal cargada, restaurante
+que reduce aforo). El botón "Gestionar mesas" solo lo ve el rol Admin
+(mismo mecanismo de `ROLES_PERMITIDOS` que las demás pestañas).
+
+```
+PATCH  /api/mesas/{id}    → Edita número, capacidad y/o ubicación (parcial)
+DELETE /api/mesas/{id}    → Elimina la mesa
+```
+
+- **`PATCH`** valida que el nuevo número no choque con otra mesa del mismo
+  cliente antes de guardar (la restricción `UNIQUE(cliente_id, numero)`
+  de la BD ya lo protegía, pero así el error es un 400 claro, no un 500).
+- **`DELETE`** rechaza (400) si la mesa está `ocupada` o si tiene
+  comandas activas — no tiene sentido borrar una mesa con una cuenta
+  pendiente de cobro; hay que cobrarla o cancelarla primero.
+- También se rediseñaron las tarjetas de mesa (`frontend/css/style.css`):
+  ícono de mesa, número más grande, capacidad/ubicación visibles, y el
+  indicador de estado pasó a esquina superior derecha para no chocar con
+  el monto cuando la mesa está ocupada.
 
 ## 📁 Estructura relevante
 
@@ -68,7 +127,7 @@ frontend/
 tests/
 ├── conftest.py           # Fixtures (BD en memoria con StaticPool)
 ├── unit/test_models.py
-└── integration/test_endpoints.py   # 26 tests, cubren el ciclo completo
+└── integration/test_endpoints.py   # 30 tests, cubren el ciclo completo
 ```
 
 ## 📋 Cómo correrlo
@@ -94,7 +153,7 @@ El primer arranque crea `restomind.db` con datos de demo (restaurante "La Marisq
 
 ## 📞 Próximos pasos sugeridos (post-MVP)
 
-1. **Autenticación real** (JWT) para reemplazar el header `X-Cliente-Id` de desarrollo.
+1. **Autenticación real** (JWT) para reemplazar el header `X-Cliente-Id` de desarrollo — y junto con eso, mover la validación de rol (Admin/Mozo/Cajero/Cocina, hoy solo en el frontend) al backend, para que los endpoints la exijan de verdad.
 2. **Multi-restaurante**: pantalla de registro para que un nuevo cliente se dé de alta solo.
 3. **IA + Claude API**: reportes inteligentes sobre los datos que ya arroja el Dashboard (ver guía de negocio de JTech).
 4. **Pagos**: integración Stripe/Culqi para cobro con QR.

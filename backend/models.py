@@ -40,6 +40,21 @@ class Usuario(Base):
     cliente = relationship("Cliente", back_populates="usuarios")
 
 
+class Categoria(Base):
+    __tablename__ = "categorias"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cliente_id = Column(String, ForeignKey("clientes.id"), nullable=False, index=True)
+    nombre = Column(String, nullable=False)
+    # Un emoji, no una foto: identifica la categoría de un vistazo en el
+    # selector de platos sin gastar red ni almacenamiento (a diferencia de
+    # imagen_url en Plato, que sí sube un archivo real).
+    icono = Column(String, nullable=False, default="🍽️")
+    creado_en = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("cliente_id", "nombre", name="uq_cliente_categoria_nombre"),)
+
+
 class Plato(Base):
     __tablename__ = "platos"
 
