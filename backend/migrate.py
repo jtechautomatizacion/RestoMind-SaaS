@@ -11,7 +11,7 @@ DB_PATH = "restomind.db"
 def migrate():
     """Ejecutar migraciones necesarias."""
     if not Path(DB_PATH).exists():
-        print("✓ BD no existe todavía, se creará automáticamente")
+        print("[OK] BD no existe todavía, se creará automáticamente")
         return
 
     conn = sqlite3.connect(DB_PATH)
@@ -26,17 +26,17 @@ def migrate():
             print("Agregando columna 'celular' a usuarios...")
             cursor.execute("ALTER TABLE usuarios ADD COLUMN celular VARCHAR(20) DEFAULT NULL")
             conn.commit()
-            print("✓ Columna 'celular' agregada")
+            print("[OK] Columna 'celular' agregada")
         else:
-            print("✓ Columna 'celular' ya existe")
+            print("[OK] Columna 'celular' ya existe")
 
         # Nota: No se puede cambiar constraint UNIQUE en SQLite directamente.
         # Email seguirá siendo UNIQUE, pero NULL no viola el constraint.
         # Staff tendrá email=NULL, admins tendrán email != NULL.
 
-        print("✓ Migración completada")
+        print("[OK] Migración completada")
     except Exception as e:
-        print(f"✗ Error en migración: {e}")
+        print(f"[ERROR] Error en migración: {e}")
     finally:
         conn.close()
 
