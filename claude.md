@@ -769,37 +769,55 @@ if usuario.rol != "admin":
 
 ### Cómo funciona
 
-1. **El admin del restaurante crea cuentas** desde Admin → Personal (nueva pestaña)
-   - Nombre, email, contraseña, rol (Mozo / Cajero / Cocina / Administrador)
-   - El email debe ser único en todo el sistema (evita duplicados entre clientes)
+1. **El admin del restaurante crea cuentas de personal** desde Admin → Personal (nueva pestaña)
+   - Nombre, **celular** (no email), contraseña, rol (Mozo / Cajero / Cocina)
+   - El personal se loguea con celular + contraseña por `/api/auth/login-staff`, distinto del login del admin (email + contraseña por `/api/auth/login`) — ver [[sistema-login-dual]]
+   - El celular debe ser único en todo el sistema
 
-2. **Cada cuenta se loguea con su email y contraseña**
+2. **Cada cuenta se loguea con su credencial y contraseña**
    - El JWT que se emite lleva el rol de verdad (no es un click sin validar)
    - El rol del JWT manda sobre el selector de dispositivo — si Pedro se loguea como mozo, el celular se comporta como el de un mozo, automáticamente
 
 3. **Backend valida permisos usando el rol del JWT**
    - `POST /api/platos` solo funciona si `rol == "admin"`
-   - `POST /api/usuarios` solo funciona si `rol == "admin"`
+   - `POST /api/usuarios/staff` solo funciona si `rol == "admin"`
    - Endpoints de mozo (mesas, comandas) aceptan cualquier rol excepto superadmin
+
+### Un admin no puede crear (ni ascender a) otro admin
+
+Cada restaurante tiene exactamente un admin, dado de alta por el superadmin al registrar el cliente (ver `backend/scripts/crear_cliente.py`). Esto es intencional, no un descuido:
+
+- `POST /api/usuarios` con `rol="admin"` → **403**. Este endpoint (email-based, genérico) queda solo para uso interno/futuro; desde el panel de Admin → Personal ya no se ofrece "Administrador" como opción de rol.
+- `PATCH /api/usuarios/{id}` con `rol="admin"` sobre una cuenta que no es admin → **403**. Bloquea el camino indirecto de "crear un mozo y después ascenderlo".
+- Si algún día un restaurante necesita un segundo admin, lo hace el superadmin, no el propio admin del restaurante.
 
 ### Endpoints de Personal
 
 Todos admin-only (requieren `rol == "admin"` en el JWT):
 ```
-GET    /api/usuarios                 → lista el personal del restaurante
-POST   /api/usuarios                 → crea una cuenta (nombre, email, password, rol)
-PATCH  /api/usuarios/{id}            → edita nombre/rol/estado
+GET    /api/usuarios                 → lista el personal del restaurante (incluye al propio admin)
+POST   /api/usuarios/staff           → crea mozo/cajero/cocina (nombre, celular, password, rol)
+PATCH  /api/usuarios/{id}            → edita nombre/rol/estado (rol nunca puede ser "admin" salvo que ya lo sea)
 PATCH  /api/usuarios/{id}/password   → resetea contraseña de alguien
 DELETE /api/usuarios/{id}            → elimina la cuenta
 ```
+
+> `rol` para cocina es literalmente `"jefe_cocina"` en toda la app (permisos, dashboard, `ROL_LABELS`) — no `"cocinero"`. Antes había una inconsistencia en `StaffCreateRequest` que hacía fallar silenciosamente la creación de cuentas de cocina; ya está corregida.
 
 ### Protecciones contra auto-bloqueo
 
 - Un admin **no puede desactivarse a sí mismo** (`PATCH /api/usuarios/{mi_id}` con `estado='inactivo'` → 400)
 - Un admin **no puede quitarse su propio rol de admin** (`PATCH /api/usuarios/{mi_id}` con `rol='mozo'` → 400)
 - Un admin **no puede eliminarse a sí mismo** (`DELETE /api/usuarios/{mi_id}` → 400)
+- Un admin **no puede crear ni ascender a otro admin** (ver arriba)
 
-Estas tres reglas juntas garantizan que un restaurante **nunca** se queda sin ningún admin.
+Estas reglas juntas garantizan que un restaurante **nunca** se queda sin ningún admin, y que nunca termina con más de uno sin que el superadmin lo decida explícitamente.
+
+### UI del modal "Nueva Cuenta" / "Editar Cuenta"
+
+- Campo renombrado de "Email de login" a **"Celular de acceso"** — refleja que el personal entra con celular, no email.
+- El selector de Rol al crear solo ofrece Mozo / Cajero / Cocina (sin "Administrador").
+- Al editar la fila del propio admin ("Tú"), el email y el rol se muestran como texto fijo no editable, en vez de inputs — visualmente distinto a poder cambiar algo y que el backend lo rechace después.
 
 ### El selector de dispositivo sigue existiendo
 
