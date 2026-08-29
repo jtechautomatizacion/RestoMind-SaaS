@@ -68,7 +68,7 @@
             <form id="form-login-staff" class="login-form hidden" onsubmit="loginStaff(event)">
                 <div class="form-group">
                     <label>Celular</label>
-                    <input type="tel" id="login-celular" placeholder="987654321" required autocomplete="off">
+                    <input type="tel" id="login-celular" inputmode="numeric" maxlength="9" placeholder="987654321" required autocomplete="off" oninput="soloDigitos(event)">
                 </div>
                 <div class="form-group">
                     <label>Contraseña</label>
@@ -490,7 +490,7 @@
                                     <!-- Personal (mozo/cajero/cocina): entra con celular, no email -->
                                     <div class="form-group" id="usuario-celular-group">
                                         <label>Celular de acceso</label>
-                                        <input type="tel" id="usuario-celular" placeholder="987654321" maxlength="20">
+                                        <input type="tel" id="usuario-celular" inputmode="numeric" maxlength="9" placeholder="987654321" oninput="soloDigitos(event)">
                                     </div>
                                     <!-- Admin (fila "Tú"): el email es fijo, solo se muestra -->
                                     <div class="form-group hidden" id="usuario-email-fijo-group">

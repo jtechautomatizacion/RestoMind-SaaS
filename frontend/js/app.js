@@ -5,6 +5,13 @@
 
 const API_BASE_URL = '/api';
 
+// Filtra cualquier tecla que no sea dígito a medida que se escribe — más
+// rápido de corregir para el usuario que dejarlo escribir letras/guiones
+// y recién avisarle con un error al enviar el formulario.
+function soloDigitos(event) {
+    event.target.value = event.target.value.replace(/\D/g, '');
+}
+
 // Qué pestañas puede ver cada rol. Sin login todavía, el rol se elige una
 // vez por dispositivo (el celular del mozo, el de caja, etc.) y queda
 // guardado en localStorage — cuando exista autenticación real, esto se
@@ -46,6 +53,20 @@ function tzOffsetMinutos() {
     return String(new Date().getTimezoneOffset());
 }
 
+// FastAPI manda el detalle de un error de validación (422) como una lista
+// de objetos, no como texto ({"detail": [{"msg": "Value error, ...", ...}]}).
+// Sin esto, el toast le mostraría al usuario ese JSON crudo en vez de un
+// mensaje legible como "El celular debe tener 9 dígitos y empezar con 9".
+function extraerMensajeError(body, statusFallback) {
+    if (!body || !body.detail) return statusFallback;
+    if (typeof body.detail === 'string') return body.detail;
+    if (Array.isArray(body.detail) && body.detail.length > 0) {
+        const msg = body.detail[0].msg || statusFallback;
+        return msg.replace(/^Value error,\s*/, '');
+    }
+    return statusFallback;
+}
+
 const api = {
     async _fetch(endpoint, options = {}) {
         const resp = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -65,7 +86,7 @@ const api = {
             let detail = `Error ${resp.status}`;
             try {
                 const body = await resp.json();
-                if (body.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+                detail = extraerMensajeError(body, detail);
             } catch (_) { /* respuesta sin JSON */ }
             throw new Error(detail);
         }
@@ -105,7 +126,7 @@ const api = {
             let detail = `Error ${resp.status}`;
             try {
                 const body = await resp.json();
-                if (body.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+                detail = extraerMensajeError(body, detail);
             } catch (_) { /* respuesta sin JSON */ }
             throw new Error(detail);
         }

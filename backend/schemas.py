@@ -1,6 +1,20 @@
-from pydantic import BaseModel, Field
+import re
+
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional
 from datetime import datetime
+
+
+def _validar_celular_peru(valor: str) -> str:
+    """Celular peruano: exactamente 9 dígitos, empieza con 9.
+
+    Se limpia de espacios/guiones antes de validar (así "991-056-592" y
+    "991 056 592" también pasan), pero lo que se guarda es solo dígitos.
+    """
+    limpio = re.sub(r"[\s-]", "", valor)
+    if not re.fullmatch(r"9\d{8}", limpio):
+        raise ValueError("El celular debe tener 9 dígitos y empezar con 9 (ej: 987654321)")
+    return limpio
 
 
 # ============ AUTENTICACIÓN ============
@@ -68,6 +82,14 @@ class ClienteCreateRequest(BaseModel):
     admin_nombre: str = Field(..., min_length=1, max_length=100)
     admin_email: str = Field(..., min_length=1, max_length=150)
     admin_password: str = Field(..., min_length=6, max_length=200)
+
+    @field_validator("telefono")
+    @classmethod
+    def validar_telefono(cls, v: Optional[str]) -> Optional[str]:
+        # Es opcional: solo se valida el formato si vino algo.
+        if not v:
+            return v
+        return _validar_celular_peru(v)
 
 
 class ResetPasswordRequest(BaseModel):
@@ -182,6 +204,11 @@ class StaffCreateRequest(BaseModel):
     celular: str = Field(..., min_length=1, max_length=20)
     password: str = Field(..., min_length=6, max_length=200)
     rol: str = Field(..., pattern="^(mozo|cajero|jefe_cocina)$")
+
+    @field_validator("celular")
+    @classmethod
+    def validar_celular(cls, v: str) -> str:
+        return _validar_celular_peru(v)
 
 
 class StaffUpdateRequest(BaseModel):

@@ -826,6 +826,27 @@ def test_admin_no_puede_ascender_a_otro_usuario_a_admin(test_client, test_client
     assert resp.status_code == 403
 
 
+def test_crear_staff_con_celular_valido(test_client, test_cliente):
+    resp = test_client.post('/api/usuarios/staff', json={
+        "nombre": "Pedro Mozo", "celular": "987654321", "password": "clave123", "rol": "mozo",
+    })
+    assert resp.status_code == 201
+    assert resp.json()["celular"] == "987654321"
+
+
+def test_crear_staff_con_celular_invalido_falla(test_client, test_cliente):
+    """El celular debe tener 9 dígitos y empezar con 9 (formato peruano)."""
+    resp = test_client.post('/api/usuarios/staff', json={
+        "nombre": "Pedro Mozo", "celular": "12345", "password": "clave123", "rol": "mozo",
+    })
+    assert resp.status_code == 422
+
+    resp = test_client.post('/api/usuarios/staff', json={
+        "nombre": "Pedro Mozo", "celular": "812345678", "password": "clave123", "rol": "mozo",
+    })
+    assert resp.status_code == 422
+
+
 def test_resetear_password_de_usuario_personal(test_client, test_cliente):
     creado = test_client.post('/api/usuarios', json={
         "nombre": "Cajero", "email": "cajero@test-restaurant.com", "password": "vieja12345", "rol": "cajero",

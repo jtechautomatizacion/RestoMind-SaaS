@@ -26,6 +26,26 @@ function formatCurrency(num) {
     return `S/ ${parseFloat(num || 0).toFixed(2)}`;
 }
 
+// Filtra cualquier tecla que no sea dígito a medida que se escribe — más
+// rápido de corregir para el usuario que dejarlo escribir letras/guiones
+// y recién avisarle con un error al enviar el formulario.
+function soloDigitos(event) {
+    event.target.value = event.target.value.replace(/\D/g, '');
+}
+
+// FastAPI manda el detalle de un error de validación (422) como una lista
+// de objetos, no como texto. Sin esto, el toast mostraría ese JSON crudo
+// en vez de un mensaje legible como "El celular debe tener 9 dígitos...".
+function extraerMensajeError(body, statusFallback) {
+    if (!body || !body.detail) return statusFallback;
+    if (typeof body.detail === 'string') return body.detail;
+    if (Array.isArray(body.detail) && body.detail.length > 0) {
+        const msg = body.detail[0].msg || statusFallback;
+        return msg.replace(/^Value error,\s*/, '');
+    }
+    return statusFallback;
+}
+
 function formatDate(isoString) {
     const d = new Date(isoString);
     return d.toLocaleDateString('es-PE');
@@ -70,7 +90,7 @@ async function saFetch(endpoint, options = {}) {
     }
     if (!resp.ok) {
         const body = await resp.json().catch(() => ({}));
-        throw new Error(body.detail || `Error ${resp.status}`);
+        throw new Error(extraerMensajeError(body, `Error ${resp.status}`));
     }
     return resp.status === 204 ? null : resp.json();
 }
