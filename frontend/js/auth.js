@@ -48,10 +48,17 @@ function cambiarTabLogin(tab) {
     document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
     document.querySelector(`[onclick="cambiarTabLogin('${tab}')"]`).classList.add('active');
 
-    // Actualizar formularios
+    // Actualizar formularios. El toggle real de visibilidad es la clase
+    // "hidden" (usa !important, así que gana sobre ".login-form.active" si
+    // ambas quedan puestas) — "active" solo queda como hook para estilos.
     document.getElementById('form-login-admin').classList.remove('active');
+    document.getElementById('form-login-admin').classList.add('hidden');
     document.getElementById('form-login-staff').classList.remove('active');
-    document.getElementById(`form-login-${tab}`).classList.add('active');
+    document.getElementById('form-login-staff').classList.add('hidden');
+
+    const formActivo = document.getElementById(`form-login-${tab}`);
+    formActivo.classList.add('active');
+    formActivo.classList.remove('hidden');
 
     // Limpiar errores
     document.getElementById('login-error-admin').classList.add('hidden');
