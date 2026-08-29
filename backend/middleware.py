@@ -35,11 +35,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # UI entera sin una reescritura completa a addEventListener. Lo que sí
         # se puede cerrar sin tocar el frontend: no cargar nada de terceros,
         # no permitir <object>/<embed>, y no permitir que esta app se enmarque.
+        #
+        # img-src incluye "blob:" porque la vista previa de la foto de un
+        # plato (frontend/js/admin.js) usa URL.createObjectURL() antes de
+        # subir el archivo — sin "blob:" el navegador bloquea esa preview
+        # (y cualquier otra que use el mismo mecanismo) aunque la subida en
+        # sí funcione bien.
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline'; "
             "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data:; "
+            "img-src 'self' data: blob:; "
             "connect-src 'self'; "
             "object-src 'none'; "
             "frame-ancestors 'none'; "
