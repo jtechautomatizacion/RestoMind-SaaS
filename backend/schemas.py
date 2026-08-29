@@ -81,6 +81,12 @@ class ChangePasswordRequest(BaseModel):
 
 class SuperAdminUpdateRequest(BaseModel):
     nombre: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    email: Optional[str] = Field(default=None, min_length=1, max_length=150)
+
+
+class UsuarioUpdateMeRequest(BaseModel):
+    email: Optional[str] = Field(default=None, min_length=1, max_length=150)
+    password_actual: Optional[str] = Field(default=None, min_length=1, max_length=200)
 
 
 # ============ GENÉRICO ============

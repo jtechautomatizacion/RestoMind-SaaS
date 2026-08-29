@@ -639,6 +639,32 @@ function cerrarModalMiCuenta() {
     document.getElementById('modal-mi-cuenta').classList.add('hidden');
 }
 
+async function cambiarMiEmail() {
+    const nuevoEmail = document.getElementById('cuenta-email').value.trim();
+    const passwordActual = document.getElementById('cuenta-password-actual').value;
+
+    if (!nuevoEmail) {
+        showToast('Ingresa un email válido', 'error');
+        return;
+    }
+
+    if (!passwordActual) {
+        showToast('Se requiere tu contraseña actual', 'error');
+        return;
+    }
+
+    try {
+        await api.patch('/usuarios/me', {
+            email: nuevoEmail,
+            password_actual: passwordActual
+        });
+        document.getElementById('cuenta-password-actual').value = '';
+        showToast('Email actualizado exitosamente', 'success');
+    } catch (err) {
+        showToast(err.message || 'Error al cambiar el email', 'error');
+    }
+}
+
 async function cambiarMiCuenta() {
     const passwordActual = document.getElementById('cuenta-password-actual').value;
     const nuevaPassword = document.getElementById('cuenta-password-nueva').value;

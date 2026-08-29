@@ -30,6 +30,7 @@ from backend.schemas import (
     SuperAdminLoginResponse,
     SuperAdminMe,
     SuperAdminUpdateRequest,
+    UsuarioUpdateMeRequest,
 )
 
 router = APIRouter()
@@ -216,13 +217,21 @@ def actualizar_perfil_superadmin(
     db: Session = Depends(get_db),
     superadmin_email: str = Depends(get_superadmin_email),
 ):
-    """Actualizar datos del perfil del superadmin (nombre)."""
+    """Actualizar datos del perfil del superadmin (nombre, email)."""
     admin = db.query(SuperAdmin).filter(SuperAdmin.email == superadmin_email).first()
     if not admin:
         raise HTTPException(status_code=401, detail="Sesión inválida")
 
     if payload.nombre:
         admin.nombre = payload.nombre.strip()
+
+    if payload.email:
+        nuevo_email = payload.email.strip().lower()
+        # Validar que el nuevo email sea único
+        otro = db.query(SuperAdmin).filter(SuperAdmin.email == nuevo_email, SuperAdmin.id != admin.id).first()
+        if otro:
+            raise HTTPException(status_code=400, detail=f"Ya existe un superadmin con el email '{nuevo_email}'")
+        admin.email = nuevo_email
 
     db.commit()
     return SuperAdminMe(nombre=admin.nombre, email=admin.email)

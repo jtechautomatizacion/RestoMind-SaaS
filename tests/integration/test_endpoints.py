@@ -877,6 +877,54 @@ def test_superadmin_puede_actualizar_su_nombre(test_client_real_auth_sa):
     assert data["nombre"] == "Juan Pérez Nuevo"
 
 
+def test_superadmin_puede_cambiar_su_email(test_client_real_auth_sa):
+    resp = test_client_real_auth_sa.patch('/api/superadmin/me', json={
+        "email": "nuevo.email@resto-mind.com"
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["email"] == "nuevo.email@resto-mind.com"
+
+
+def test_usuario_puede_cambiar_su_email(test_client_real_auth, test_cliente):
+    from tests.conftest import TEST_USUARIO_EMAIL, TEST_USUARIO_PASSWORD
+    token = _login_restaurante(test_client_real_auth)
+    test_client_real_auth.headers.update({"Authorization": f"Bearer {token}"})
+
+    resp = test_client_real_auth.patch('/api/usuarios/me', json={
+        "email": "nuevo.email@lamarisqueria.pe",
+        "password_actual": TEST_USUARIO_PASSWORD
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["email"] == "nuevo.email@lamarisqueria.pe"
+
+
+def test_usuario_no_puede_cambiar_email_sin_contraseña_actual(test_client_real_auth, test_cliente):
+    token = _login_restaurante(test_client_real_auth)
+    test_client_real_auth.headers.update({"Authorization": f"Bearer {token}"})
+
+    resp = test_client_real_auth.patch('/api/usuarios/me', json={
+        "email": "otro.email@lamarisqueria.pe"
+    })
+    assert resp.status_code == 400
+    assert "contraseña actual" in resp.json()["detail"].lower()
+
+
+def test_cambiar_a_mismo_email_es_noop(test_client_real_auth, test_cliente):
+    from tests.conftest import TEST_USUARIO_EMAIL, TEST_USUARIO_PASSWORD
+    token = _login_restaurante(test_client_real_auth)
+    test_client_real_auth.headers.update({"Authorization": f"Bearer {token}"})
+
+    # Cambiar al mismo email = no-op (respuesta 200, sin cambios)
+    resp = test_client_real_auth.patch('/api/usuarios/me', json={
+        "email": TEST_USUARIO_EMAIL,
+        "password_actual": TEST_USUARIO_PASSWORD
+    })
+    assert resp.status_code == 200
+    assert resp.json()["email"] == TEST_USUARIO_EMAIL
+
+
 def _login_restaurante(client):
     from tests.conftest import TEST_USUARIO_EMAIL, TEST_USUARIO_PASSWORD
     resp = client.post('/api/auth/login', json={"email": TEST_USUARIO_EMAIL, "password": TEST_USUARIO_PASSWORD})
