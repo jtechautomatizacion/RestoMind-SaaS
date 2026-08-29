@@ -619,3 +619,50 @@ async function confirmarResetPasswordUsuario(event) {
         showToast(err.message || 'Error al resetear la contraseña', 'error');
     }
 }
+
+// ============ MI CUENTA (Usuario actual) ============
+
+async function abrirModalMiCuenta() {
+    try {
+        const resp = await api.get('/usuarios/me');
+        document.getElementById('cuenta-email').value = resp.email;
+        document.getElementById('cuenta-nombre').textContent = resp.nombre;
+        document.getElementById('cuenta-password-actual').value = '';
+        document.getElementById('cuenta-password-nueva').value = '';
+        abrirModal('modal-mi-cuenta');
+    } catch (err) {
+        showToast(err.message || 'Error al cargar la cuenta', 'error');
+    }
+}
+
+function cerrarModalMiCuenta() {
+    document.getElementById('modal-mi-cuenta').classList.add('hidden');
+}
+
+async function cambiarMiCuenta() {
+    const passwordActual = document.getElementById('cuenta-password-actual').value;
+    const nuevaPassword = document.getElementById('cuenta-password-nueva').value;
+
+    if (!passwordActual || !nuevaPassword) {
+        showToast('Completa ambos campos', 'error');
+        return;
+    }
+
+    if (nuevaPassword.length < 6) {
+        showToast('La nueva contraseña debe tener al menos 6 caracteres', 'error');
+        return;
+    }
+
+    try {
+        await api.patch('/usuarios/me/password', {
+            password_actual: passwordActual,
+            nueva_password: nuevaPassword
+        });
+        document.getElementById('cuenta-password-actual').value = '';
+        document.getElementById('cuenta-password-nueva').value = '';
+        cerrarModalMiCuenta();
+        showToast('Contraseña actualizada exitosamente', 'success');
+    } catch (err) {
+        showToast(err.message || 'Error al cambiar la contraseña', 'error');
+    }
+}

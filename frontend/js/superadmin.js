@@ -275,3 +275,69 @@ async function confirmarResetPassword(event) {
         showToast(err.message || 'Error al resetear la contraseña', 'error');
     }
 }
+
+// ============ MI PERFIL (SUPERADMIN) ============
+
+async function abrirModalMiPerfil() {
+    try {
+        const resp = await fetch(`${API_BASE_URL}/superadmin/me`, {
+            headers: { 'Authorization': `Bearer ${getSaToken()}` },
+        });
+        if (!resp.ok) throw new Error('No se pudo cargar el perfil');
+
+        const perfil = await resp.json();
+        document.getElementById('perfil-email').value = perfil.email;
+        document.getElementById('perfil-nombre').value = perfil.nombre;
+        document.getElementById('perfil-password-actual').value = '';
+        document.getElementById('perfil-password-nueva').value = '';
+
+        abrirModal('modal-mi-perfil');
+    } catch (err) {
+        showToast(err.message || 'Error al cargar el perfil', 'error');
+    }
+}
+
+function cerrarModalMiPerfil() {
+    document.getElementById('modal-mi-perfil').classList.add('hidden');
+}
+
+async function guardarMiPerfil() {
+    const nombre = document.getElementById('perfil-nombre').value.trim();
+
+    try {
+        await saFetch('/superadmin/me', {
+            method: 'PATCH',
+            body: JSON.stringify({ nombre }),
+        });
+        showToast('Perfil actualizado', 'success');
+    } catch (err) {
+        showToast(err.message || 'Error al guardar el perfil', 'error');
+    }
+}
+
+async function cambiarMiPassword() {
+    const passwordActual = document.getElementById('perfil-password-actual').value;
+    const nuevaPassword = document.getElementById('perfil-password-nueva').value;
+
+    if (!passwordActual || !nuevaPassword) {
+        showToast('Completa ambos campos', 'error');
+        return;
+    }
+
+    if (nuevaPassword.length < 6) {
+        showToast('La nueva contraseña debe tener al menos 6 caracteres', 'error');
+        return;
+    }
+
+    try {
+        await saFetch('/superadmin/me/password', {
+            method: 'PATCH',
+            body: JSON.stringify({ password_actual: passwordActual, nueva_password: nuevaPassword }),
+        });
+        document.getElementById('perfil-password-actual').value = '';
+        document.getElementById('perfil-password-nueva').value = '';
+        showToast('Contraseña actualizada exitosamente', 'success');
+    } catch (err) {
+        showToast(err.message || 'Error al cambiar la contraseña', 'error');
+    }
+}

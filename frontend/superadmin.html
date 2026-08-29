@@ -77,6 +77,9 @@
                 <p id="nombre-superadmin-header" class="header-cliente-nombre"></p>
             </div>
             <div class="top-bar-actions">
+                <button class="icon-btn" title="Mi Perfil" onclick="abrirModalMiPerfil()">
+                    <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                </button>
                 <button class="icon-btn" title="Cerrar sesión" onclick="cerrarSesionSuperadmin()">
                     <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                 </button>
@@ -155,6 +158,39 @@
                     </div>
                     <button type="submit" class="btn btn-primary btn-block">Guardar nueva contraseña</button>
                 </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Mi Perfil (Superadmin) -->
+    <div id="modal-mi-perfil" class="modal hidden">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2>Mi Perfil</h2>
+                <button class="btn-close" onclick="cerrarModalMiPerfil()">✕</button>
+            </div>
+            <div class="modal-scroll">
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="perfil-email" disabled>
+                </div>
+                <div class="form-group">
+                    <label>Nombre</label>
+                    <input type="text" id="perfil-nombre" maxlength="100">
+                </div>
+                <button class="btn btn-secondary btn-block" onclick="guardarMiPerfil()">Guardar Nombre</button>
+
+                <hr style="margin: 20px 0; border: 1px solid var(--border);">
+
+                <div class="form-group">
+                    <label>Contraseña Actual</label>
+                    <input type="password" id="perfil-password-actual" maxlength="200">
+                </div>
+                <div class="form-group">
+                    <label>Nueva Contraseña (mínimo 6 caracteres)</label>
+                    <input type="password" id="perfil-password-nueva" minlength="6" maxlength="200">
+                </div>
+                <button class="btn btn-primary btn-block" onclick="cambiarMiPassword()">Cambiar Contraseña</button>
             </div>
         </div>
     </div>
