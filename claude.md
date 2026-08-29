@@ -348,13 +348,15 @@ POST   /api/platos/{plato_id}/imagen   → Sube/reemplaza la foto (multipart/for
 DELETE /api/platos/{plato_id}/imagen   → Quita la foto (vuelve a null)
 ```
 
-- Límite: 5MB por archivo (una foto de celular sin comprimir).
+- Límite de subida: 5MB por archivo crudo (antes de procesarlo) — solo un
+  freno contra un archivo absurdamente grande o una bomba de descompresión,
+  no lo que define cuánto pesa lo que termina en disco (ver debajo).
 - **La validación de formato no confía en el Content-Type que manda el
   cliente ni en la extensión del nombre del archivo** — ambos se falsean
   con un `curl -F`. Se valida la firma binaria real (primeros bytes del
   archivo: JPEG, PNG o WEBP). Un `.html` renombrado a `.png` se rechaza
   con 400 antes de tocar el disco.
-- El archivo se guarda como `frontend/assets/platos/{plato_id}.{ext}`,
+- El archivo se guarda como `frontend/assets/platos/{plato_id}.jpg`,
   usando el `id` numérico del plato (ya validado por FastAPI como entero
   en la ruta) como nombre de archivo — nunca el `cliente_id` del header,
   que al no estar autenticado todavía podría inyectar un path
@@ -365,6 +367,17 @@ DELETE /api/platos/{plato_id}/imagen   → Quita la foto (vuelve a null)
   subirla (máx. 800px de lado, JPEG calidad 0.8, ver `frontend/js/admin.js`)
   — una foto de celular sin comprimir pesa 4-8MB; esto la deja normalmente
   en 150-300KB, clave para el objetivo de "gama media/baja".
+- **El servidor también recomprime, siempre, sin importar cómo llegó la
+  imagen** (`_recomprimir_a_jpeg()` en `backend/routes/platos.py`, con
+  Pillow): mismo tope de 800px/calidad 82, y el resultado se guarda SIEMPRE
+  como `.jpg` sin importar el formato de entrada. Esto es necesario porque
+  la compresión del frontend es una cortesía del navegador, no una garantía
+  — nada impide llamar a este endpoint directo con `curl` o un cliente
+  HTTP saltándose esa compresión. Sin este paso, el storage de un SaaS
+  multi-tenant (fotos de N restaurantes, cada uno con su propia carta)
+  crecería sin límite con el tiempo. De paso, un archivo con firma binaria
+  válida pero corrupto (que la sola detección de firma no atrapa) ahora
+  también se rechaza con 400, porque Pillow no logra decodificarlo.
 
 ---
 
