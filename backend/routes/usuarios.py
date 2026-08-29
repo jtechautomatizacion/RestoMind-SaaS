@@ -14,11 +14,17 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from backend.auth import hash_password
+from backend.auth import hash_password, verificar_password
 from backend.database import get_db
 from backend.dependencies import get_cliente_id, get_usuario_actual
 from backend.models import Usuario
-from backend.schemas import ResetPasswordRequest, UsuarioCreate, UsuarioResponse, UsuarioUpdate
+from backend.schemas import (
+    ChangePasswordRequest,
+    ResetPasswordRequest,
+    UsuarioCreate,
+    UsuarioResponse,
+    UsuarioUpdate,
+)
 from backend.utils.security import validar_admin
 
 router = APIRouter()
@@ -67,6 +73,49 @@ def crear_usuario(
     db.commit()
     db.refresh(usuario)
     return usuario
+
+
+# Endpoints /me DEBEN ir ANTES de /{usuario_id} para que FastAPI los
+# matchee antes (en orden de definición, rutas parametrizadas capturan lo que quieran)
+@router.get("/usuarios/me", response_model=UsuarioResponse)
+def obtener_mi_perfil(
+    db: Session = Depends(get_db),
+    cliente_id: str = Depends(get_cliente_id),
+    usuario_actual: str = Depends(get_usuario_actual),
+):
+    """Obtener datos de la cuenta actual del usuario."""
+    usuario = db.query(Usuario).filter(
+        Usuario.email == usuario_actual,
+        Usuario.cliente_id == cliente_id
+    ).first()
+    if not usuario:
+        raise HTTPException(status_code=401, detail="Sesión inválida")
+
+    return UsuarioResponse.from_orm(usuario)
+
+
+@router.patch("/usuarios/me/password")
+def cambiar_mi_password(
+    payload: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    cliente_id: str = Depends(get_cliente_id),
+    usuario_actual: str = Depends(get_usuario_actual),
+):
+    """Cambiar la propia contraseña del usuario (admin, mozo, etc.)."""
+    usuario = db.query(Usuario).filter(
+        Usuario.email == usuario_actual,
+        Usuario.cliente_id == cliente_id
+    ).first()
+    if not usuario:
+        raise HTTPException(status_code=401, detail="Sesión inválida")
+
+    # Verificar contraseña actual
+    if not verificar_password(payload.password_actual, usuario.password_hash):
+        raise HTTPException(status_code=400, detail="Contraseña actual incorrecta")
+
+    usuario.password_hash = hash_password(payload.nueva_password)
+    db.commit()
+    return {"detail": "Contraseña actualizada exitosamente"}
 
 
 @router.patch("/usuarios/{usuario_id}", response_model=UsuarioResponse)

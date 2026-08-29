@@ -74,6 +74,15 @@ class ResetPasswordRequest(BaseModel):
     nueva_password: str = Field(..., min_length=6, max_length=200)
 
 
+class ChangePasswordRequest(BaseModel):
+    password_actual: str = Field(..., min_length=1, max_length=200)
+    nueva_password: str = Field(..., min_length=6, max_length=200)
+
+
+class SuperAdminUpdateRequest(BaseModel):
+    nombre: Optional[str] = Field(default=None, min_length=1, max_length=100)
+
+
 # ============ GENÉRICO ============
 
 class EstadoUpdate(BaseModel):

@@ -797,6 +797,86 @@ def test_resetear_password_de_usuario_personal(test_client, test_cliente):
     assert resp.status_code == 200
 
 
+# ============ PERFIL Y CONTRASEÑA ============
+
+def test_usuario_puede_obtener_su_perfil(test_client_real_auth, test_cliente):
+    from tests.conftest import TEST_USUARIO_EMAIL
+    token = _login_restaurante(test_client_real_auth)
+    test_client_real_auth.headers.update({"Authorization": f"Bearer {token}"})
+
+    resp = test_client_real_auth.get('/api/usuarios/me')
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["email"] == TEST_USUARIO_EMAIL
+    assert data["rol"] == "admin"
+
+
+def test_usuario_puede_cambiar_su_propia_contraseña(test_client_real_auth, test_cliente):
+    from tests.conftest import TEST_USUARIO_EMAIL, TEST_USUARIO_PASSWORD
+    token = _login_restaurante(test_client_real_auth)
+    test_client_real_auth.headers.update({"Authorization": f"Bearer {token}"})
+
+    # Cambiar a contraseña nueva
+    resp = test_client_real_auth.patch('/api/usuarios/me/password', json={
+        "password_actual": TEST_USUARIO_PASSWORD,
+        "nueva_password": "nuevaContraseña123"
+    })
+    assert resp.status_code == 200
+
+    # Verificar que el login falla con contraseña vieja
+    test_client_real_auth.headers.clear()
+    resp = test_client_real_auth.post('/api/auth/login', json={
+        "email": TEST_USUARIO_EMAIL,
+        "password": TEST_USUARIO_PASSWORD
+    })
+    assert resp.status_code == 401
+
+    # Verificar que funciona con contraseña nueva
+    resp = test_client_real_auth.post('/api/auth/login', json={
+        "email": TEST_USUARIO_EMAIL,
+        "password": "nuevaContraseña123"
+    })
+    assert resp.status_code == 200
+
+
+def test_usuario_no_puede_cambiar_contraseña_sin_contraseña_actual_correcta(test_client_real_auth, test_cliente):
+    token = _login_restaurante(test_client_real_auth)
+    test_client_real_auth.headers.update({"Authorization": f"Bearer {token}"})
+
+    resp = test_client_real_auth.patch('/api/usuarios/me/password', json={
+        "password_actual": "contraseñaIncorrecta",
+        "nueva_password": "otraContraseña123"
+    })
+    assert resp.status_code == 400
+    assert "incorrecta" in resp.json()["detail"].lower()
+
+
+def test_superadmin_puede_cambiar_su_propia_contraseña(test_client_real_auth_sa):
+    from tests.conftest import TEST_SUPERADMIN_PASSWORD
+    resp = test_client_real_auth_sa.patch('/api/superadmin/me/password', json={
+        "password_actual": TEST_SUPERADMIN_PASSWORD,
+        "nueva_password": "nuevoSuperadmin123"
+    })
+    assert resp.status_code == 200
+
+
+def test_superadmin_no_puede_cambiar_contraseña_sin_contraseña_actual(test_client_real_auth_sa):
+    resp = test_client_real_auth_sa.patch('/api/superadmin/me/password', json={
+        "password_actual": "incorrecta",
+        "nueva_password": "nueva123"
+    })
+    assert resp.status_code == 400
+
+
+def test_superadmin_puede_actualizar_su_nombre(test_client_real_auth_sa):
+    resp = test_client_real_auth_sa.patch('/api/superadmin/me', json={
+        "nombre": "Juan Pérez Nuevo"
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["nombre"] == "Juan Pérez Nuevo"
+
+
 def _login_restaurante(client):
     from tests.conftest import TEST_USUARIO_EMAIL, TEST_USUARIO_PASSWORD
     resp = client.post('/api/auth/login', json={"email": TEST_USUARIO_EMAIL, "password": TEST_USUARIO_PASSWORD})

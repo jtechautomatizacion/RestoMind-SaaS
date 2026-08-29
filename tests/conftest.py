@@ -91,6 +91,40 @@ def test_client_real_auth(test_db):
 
 
 @pytest.fixture
+def test_client_real_auth_sa(test_db, test_superadmin):
+    """
+    Cliente de test con autenticación SUPERADMIN real (con JWT).
+    Se loguea automáticamente y devuelve un cliente que incluye el token
+    en todas las solicitudes.
+    """
+    from fastapi.testclient import TestClient
+    from backend.app import app
+    from backend.database import get_db
+
+    def override_get_db():
+        yield test_db
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    client = TestClient(app)
+
+    # Login del superadmin
+    resp = client.post('/api/superadmin/login', json={
+        "email": TEST_SUPERADMIN_EMAIL,
+        "password": TEST_SUPERADMIN_PASSWORD
+    })
+    assert resp.status_code == 200
+    token = resp.json()["access_token"]
+
+    # Inyectar el token en todas las solicitudes
+    client.headers.update({"Authorization": f"Bearer {token}"})
+
+    yield client
+
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
 def test_cliente(test_db):
     """Crea cliente de test + usuario admin en BD"""
     cliente = Cliente(

@@ -21,6 +21,7 @@ from backend.database import get_db
 from backend.dependencies import get_superadmin_email
 from backend.models import Cliente, Comanda, Mesa, Plato, SuperAdmin, Usuario
 from backend.schemas import (
+    ChangePasswordRequest,
     ClienteConStats,
     ClienteCreateRequest,
     EstadoUpdate,
@@ -28,6 +29,7 @@ from backend.schemas import (
     SuperAdminLoginRequest,
     SuperAdminLoginResponse,
     SuperAdminMe,
+    SuperAdminUpdateRequest,
 )
 
 router = APIRouter()
@@ -186,3 +188,41 @@ def resetear_password_admin(
     admin.password_hash = hash_password(payload.nueva_password)
     db.commit()
     return {"email": admin.email, "detail": "Contraseña actualizada"}
+
+
+@router.patch("/superadmin/me/password")
+def cambiar_password_superadmin(
+    payload: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    superadmin_email: str = Depends(get_superadmin_email),
+):
+    """Cambiar la propia contraseña del superadmin."""
+    admin = db.query(SuperAdmin).filter(SuperAdmin.email == superadmin_email).first()
+    if not admin:
+        raise HTTPException(status_code=401, detail="Sesión inválida")
+
+    # Verificar contraseña actual
+    if not verificar_password(payload.password_actual, admin.password_hash):
+        raise HTTPException(status_code=400, detail="Contraseña actual incorrecta")
+
+    admin.password_hash = hash_password(payload.nueva_password)
+    db.commit()
+    return {"detail": "Contraseña actualizada exitosamente"}
+
+
+@router.patch("/superadmin/me")
+def actualizar_perfil_superadmin(
+    payload: SuperAdminUpdateRequest,
+    db: Session = Depends(get_db),
+    superadmin_email: str = Depends(get_superadmin_email),
+):
+    """Actualizar datos del perfil del superadmin (nombre)."""
+    admin = db.query(SuperAdmin).filter(SuperAdmin.email == superadmin_email).first()
+    if not admin:
+        raise HTTPException(status_code=401, detail="Sesión inválida")
+
+    if payload.nombre:
+        admin.nombre = payload.nombre.strip()
+
+    db.commit()
+    return SuperAdminMe(nombre=admin.nombre, email=admin.email)
