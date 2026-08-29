@@ -1,6 +1,6 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
-**Versión MVP:** 1.0 — implementado y probado (20/20 tests)
+**Versión MVP:** 1.1 — implementado y probado (26/26 tests)
 **Última actualización:** 2026-08-29
 
 > Este documento describe el diseño original. El estado real de la
@@ -183,6 +183,8 @@ PATCH /api/platos/{id}/estado → Desactivar plato
   "nombre": "Ceviche Clásico",
   "categoria": "Cebiches",
   "precio_venta": 45.00,
+  "descripcion": "Con leche de tigre fresca",
+  "imagen_url": "/static/assets/platos/101.jpg",
   "estado": "activo",
   "creado_en": "2026-08-28T10:30:00Z"
 }
@@ -193,6 +195,40 @@ PATCH /api/platos/{id}/estado → Desactivar plato
 - ✅ nombre: no vacío, máx 100 caracteres
 - ✅ categoría: no vacía
 - ✅ precio_venta: > 0, decimal con 2 decimales
+
+#### Foto del plato (agregada durante la implementación)
+
+**Por qué existe:** el campo `imagen_url` estaba en el esquema de base de
+datos desde el diseño original pero nunca se conectó a nada — no había
+forma de subir una foto. Un menú digital sin fotos de los platos es una
+carta de restaurante sin fotos: se vende peor. Se agregó como acción
+separada del CRUD del plato (no como parte del payload JSON) porque subir
+un archivo binario dentro de un campo de un JSON obliga a base64, que
+infla el payload ~33% — mala idea para el objetivo de celulares de gama
+baja con datos móviles limitados.
+
+```
+POST   /api/platos/{plato_id}/imagen   → Sube/reemplaza la foto (multipart/form-data, campo "archivo")
+DELETE /api/platos/{plato_id}/imagen   → Quita la foto (vuelve a null)
+```
+
+- Límite: 5MB por archivo (una foto de celular sin comprimir).
+- **La validación de formato no confía en el Content-Type que manda el
+  cliente ni en la extensión del nombre del archivo** — ambos se falsean
+  con un `curl -F`. Se valida la firma binaria real (primeros bytes del
+  archivo: JPEG, PNG o WEBP). Un `.html` renombrado a `.png` se rechaza
+  con 400 antes de tocar el disco.
+- El archivo se guarda como `frontend/assets/platos/{plato_id}.{ext}`,
+  usando el `id` numérico del plato (ya validado por FastAPI como entero
+  en la ruta) como nombre de archivo — nunca el `cliente_id` del header,
+  que al no estar autenticado todavía podría inyectar un path
+  (`../../../etc`) si se usara para armar la ruta en disco.
+- Al reemplazar la foto de un plato se borra la versión anterior (aunque
+  haya cambiado de extensión) para no dejar archivos huérfanos.
+- El frontend comprime y redimensiona la imagen en el navegador antes de
+  subirla (máx. 800px de lado, JPEG calidad 0.8, ver `frontend/js/admin.js`)
+  — una foto de celular sin comprimir pesa 4-8MB; esto la deja normalmente
+  en 150-300KB, clave para el objetivo de "gama media/baja".
 
 ---
 

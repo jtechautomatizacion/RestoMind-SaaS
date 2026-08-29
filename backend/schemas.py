@@ -33,6 +33,7 @@ class PlatoResponse(BaseModel):
     categoria: str
     precio_venta: float
     descripcion: Optional[str] = None
+    imagen_url: Optional[str] = None
     estado: str
     creado_en: datetime
 

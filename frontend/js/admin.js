@@ -6,11 +6,21 @@
 
 let editingPlatoId = null;
 let adminCompras = [];
+let archivoImagenPendiente = null; // Blob ya comprimido, listo para subir tras guardar
+let platoImagenActualUrl = null;   // imagen_url ya guardada en el server (si se está editando)
 
 const ICON_EDIT = '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
 const ICON_TOGGLE = '<svg viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>';
 const ICON_CANCEL = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
 const ICON_RESTORE = '<svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>';
+const ICON_PHOTO_PLACEHOLDER = '<div class="item-thumb-placeholder"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div>';
+
+function _thumbHtml(imagenUrl) {
+    if (imagenUrl) {
+        return `<img class="item-thumb" src="${escapeHtml(imagenUrl)}" alt="">`;
+    }
+    return ICON_PHOTO_PLACEHOLDER;
+}
 
 function initAdmin() {
     document.getElementById('compra-fecha').value = formatDateInput(new Date());
@@ -44,9 +54,12 @@ function renderPlatosAdmin() {
 
     container.innerHTML = estado.platos.map(plato => `
         <div class="admin-item ${plato.estado === 'inactivo' ? 'inactivo' : ''}">
-            <div class="admin-item-info">
-                <h3>${escapeHtml(plato.nombre)}</h3>
-                <p>${escapeHtml(plato.categoria)} · ${formatCurrency(plato.precio_venta)}</p>
+            <div class="admin-item-main">
+                ${_thumbHtml(plato.imagen_url)}
+                <div class="admin-item-info">
+                    <h3>${escapeHtml(plato.nombre)}</h3>
+                    <p>${escapeHtml(plato.categoria)} · ${formatCurrency(plato.precio_venta)}</p>
+                </div>
             </div>
             <div class="admin-item-actions">
                 <button class="icon-btn" title="Editar" onclick="editarPlato(${plato.id})">${ICON_EDIT}</button>
@@ -56,10 +69,20 @@ function renderPlatosAdmin() {
     `).join('');
 }
 
+function resetFormImagen() {
+    archivoImagenPendiente = null;
+    platoImagenActualUrl = null;
+    document.getElementById('plato-imagen-input').value = '';
+    document.getElementById('imagen-preview').classList.add('hidden');
+    document.getElementById('imagen-placeholder').classList.remove('hidden');
+    document.getElementById('btn-quitar-imagen').classList.add('hidden');
+}
+
 function abrirModalNuevoPlato() {
     editingPlatoId = null;
     document.getElementById('modal-plato-title').textContent = 'Nuevo Plato';
     document.getElementById('form-plato').reset();
+    resetFormImagen();
     abrirModal('modal-plato');
 }
 
@@ -73,7 +96,105 @@ function editarPlato(platoId) {
     document.getElementById('plato-categoria').value = plato.categoria;
     document.getElementById('plato-precio').value = plato.precio_venta;
     document.getElementById('plato-descripcion').value = plato.descripcion || '';
+
+    resetFormImagen();
+    if (plato.imagen_url) {
+        platoImagenActualUrl = plato.imagen_url;
+        document.getElementById('imagen-preview').src = plato.imagen_url;
+        document.getElementById('imagen-preview').classList.remove('hidden');
+        document.getElementById('imagen-placeholder').classList.add('hidden');
+        document.getElementById('btn-quitar-imagen').classList.remove('hidden');
+    }
+
     abrirModal('modal-plato');
+}
+
+/**
+ * Redimensiona y comprime la foto en el navegador antes de subirla (máx
+ * 800px de lado, JPEG calidad 0.8). Una foto de celular sin comprimir puede
+ * pesar 4-8MB; en una conexión de restaurante o un plan de datos limitado
+ * eso es carga eterna. Esto la deja típicamente por debajo de 150-300KB.
+ */
+function comprimirImagen(file, maxDim = 800, calidad = 0.8) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        const objectUrl = URL.createObjectURL(file);
+
+        img.onload = () => {
+            let { width, height } = img;
+            if (width > maxDim || height > maxDim) {
+                if (width > height) {
+                    height = Math.round(height * (maxDim / width));
+                    width = maxDim;
+                } else {
+                    width = Math.round(width * (maxDim / height));
+                    height = maxDim;
+                }
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+
+            canvas.toBlob(blob => {
+                URL.revokeObjectURL(objectUrl);
+                if (blob) resolve(blob); else reject(new Error('No se pudo procesar la imagen'));
+            }, 'image/jpeg', calidad);
+        };
+
+        img.onerror = () => {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error('Archivo de imagen inválido'));
+        };
+
+        img.src = objectUrl;
+    });
+}
+
+async function previsualizarImagen(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+        showToast('Selecciona un archivo de imagen', 'warning');
+        event.target.value = '';
+        return;
+    }
+
+    try {
+        const blob = await comprimirImagen(file);
+        archivoImagenPendiente = blob;
+
+        const preview = document.getElementById('imagen-preview');
+        preview.src = URL.createObjectURL(blob);
+        preview.classList.remove('hidden');
+        document.getElementById('imagen-placeholder').classList.add('hidden');
+        document.getElementById('btn-quitar-imagen').classList.remove('hidden');
+    } catch (err) {
+        showToast('No se pudo procesar la imagen', 'error');
+    }
+}
+
+async function quitarImagenPlato() {
+    archivoImagenPendiente = null;
+
+    if (editingPlatoId && platoImagenActualUrl) {
+        try {
+            await api.delete(`/platos/${editingPlatoId}/imagen`);
+            platoImagenActualUrl = null;
+            showToast('Foto eliminada', 'success');
+            await refreshCatalogo();
+            if (typeof refreshMozo === 'function') refreshMozo();
+        } catch (err) {
+            showToast(err.message || 'No se pudo eliminar la foto', 'error');
+        }
+    }
+
+    document.getElementById('plato-imagen-input').value = '';
+    document.getElementById('imagen-preview').classList.add('hidden');
+    document.getElementById('imagen-placeholder').classList.remove('hidden');
+    document.getElementById('btn-quitar-imagen').classList.add('hidden');
 }
 
 async function guardarPlato(event) {
@@ -87,13 +208,20 @@ async function guardarPlato(event) {
     };
 
     try {
+        let plato;
         if (editingPlatoId) {
-            await api.patch(`/platos/${editingPlatoId}`, data);
-            showToast('Plato actualizado', 'success');
+            plato = await api.patch(`/platos/${editingPlatoId}`, data);
         } else {
-            await api.post('/platos', data);
-            showToast('Plato creado', 'success');
+            plato = await api.post('/platos', data);
         }
+
+        if (archivoImagenPendiente) {
+            const formData = new FormData();
+            formData.append('archivo', archivoImagenPendiente, 'foto.jpg');
+            await api.postFile(`/platos/${plato.id}/imagen`, formData);
+        }
+
+        showToast(editingPlatoId ? 'Plato actualizado' : 'Plato creado', 'success');
         cerrarModalPlato();
         await refreshAdmin();
         await refreshCatalogo();

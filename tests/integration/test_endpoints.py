@@ -4,6 +4,8 @@ Cubren el ciclo completo: Admin crea plato -> Mozo manda comanda ->
 Cocina entrega -> Mozo cobra -> Dashboard refleja el dinero.
 """
 
+import pytest
+
 
 def test_health_endpoint(test_client):
     response = test_client.get('/health')
@@ -218,3 +220,96 @@ def test_dashboard_sin_ventas_no_falla(test_client, test_cliente):
     data = resp.json()
     assert data["totales"]["ventas"] == 0.0
     assert len(data["serie"]) == 7
+
+
+# ============ FOTOS DE PLATOS ============
+
+# PNG 1x1 real (encabezado válido), para que la detección por firma binaria
+# lo acepte igual que aceptaría una foto real tomada por un mozo.
+PNG_1PX = bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753"
+    "de0000000c4944415478da6360606060000000050001a5f645400000000049454e44ae426082"
+)
+
+
+@pytest.fixture(autouse=True)
+def _carpeta_imagenes_aislada(tmp_path, monkeypatch):
+    """Redirige los uploads de imagen a una carpeta temporal por test,
+    para no escribir archivos reales dentro del repo al correr la suite."""
+    from backend.routes import platos as platos_module
+    monkeypatch.setattr(platos_module, "CARPETA_IMAGENES", tmp_path / "platos")
+
+
+def _crear_plato(test_client):
+    payload = {"nombre": "Ceviche Clásico", "categoria": "Cebiches", "precio_venta": 45.0}
+    return test_client.post('/api/platos', json=payload).json()["id"]
+
+
+def test_subir_imagen_plato_valida(test_client, test_cliente):
+    plato_id = _crear_plato(test_client)
+
+    resp = test_client.post(
+        f'/api/platos/{plato_id}/imagen',
+        files={"archivo": ("foto.png", PNG_1PX, "image/png")},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["imagen_url"] == f"/static/assets/platos/{plato_id}.png"
+
+    # Debe reflejarse también al releer el plato
+    resp = test_client.get('/api/platos')
+    assert resp.json()[0]["imagen_url"] == f"/static/assets/platos/{plato_id}.png"
+
+
+def test_subir_imagen_con_extension_falsa_falla(test_client, test_cliente):
+    """El Content-Type que manda el cliente no es de fiar: se detecta por
+    firma binaria real. Un .html disfrazado de imagen debe rechazarse."""
+    plato_id = _crear_plato(test_client)
+
+    resp = test_client.post(
+        f'/api/platos/{plato_id}/imagen',
+        files={"archivo": ("foto.png", b"<script>alert(1)</script>", "image/png")},
+    )
+    assert resp.status_code == 400
+
+
+def test_subir_imagen_muy_pesada_falla(test_client, test_cliente):
+    plato_id = _crear_plato(test_client)
+    contenido_grande = PNG_1PX[:8] + b"\x00" * (5 * 1024 * 1024 + 1)
+
+    resp = test_client.post(
+        f'/api/platos/{plato_id}/imagen',
+        files={"archivo": ("foto.png", contenido_grande, "image/png")},
+    )
+    assert resp.status_code == 400
+
+
+def test_subir_imagen_plato_inexistente_falla(test_client, test_cliente):
+    resp = test_client.post(
+        '/api/platos/9999/imagen',
+        files={"archivo": ("foto.png", PNG_1PX, "image/png")},
+    )
+    assert resp.status_code == 404
+
+
+def test_reemplazar_imagen_no_deja_huerfanos(test_client, test_cliente, tmp_path):
+    from backend.routes import platos as platos_module
+    plato_id = _crear_plato(test_client)
+
+    test_client.post(f'/api/platos/{plato_id}/imagen', files={"archivo": ("a.png", PNG_1PX, "image/png")})
+    jpeg_1px = bytes.fromhex("ffd8ffe000104a46494600010100000100010000ffd9")
+    resp = test_client.post(f'/api/platos/{plato_id}/imagen', files={"archivo": ("b.jpg", jpeg_1px, "image/jpeg")})
+
+    assert resp.status_code == 200
+    assert resp.json()["imagen_url"] == f"/static/assets/platos/{plato_id}.jpg"
+    archivos = list(platos_module.CARPETA_IMAGENES.glob(f"{plato_id}.*"))
+    assert len(archivos) == 1  # el .png viejo se borró, no quedó huérfano
+
+
+def test_eliminar_imagen_plato(test_client, test_cliente):
+    plato_id = _crear_plato(test_client)
+    test_client.post(f'/api/platos/{plato_id}/imagen', files={"archivo": ("a.png", PNG_1PX, "image/png")})
+
+    resp = test_client.delete(f'/api/platos/{plato_id}/imagen')
+    assert resp.status_code == 200
+    assert resp.json()["imagen_url"] is None

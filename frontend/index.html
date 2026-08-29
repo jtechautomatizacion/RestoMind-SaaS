@@ -136,6 +136,20 @@
                             <div class="modal-scroll">
                                 <form id="form-plato" onsubmit="guardarPlato(event)">
                                     <div class="form-group">
+                                        <label>Foto del plato (opcional)</label>
+                                        <label class="imagen-upload" for="plato-imagen-input">
+                                            <img id="imagen-preview" class="imagen-preview hidden" alt="Vista previa">
+                                            <div id="imagen-placeholder" class="imagen-placeholder">
+                                                <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                                                <span>Toca para agregar foto</span>
+                                            </div>
+                                        </label>
+                                        <input type="file" id="plato-imagen-input" accept="image/png,image/jpeg,image/webp" class="hidden" onchange="previsualizarImagen(event)">
+                                        <button type="button" id="btn-quitar-imagen" class="btn btn-secondary btn-block hidden" style="margin-top:8px;" onclick="quitarImagenPlato()">
+                                            Quitar foto
+                                        </button>
+                                    </div>
+                                    <div class="form-group">
                                         <label>Nombre</label>
                                         <input type="text" id="plato-nombre" placeholder="Ceviche Clásico" required maxlength="100">
                                     </div>

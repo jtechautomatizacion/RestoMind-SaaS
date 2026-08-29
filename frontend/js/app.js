@@ -47,6 +47,29 @@ const api = {
     patch(endpoint, data) {
         return this._fetch(endpoint, { method: 'PATCH', body: JSON.stringify(data || {}) });
     },
+
+    delete(endpoint) {
+        return this._fetch(endpoint, { method: 'DELETE' });
+    },
+
+    // Multipart, sin el header Content-Type: json de _fetch (el navegador
+    // arma el boundary correcto solo si no lo tocamos).
+    async postFile(endpoint, formData) {
+        const resp = await fetch(`${API_BASE_URL}${endpoint}`, {
+            method: 'POST',
+            headers: { 'X-Cliente-Id': estado.clienteId },
+            body: formData,
+        });
+        if (!resp.ok) {
+            let detail = `Error ${resp.status}`;
+            try {
+                const body = await resp.json();
+                if (body.detail) detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail);
+            } catch (_) { /* respuesta sin JSON */ }
+            throw new Error(detail);
+        }
+        return resp.json();
+    },
 };
 
 // ============ INIT ============

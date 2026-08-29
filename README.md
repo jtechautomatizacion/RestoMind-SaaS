@@ -82,7 +82,7 @@ RestoMind-SaaS/
 │       └── admin.js              # Carta + Gastos
 ├── tests/
 │   ├── conftest.py               # Fixtures (BD en memoria)
-│   ├── integration/              # 20 tests de endpoints
+│   ├── integration/              # 26 tests de endpoints
 │   └── unit/                     # Tests de modelos
 ├── requirements.txt
 ├── .env.example

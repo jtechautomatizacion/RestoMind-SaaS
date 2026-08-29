@@ -4,3 +4,9 @@ __pycache__/
 .env
 instance/
 restomind.db
+
+# Fotos subidas por el usuario: son datos de instancia, no del repo.
+# El endpoint las crea al vuelo (backend/routes/platos.py); solo se
+# versiona la carpeta vacía (.gitkeep).
+frontend/assets/platos/*
+!frontend/assets/platos/.gitkeep
