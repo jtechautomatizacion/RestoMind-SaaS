@@ -878,6 +878,28 @@ Superadmin-only (mismo tipo de token que el resto de `/superadmin/*`).
 
 ---
 
+## 🚀 LISTOS PARA PRODUCCIÓN
+
+**Contexto:** con el login y la auditoría ya endurecidos, faltaba cerrar lo
+que un despliegue real necesita antes de recibir tráfico de un dominio de
+verdad: CORS bien configurado, cabeceras de seguridad HTTP, y un checklist
+para no depender de memoria al elegir hosting.
+
+**Ver [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md)** para la
+checklist completa (qué ya está resuelto en código, qué variables de entorno
+hay que cambiar, y qué le toca al proxy/hosting — HTTPS, no a esta app).
+
+Resumen de lo agregado:
+- `backend/config.py` ahora falla al arrancar en `ENVIRONMENT=production` si
+  `DEBUG=true` o si `CORS_ORIGINS` sigue en los valores de desarrollo (o es
+  `"*"`) — mismo principio que el fail-fast de `SECRET_KEY`.
+- `backend/middleware.py` (nuevo): cabeceras de seguridad en toda respuesta
+  (CSP, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, y
+  `Strict-Transport-Security` cuando detecta HTTPS vía `X-Forwarded-Proto`).
+- La contraseña mínima **sigue en 6 caracteres**, a propósito — no se tocó.
+
+---
+
 ## 📝 NOTAS PARA EL DESARROLLADOR
 
 **Importante:**
