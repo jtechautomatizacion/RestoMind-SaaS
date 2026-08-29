@@ -837,6 +837,42 @@ Para restaurantes que prefieren compartir un solo celular sin cuentas individual
 
 ---
 
+## 🛡️ ENDURECIMIENTO PARA UNA FUTURA AUDITORÍA
+
+**Contexto:** con el flujo de login ya completo (email para admin/superadmin, código de acceso para personal), se revisó qué señalaría una auditoría de seguridad/datos. Se corrigieron cuatro puntos; el mínimo de contraseña (6 caracteres) queda **a propósito** sin tocar por ahora — el dueño lo está usando corto para acelerar su propio QA/QC, y lo subirá más adelante.
+
+### 1. `SECRET_KEY` ya no tiene un valor por defecto inseguro
+
+`backend/config.py` tenía `secret_key: str = "your-secret-key-change-in-production"`. Si `.env` no definía `SECRET_KEY` (un despliegue nuevo, un contenedor sin ese archivo), la app arrancaba igual y firmaba los JWT con ese string público que está en el código fuente — cualquiera podría forjar un token de admin o superadmin. Ahora `secret_key: str` no tiene default: si falta, `Settings()` lanza `ValidationError` y **la app no arranca**. Test: `tests/unit/test_config.py::test_settings_falla_sin_secret_key`.
+
+### 2. El token declara su tipo explícitamente
+
+Antes, `get_cliente_id`/`get_usuario_actual` (`backend/dependencies.py`) aceptaban cualquier token que **no** dijera `tipo == "superadmin"`, en vez de exigir `tipo == "usuario"` explícito. `crear_token()` (`backend/auth.py`) ahora siempre incluye `"tipo": "usuario"`, y las dependencias exigen ese valor exacto — un token de un tipo futuro/desconocido que no declare `tipo` ya no se cuela por descarte. Test: `test_token_sin_tipo_explicito_no_accede_a_rutas_de_restaurante`.
+
+### 3. Rate limiting en los tres logins
+
+`backend/utils/rate_limit.py` — en memoria, por IP, **solo cuenta intentos fallidos** (los éxitos no restan del límite: varios mozos entrando desde el mismo WiFi al empezar un turno no deberían gastar la cuota de nadie). 5 fallos en 15 minutos → `429` en el siguiente intento desde esa IP. Aplicado a `/auth/login`, `/auth/login-staff` y `/superadmin/login`.
+
+Deliberadamente simple (sin Redis): esta app corre como un solo proceso uvicorn, así que el estado en memoria alcanza. Si el día de mañana corre en varios workers/servidores, esto hay que moverlo a algo compartido.
+
+> **Nota para tests:** `TestClient` de Starlette siempre reporta el mismo host falso (`"testclient"`), así que sin resetear el contador entre tests, un test que prueba credenciales inválidas (401 esperado) podía terminar chocando con el límite y viendo un 429 que no tiene nada que ver con lo que prueba. `tests/conftest.py` tiene un fixture `autouse` (`_reset_rate_limit_login`) que limpia el estado antes y después de cada test.
+
+### 4. Registro de auditoría (tabla `audit_log`)
+
+`backend/models.py: AuditLog` — quién (`actor`), qué acción, sobre qué entidad, cuándo, y en qué restaurante (`cliente_id`, nulo para acciones a nivel superadmin). Vive en su propia tabla en la BD, no solo en logs de texto: sobrevive a la rotación/pérdida de esos logs y se puede consultar con una query. Esto es lo primero que pide una auditoría formal: *"¿quién eliminó esta cuenta y cuándo?"*.
+
+`backend/utils/auditoria.py::registrar_evento()` nunca tumba la operación que audita — si guardar el evento falla, se ignora en vez de propagar el error.
+
+Acciones que quedan registradas: `login` (los tres tipos de cuenta), `crear_usuario`, `crear_staff`, `editar_usuario`, `resetear_password`, `eliminar_usuario`, `crear_cliente`, `editar_cliente`, `cambiar_estado_cliente`, `eliminar_cliente`.
+
+Para que no sea un registro de solo-escritura, hay un endpoint de lectura:
+```
+GET /api/superadmin/auditoria?cliente_id=<opcional>&limit=<opcional, máx 1000>
+```
+Superadmin-only (mismo tipo de token que el resto de `/superadmin/*`).
+
+---
+
 ## 📝 NOTAS PARA EL DESARROLLADOR
 
 **Importante:**
