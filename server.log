@@ -1,4 +1,8 @@
-INFO:     Started server process [45124]
+INFO:     Started server process [12780]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+[OK] Columna 'celular' ya existe
+[OK] 'email' ya es nullable
+[OK] Migración completada
+INFO:     127.0.0.1:58776 - "GET /api/monitor/cocina HTTP/1.1" 200 OK
