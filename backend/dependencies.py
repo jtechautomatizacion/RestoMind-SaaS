@@ -25,14 +25,18 @@ def _payload_del_token(authorization: Optional[str] = Header(default=None)) -> d
 
 
 def get_cliente_id(payload: dict = Depends(_payload_del_token)) -> str:
-    if payload.get("tipo") == "superadmin" or "cliente_id" not in payload:
+    # Exige tipo == "usuario" explícito, no solo "no es superadmin": un
+    # token viejo o de un tipo futuro que no declare "tipo" en absoluto no
+    # debería colarse acá solo porque no dice "superadmin" — más frágil que
+    # chequear lo que SÍ tiene que ser.
+    if payload.get("tipo") != "usuario" or "cliente_id" not in payload:
         raise HTTPException(status_code=403, detail="Este token no da acceso a datos de un restaurante")
     return payload["cliente_id"]
 
 
 def get_usuario_actual(payload: dict = Depends(_payload_del_token)) -> str:
     """Devuelve el email del usuario autenticado (el 'sub' del token)."""
-    if payload.get("tipo") == "superadmin" or "cliente_id" not in payload:
+    if payload.get("tipo") != "usuario" or "cliente_id" not in payload:
         raise HTTPException(status_code=403, detail="Este token no da acceso a datos de un restaurante")
     return payload["sub"]
 

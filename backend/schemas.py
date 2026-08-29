@@ -57,6 +57,20 @@ class SuperAdminMe(BaseModel):
     email: str
 
 
+class AuditLogResponse(BaseModel):
+    id: int
+    timestamp: datetime
+    actor: str
+    accion: str
+    entidad: str
+    entidad_id: str
+    cliente_id: Optional[str]
+    detalle: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+
 class ClienteConStats(BaseModel):
     id: str
     nombre: str

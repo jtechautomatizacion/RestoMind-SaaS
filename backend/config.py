@@ -6,7 +6,12 @@ class Settings(BaseSettings):
     # Environment
     environment: str = "development"
     debug: bool = True
-    secret_key: str = "your-secret-key-change-in-production"
+
+    # Sin default a propósito: si SECRET_KEY no está en el entorno/.env, la
+    # app debe fallar al arrancar, no firmar tokens JWT con un valor público
+    # que cualquiera puede leer en el código fuente. Un despliegue nuevo sin
+    # este valor configurado emitiría tokens de admin/superadmin forjables.
+    secret_key: str
 
     # Database
     database_url: str = "sqlite:///./restomind.db"

@@ -158,3 +158,23 @@ class Compra(Base):
 
     # Relationships
     cliente = relationship("Cliente", back_populates="compras")
+
+
+class AuditLog(Base):
+    """
+    Rastro de quién hizo qué, sobre qué, y cuándo — para acciones sensibles
+    (login, alta/edición/baja de cuentas, cambios de contraseña, alta de
+    restaurantes). Vive en su propia tabla (no en logs de texto) porque
+    eso es justamente lo primero que pide una auditoría formal, y un log
+    de texto se puede rotar o perder sin que quede registro de ello.
+    """
+    __tablename__ = "audit_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    actor = Column(String, nullable=False)  # email/celular/id de quien hizo la acción
+    accion = Column(String, nullable=False)  # "login", "crear_usuario", "eliminar_usuario", etc.
+    entidad = Column(String, nullable=False)  # "usuario", "cliente", "superadmin"
+    entidad_id = Column(String, nullable=False)
+    cliente_id = Column(String, nullable=True, index=True)  # null para acciones a nivel superadmin
+    detalle = Column(String, nullable=True)

@@ -713,6 +713,27 @@ def test_token_de_superadmin_no_sirve_en_rutas_de_restaurante(test_client_real_a
     assert resp.status_code == 403
 
 
+def test_token_sin_tipo_explicito_no_accede_a_rutas_de_restaurante(test_client_real_auth, test_cliente):
+    """get_cliente_id exige tipo == "usuario" explícito, no solo "no es
+    superadmin" — un token que no declare tipo (uno viejo, o de un tipo
+    futuro desconocido) no debe colarse solo por descarte."""
+    import jwt
+    from datetime import datetime, timedelta, timezone
+    from backend.auth import ALGORITMO
+    from backend.config import settings
+    from tests.conftest import TEST_CLIENTE_ID
+
+    payload = {
+        "sub": "alguien@test.com",
+        "cliente_id": TEST_CLIENTE_ID,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+    }
+    token = jwt.encode(payload, settings.secret_key, algorithm=ALGORITMO)
+
+    resp = test_client_real_auth.get('/api/platos', headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
+
+
 # ============ PERSONAL (usuarios de un restaurante) ============
 
 def test_crear_y_listar_usuario_personal(test_client, test_cliente):
@@ -948,7 +969,123 @@ def test_superadmin_puede_actualizar_su_nombre(test_client_real_auth_sa):
     assert data["nombre"] == "Juan Pérez Nuevo"
 
 
+def test_superadmin_puede_listar_auditoria(test_client_real_auth_sa):
+    """El propio login del superadmin (hecho por el fixture) ya debería
+    haber quedado registrado."""
+    resp = test_client_real_auth_sa.get('/api/superadmin/auditoria')
+    assert resp.status_code == 200
+    eventos = resp.json()
+    assert any(e["accion"] == "login" and e["entidad"] == "superadmin" for e in eventos)
+
+
+def test_auditoria_no_accesible_con_token_de_restaurante(test_client_real_auth, test_cliente):
+    token = _login_restaurante(test_client_real_auth)
+    resp = test_client_real_auth.get('/api/superadmin/auditoria', headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
+
+
 def _login_restaurante(client):
     from tests.conftest import TEST_USUARIO_EMAIL, TEST_USUARIO_PASSWORD
     resp = client.post('/api/auth/login', json={"email": TEST_USUARIO_EMAIL, "password": TEST_USUARIO_PASSWORD})
     return resp.json()["access_token"]
+
+
+# ============ RATE LIMITING DE LOGIN ============
+
+def test_login_bloquea_tras_varios_intentos_fallidos(test_client_real_auth, test_cliente):
+    from tests.conftest import TEST_USUARIO_EMAIL
+
+    for _ in range(5):
+        resp = test_client_real_auth.post('/api/auth/login', json={
+            "email": TEST_USUARIO_EMAIL, "password": "equivocada",
+        })
+        assert resp.status_code == 401
+
+    # El 6to intento (aunque la contraseña ahora sí sea correcta) se frena
+    # por rate-limit, no por credenciales.
+    from tests.conftest import TEST_USUARIO_PASSWORD
+    resp = test_client_real_auth.post('/api/auth/login', json={
+        "email": TEST_USUARIO_EMAIL, "password": TEST_USUARIO_PASSWORD,
+    })
+    assert resp.status_code == 429
+
+
+def test_login_exitoso_no_cuenta_para_el_limite(test_client_real_auth, test_cliente):
+    """Varios logins CORRECTOS seguidos (varios mozos entrando desde el
+    mismo WiFi al empezar un turno) no deben gastar el límite — solo los
+    fallos cuentan."""
+    from tests.conftest import TEST_USUARIO_EMAIL, TEST_USUARIO_PASSWORD
+
+    for _ in range(8):
+        resp = test_client_real_auth.post('/api/auth/login', json={
+            "email": TEST_USUARIO_EMAIL, "password": TEST_USUARIO_PASSWORD,
+        })
+        assert resp.status_code == 200
+
+
+def test_login_staff_bloquea_tras_varios_intentos_fallidos(test_client_real_auth, test_cliente):
+    for _ in range(5):
+        resp = test_client_real_auth.post('/api/auth/login-staff', json={
+            "celular": "000000", "password": "equivocada",
+        })
+        assert resp.status_code == 401
+
+    resp = test_client_real_auth.post('/api/auth/login-staff', json={
+        "celular": "000000", "password": "equivocada",
+    })
+    assert resp.status_code == 429
+
+
+def test_superadmin_login_bloquea_tras_varios_intentos_fallidos(test_client_real_auth, test_superadmin):
+    from tests.conftest import TEST_SUPERADMIN_EMAIL
+
+    for _ in range(5):
+        resp = test_client_real_auth.post('/api/superadmin/login', json={
+            "email": TEST_SUPERADMIN_EMAIL, "password": "equivocada",
+        })
+        assert resp.status_code == 401
+
+    resp = test_client_real_auth.post('/api/superadmin/login', json={
+        "email": TEST_SUPERADMIN_EMAIL, "password": "equivocada",
+    })
+    assert resp.status_code == 429
+
+
+# ============ REGISTRO DE AUDITORÍA ============
+
+def test_login_exitoso_queda_en_el_registro_de_auditoria(test_client_real_auth, test_cliente, test_db):
+    from backend.models import AuditLog
+    from tests.conftest import TEST_USUARIO_EMAIL
+
+    _login_restaurante(test_client_real_auth)
+
+    evento = test_db.query(AuditLog).filter(AuditLog.accion == "login", AuditLog.actor == TEST_USUARIO_EMAIL).first()
+    assert evento is not None
+    assert evento.entidad == "usuario"
+
+
+def test_crear_staff_queda_en_el_registro_de_auditoria(test_client, test_cliente, test_db):
+    from backend.models import AuditLog
+
+    creado = test_client.post('/api/usuarios/staff', json={
+        "nombre": "Pedro Mozo", "password": "clave123", "rol": "mozo",
+    }).json()
+
+    evento = test_db.query(AuditLog).filter(
+        AuditLog.accion == "crear_staff", AuditLog.entidad_id == creado["id"],
+    ).first()
+    assert evento is not None
+
+
+def test_eliminar_usuario_queda_en_el_registro_de_auditoria(test_client, test_cliente, test_db):
+    from backend.models import AuditLog
+
+    creado = test_client.post('/api/usuarios/staff', json={
+        "nombre": "Pedro Mozo", "password": "clave123", "rol": "mozo",
+    }).json()
+    test_client.delete(f'/api/usuarios/{creado["id"]}')
+
+    evento = test_db.query(AuditLog).filter(
+        AuditLog.accion == "eliminar_usuario", AuditLog.entidad_id == creado["id"],
+    ).first()
+    assert evento is not None

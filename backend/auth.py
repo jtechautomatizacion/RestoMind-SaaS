@@ -42,6 +42,7 @@ def crear_token(email: str, cliente_id: str, rol: str) -> str:
         "sub": email,
         "cliente_id": cliente_id,
         "rol": rol,
+        "tipo": "usuario",
         "iat": ahora,
         "exp": ahora + timedelta(hours=EXPIRACION_HORAS),
     }

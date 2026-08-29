@@ -10,20 +10,24 @@ pueda tocar desde internet.
 """
 
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from backend.auth import crear_token, verificar_password, crear_token_superadmin
 from backend.database import get_db
 from backend.dependencies import get_cliente_id, get_usuario_actual
 from backend.models import Cliente, Usuario, SuperAdmin
 from backend.schemas import LoginRequest, LoginResponse, UsuarioMe, LoginStaffRequest
+from backend.utils.auditoria import registrar_evento
+from backend.utils.rate_limit import limpiar_intentos_login, registrar_login_fallido, verificar_intentos_login
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 @router.post("/auth/login", response_model=LoginResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    verificar_intentos_login(request)
+
     email = payload.email.strip().lower()
     logger.info(f"[LOGIN] Intento con email: {email}")
 
@@ -40,8 +44,11 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
             logger.info(f"[LOGIN] SuperAdmin encontrado: {superadmin.id}")
             if not verificar_password(payload.password, superadmin.password_hash):
                 logger.warning(f"[LOGIN] SuperAdmin {email}: contraseña incorrecta")
+                registrar_login_fallido(request)
                 raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
             logger.info(f"[LOGIN] SuperAdmin {email}: login exitoso")
+            limpiar_intentos_login(request)
+            registrar_evento(db, actor=superadmin.email, accion="login", entidad="superadmin", entidad_id=superadmin.id)
             token = crear_token_superadmin(superadmin.email)
             return LoginResponse(
                 access_token=token,
@@ -63,6 +70,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
     if not usuario or not verificar_password(payload.password, usuario.password_hash):
         logger.warning(f"[LOGIN] Usuario {email}: contraseña incorrecta o usuario no existe")
+        registrar_login_fallido(request)
         raise credenciales_invalidas
 
     if usuario.estado != "activo":
@@ -72,6 +80,8 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     if not cliente or cliente.estado != "activo":
         raise HTTPException(status_code=403, detail="Esta cuenta de restaurante está deshabilitada")
 
+    limpiar_intentos_login(request)
+    registrar_evento(db, actor=usuario.email, accion="login", entidad="usuario", entidad_id=usuario.id, cliente_id=usuario.cliente_id)
     token = crear_token(email=usuario.email, cliente_id=usuario.cliente_id, rol=usuario.rol)
     return LoginResponse(
         access_token=token,
@@ -86,13 +96,16 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/auth/login-staff", response_model=LoginResponse)
-def login_staff(payload: LoginStaffRequest, db: Session = Depends(get_db)):
+def login_staff(payload: LoginStaffRequest, request: Request, db: Session = Depends(get_db)):
     """Login para mozo, cajero, cocinero. Usa celular + contraseña."""
+    verificar_intentos_login(request)
+
     usuario = db.query(Usuario).filter(Usuario.celular == payload.celular.strip()).first()
 
     credenciales_invalidas = HTTPException(status_code=401, detail="Celular o contraseña incorrectos")
 
     if not usuario or not verificar_password(payload.password, usuario.password_hash):
+        registrar_login_fallido(request)
         raise credenciales_invalidas
 
     if usuario.estado != "activo":
@@ -101,6 +114,9 @@ def login_staff(payload: LoginStaffRequest, db: Session = Depends(get_db)):
     cliente = db.query(Cliente).filter(Cliente.id == usuario.cliente_id).first()
     if not cliente or cliente.estado != "activo":
         raise HTTPException(status_code=403, detail="Esta cuenta de restaurante está deshabilitada")
+
+    limpiar_intentos_login(request)
+    registrar_evento(db, actor=usuario.celular, accion="login", entidad="usuario", entidad_id=usuario.id, cliente_id=usuario.cliente_id)
 
     # Para staff, usamos celular en lugar de email en el token
     token = crear_token(email=usuario.celular, cliente_id=usuario.cliente_id, rol=usuario.rol)

@@ -17,6 +17,19 @@ TEST_SUPERADMIN_EMAIL = "dueno@resto-mind.com"
 TEST_SUPERADMIN_PASSWORD = "superclave123"
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limit_login():
+    """El rate-limiter de login cuenta intentos por IP, pero Starlette's
+    TestClient siempre usa el mismo host falso ("testclient") — sin este
+    reset, los 401 esperados en un test de credenciales inválidas se
+    acumularían con los de otro test y dispararían un 429 que no tiene
+    nada que ver con lo que ese test está probando."""
+    from backend.utils import rate_limit
+    rate_limit._fallos.clear()
+    yield
+    rate_limit._fallos.clear()
+
+
 @pytest.fixture
 def test_db():
     """Crea una BD en memoria para tests.

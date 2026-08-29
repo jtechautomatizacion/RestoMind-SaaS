@@ -12,7 +12,7 @@ así que un token de restaurante no puede usarse acá aunque sea válido).
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -20,8 +20,9 @@ from backend.auth import crear_token_superadmin, hash_password, verificar_passwo
 from backend.database import get_db
 from backend.dependencies import get_superadmin_email
 from backend.email import enviar_email_credenciales
-from backend.models import Cliente, Comanda, Mesa, Plato, SuperAdmin, Usuario
+from backend.models import AuditLog, Cliente, Comanda, Mesa, Plato, SuperAdmin, Usuario
 from backend.schemas import (
+    AuditLogResponse,
     ChangePasswordRequest,
     ClienteConStats,
     ClienteCreateRequest,
@@ -32,19 +33,26 @@ from backend.schemas import (
     SuperAdminMe,
     SuperAdminUpdateRequest,
 )
+from backend.utils.auditoria import registrar_evento
+from backend.utils.rate_limit import limpiar_intentos_login, registrar_login_fallido, verificar_intentos_login
 
 router = APIRouter()
 
 
 @router.post("/superadmin/login", response_model=SuperAdminLoginResponse)
-def login_superadmin(payload: SuperAdminLoginRequest, db: Session = Depends(get_db)):
+def login_superadmin(payload: SuperAdminLoginRequest, request: Request, db: Session = Depends(get_db)):
+    verificar_intentos_login(request)
+
     admin = db.query(SuperAdmin).filter(SuperAdmin.email == payload.email.strip().lower()).first()
 
     # Mismo mensaje para "no existe" y "contraseña incorrecta" — no dar
     # pistas de qué emails de superadmin existen.
     if not admin or not verificar_password(payload.password, admin.password_hash):
+        registrar_login_fallido(request)
         raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
 
+    limpiar_intentos_login(request)
+    registrar_evento(db, actor=admin.email, accion="login", entidad="superadmin", entidad_id=admin.id)
     token = crear_token_superadmin(admin.email)
     return SuperAdminLoginResponse(access_token=token, nombre=admin.nombre, email=admin.email)
 
@@ -123,7 +131,7 @@ def _slug(texto: str) -> str:
 def crear_cliente(
     payload: ClienteCreateRequest,
     db: Session = Depends(get_db),
-    _superadmin: str = Depends(get_superadmin_email),
+    superadmin_email: str = Depends(get_superadmin_email),
 ):
     cliente_id = payload.cliente_id or _slug(payload.nombre)
 
@@ -158,6 +166,11 @@ def crear_cliente(
 
     db.commit()
 
+    registrar_evento(
+        db, actor=superadmin_email, accion="crear_cliente", entidad="cliente",
+        entidad_id=cliente_id, cliente_id=cliente_id, detalle=f"admin: {admin_email}",
+    )
+
     # Enviar email de bienvenida con credenciales (no bloquea si falla)
     enviar_email_credenciales(
         destinatario=admin_email,
@@ -179,7 +192,7 @@ def cambiar_estado_cliente(
     cliente_id: str,
     payload: EstadoUpdate,
     db: Session = Depends(get_db),
-    _superadmin: str = Depends(get_superadmin_email),
+    superadmin_email: str = Depends(get_superadmin_email),
 ):
     if payload.estado not in ("activo", "inactivo", "suspendido"):
         raise HTTPException(status_code=400, detail="Estado inválido. Use: activo, inactivo o suspendido")
@@ -188,12 +201,19 @@ def cambiar_estado_cliente(
     if not cliente:
         raise HTTPException(status_code=404, detail="Restaurante no encontrado")
 
+    estado_anterior = cliente.estado
     # Un cliente no-'activo' se corta en seco en el próximo login (ver
     # backend/routes/auth.py) aunque sus tokens ya emitidos sigan siendo
     # válidos hasta que expiren (12h) — no hay revocación instantánea de
     # tokens todavía, solo bloqueo de logins nuevos.
     cliente.estado = payload.estado
     db.commit()
+
+    registrar_evento(
+        db, actor=superadmin_email, accion="cambiar_estado_cliente", entidad="cliente",
+        entidad_id=cliente_id, cliente_id=cliente_id, detalle=f"{estado_anterior} -> {payload.estado}",
+    )
+
     return {"id": cliente.id, "estado": cliente.estado}
 
 
@@ -202,7 +222,7 @@ def editar_cliente(
     cliente_id: str,
     payload: ClienteCreateRequest,
     db: Session = Depends(get_db),
-    _superadmin: str = Depends(get_superadmin_email),
+    superadmin_email: str = Depends(get_superadmin_email),
 ):
     """Editar datos del cliente y su admin."""
     cliente = db.query(Cliente).filter(Cliente.id == cliente_id).first()
@@ -245,6 +265,12 @@ def editar_cliente(
 
     db.commit()
 
+    registrar_evento(
+        db, actor=superadmin_email, accion="editar_cliente", entidad="cliente",
+        entidad_id=cliente_id, cliente_id=cliente_id,
+        detalle=f"email_admin_cambio: {email_admin_cambio}",
+    )
+
     # Si cambió el email del admin, reenviar credenciales
     if email_admin_cambio:
         enviar_email_credenciales(
@@ -269,16 +295,23 @@ def editar_cliente(
 def eliminar_cliente(
     cliente_id: str,
     db: Session = Depends(get_db),
-    _superadmin: str = Depends(get_superadmin_email),
+    superadmin_email: str = Depends(get_superadmin_email),
 ):
     """Eliminar un cliente y todos sus datos (usuarios, platos, mesas, comandas, etc)."""
     cliente = db.query(Cliente).filter(Cliente.id == cliente_id).first()
     if not cliente:
         raise HTTPException(status_code=404, detail="Restaurante no encontrado")
 
+    nombre_cliente = cliente.nombre
+
     # Eliminar en cascada (SQLAlchemy lo hace automáticamente si está bien configurado)
     db.delete(cliente)
     db.commit()
+
+    registrar_evento(
+        db, actor=superadmin_email, accion="eliminar_cliente", entidad="cliente",
+        entidad_id=cliente_id, cliente_id=cliente_id, detalle=nombre_cliente,
+    )
 
 
 @router.patch("/superadmin/clientes/{cliente_id}/reset-password")
@@ -286,7 +319,7 @@ def resetear_password_admin(
     cliente_id: str,
     payload: ResetPasswordRequest,
     db: Session = Depends(get_db),
-    _superadmin: str = Depends(get_superadmin_email),
+    superadmin_email: str = Depends(get_superadmin_email),
 ):
     admin = db.query(Usuario).filter(Usuario.cliente_id == cliente_id, Usuario.rol == "admin").first()
     if not admin:
@@ -294,6 +327,12 @@ def resetear_password_admin(
 
     admin.password_hash = hash_password(payload.nueva_password)
     db.commit()
+
+    registrar_evento(
+        db, actor=superadmin_email, accion="resetear_password", entidad="usuario",
+        entidad_id=admin.id, cliente_id=cliente_id, detalle=admin.email,
+    )
+
     return {"email": admin.email, "detail": "Contraseña actualizada"}
 
 
@@ -341,3 +380,18 @@ def actualizar_perfil_superadmin(
 
     db.commit()
     return SuperAdminMe(nombre=admin.nombre, email=admin.email)
+
+
+@router.get("/superadmin/auditoria", response_model=List[AuditLogResponse])
+def listar_auditoria(
+    db: Session = Depends(get_db),
+    _superadmin: str = Depends(get_superadmin_email),
+    cliente_id: str = None,
+    limit: int = 200,
+):
+    """Consultar el registro de auditoría (login, altas, bajas, cambios de
+    contraseña). Filtrable por restaurante; sin filtro trae de todos."""
+    query = db.query(AuditLog).order_by(AuditLog.timestamp.desc())
+    if cliente_id:
+        query = query.filter(AuditLog.cliente_id == cliente_id)
+    return query.limit(min(limit, 1000)).all()

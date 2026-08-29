@@ -29,6 +29,7 @@ from backend.schemas import (
     StaffCreateRequest,
     StaffUpdateRequest,
 )
+from backend.utils.auditoria import registrar_evento
 from backend.utils.security import validar_admin
 
 router = APIRouter()
@@ -102,6 +103,12 @@ def crear_usuario(
     db.add(usuario)
     db.commit()
     db.refresh(usuario)
+
+    registrar_evento(
+        db, actor=usuario_actual, accion="crear_usuario", entidad="usuario",
+        entidad_id=usuario.id, cliente_id=cliente_id, detalle=f"rol: {usuario.rol}",
+    )
+
     return usuario
 
 
@@ -130,6 +137,12 @@ def crear_staff(
     db.add(usuario)
     db.commit()
     db.refresh(usuario)
+
+    registrar_evento(
+        db, actor=usuario_actual, accion="crear_staff", entidad="usuario",
+        entidad_id=usuario.id, cliente_id=cliente_id, detalle=f"rol: {usuario.rol}",
+    )
+
     return usuario
 
 
@@ -240,6 +253,12 @@ def editar_usuario(
 
     db.commit()
     db.refresh(usuario)
+
+    registrar_evento(
+        db, actor=usuario_actual, accion="editar_usuario", entidad="usuario",
+        entidad_id=usuario.id, cliente_id=cliente_id, detalle=str(datos),
+    )
+
     return usuario
 
 
@@ -259,6 +278,12 @@ def cambiar_password_usuario(
 
     usuario.password_hash = hash_password(payload.nueva_password)
     db.commit()
+
+    registrar_evento(
+        db, actor=usuario_actual, accion="resetear_password", entidad="usuario",
+        entidad_id=usuario.id, cliente_id=cliente_id,
+    )
+
     return {"email": usuario.email, "detail": "Contraseña actualizada"}
 
 
@@ -282,5 +307,13 @@ def eliminar_usuario(
     if usuario.email == usuario_actual:
         raise HTTPException(status_code=400, detail="No puedes eliminar tu propia cuenta")
 
+    nombre_eliminado = usuario.nombre
+    rol_eliminado = usuario.rol
+
     db.delete(usuario)
     db.commit()
+
+    registrar_evento(
+        db, actor=usuario_actual, accion="eliminar_usuario", entidad="usuario",
+        entidad_id=usuario_id, cliente_id=cliente_id, detalle=f"{nombre_eliminado} ({rol_eliminado})",
+    )
