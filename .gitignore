@@ -4,6 +4,7 @@ __pycache__/
 .env
 instance/
 restomind.db
+server.log
 
 # Fotos subidas por el usuario: son datos de instancia, no del repo.
 # El endpoint las crea al vuelo (backend/routes/platos.py); solo se
