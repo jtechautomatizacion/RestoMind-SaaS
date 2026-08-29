@@ -4,6 +4,24 @@ from datetime import datetime
 from backend.database import Base
 
 
+class SuperAdmin(Base):
+    """
+    Cuenta del dueño del sistema (el revendedor), no de un restaurante.
+    Deliberadamente sin cliente_id: no pertenece a ningún tenant, ve todos.
+    Separada de Usuario (no solo un Usuario con cliente_id nulo) para que
+    sea imposible confundir un token de restaurante con uno de superadmin
+    por un descuido de validación — son dos tablas, dos flujos de login,
+    dos tipos de token.
+    """
+    __tablename__ = "superadmins"
+
+    id = Column(String, primary_key=True)
+    nombre = Column(String, nullable=False)
+    email = Column(String, unique=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+
+
 class Cliente(Base):
     __tablename__ = "clientes"
 

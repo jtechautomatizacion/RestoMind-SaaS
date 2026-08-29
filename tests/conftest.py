@@ -8,11 +8,13 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from backend.auth import hash_password
 from backend.database import Base
-from backend.models import Cliente, Plato, Mesa, Usuario
+from backend.models import Cliente, Plato, Mesa, Usuario, SuperAdmin
 
 TEST_CLIENTE_ID = "test-cliente-001"
 TEST_USUARIO_EMAIL = "admin@test.local"
 TEST_USUARIO_PASSWORD = "secreta123"
+TEST_SUPERADMIN_EMAIL = "dueno@resto-mind.com"
+TEST_SUPERADMIN_PASSWORD = "superclave123"
 
 
 @pytest.fixture
@@ -139,6 +141,20 @@ def test_platos(test_db, test_cliente):
         test_db.add(plato)
     test_db.commit()
     return platos
+
+
+@pytest.fixture
+def test_superadmin(test_db):
+    """Crea una cuenta de superadmin de test."""
+    admin = SuperAdmin(
+        id='super-test',
+        nombre='Dueño',
+        email=TEST_SUPERADMIN_EMAIL,
+        password_hash=hash_password(TEST_SUPERADMIN_PASSWORD),
+    )
+    test_db.add(admin)
+    test_db.commit()
+    return admin
 
 
 @pytest.fixture

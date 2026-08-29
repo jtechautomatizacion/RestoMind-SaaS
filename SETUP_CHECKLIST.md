@@ -14,7 +14,8 @@ Los 5 casos de uso más 4 features adicionales, todos implementados, probados y 
 - ✅ **Gestión de Categorías** — CRUD completo con iconos emoji, asignación dinámica en formularios, protección contra eliminación si hay platos
 - ✅ **Reporte Excel** — 3 hojas (Detalle Ventas, Detalle Gastos, Resumen Diario), formato de soles "S/ X.XX", encabezados coloreados, rows congelados
 - ✅ **Login real (JWT)** — multi-tenant de verdad: cada restaurante es un Cliente aislado, con sus propios usuarios; ya no hay acceso sin loguearse
-- ✅ 48 tests automáticos (`pytest tests/ -v`), todos en verde (16 nuevos tests: categorías, platos, gastos, dashboard, login)
+- ✅ **Panel General (superadmin)** — pantalla aparte para el dueño del sistema: ve todos los restaurantes dados de alta, sus estadísticas, puede crear uno nuevo desde el navegador, suspenderlo o resetear la contraseña de su admin
+- ✅ 56 tests automáticos (`pytest tests/ -v`), todos en verde (24 nuevos tests: categorías, platos, gastos, dashboard, login, panel general)
 - ✅ Frontend PWA rediseñado: mobile-first, bottom nav, sin librerías externas, pensado para gama media/baja, service worker v14
 - ✅ Datos semilla automáticos al arrancar + backfill automático para BDs existentes (crea admin user si falta, categorías si faltan, repara contraseñas de instalaciones pre-login)
 
@@ -69,6 +70,64 @@ de login; las rutas siguen validando "admin" consultando la tabla
 `Usuario` en cada request (`validar_admin()`), no confiando en el rol
 del token — a propósito, así revocar o cambiar el rol de alguien surte
 efecto de inmediato sin esperar a que expire su token viejo.
+
+## 🏢 Panel General (superadmin) — para administrar la reventa
+
+**Por qué existe:** con login real ya no hay forma de ver "todos mis
+restaurantes clientes" desde dentro de la app — cada login solo ve su
+propio tenant, por diseño. Sin este panel, dar de alta un restaurante
+nuevo requería SSH al servidor y correr un script a mano; suspender a un
+cliente que no paga no tenía ninguna interfaz.
+
+**Completamente separado del login de restaurantes, a propósito:**
+- Tabla `SuperAdmin` (`backend/models.py`) — ni siquiera es un `Usuario`
+  con `cliente_id` nulo: es otra tabla, con su propio login
+  (`POST /api/superadmin/login`) y su propio tipo de JWT (`tipo:
+  "superadmin"` en el payload, sin `cliente_id`). Así es imposible que un
+  descuido de validación deje que un token de restaurante entre al panel
+  general, o viceversa — `get_cliente_id`/`get_usuario_actual` rechazan
+  cualquier token con `tipo == "superadmin"`, y `get_superadmin_email`
+  rechaza cualquier token que no lo tenga (ver `backend/dependencies.py`).
+- **Sin registro público**, igual que el alta de restaurantes: la única
+  forma de crear una cuenta de superadmin es correr
+  `python -m backend.scripts.crear_superadmin` en el servidor, una vez.
+
+**Endpoints** (todos bajo `/api/superadmin/*`, todos exigen el JWT de superadmin):
+```
+POST  /superadmin/login                        → devuelve el token
+GET   /superadmin/me                           → valida sesión guardada
+GET   /superadmin/clientes                     → lista todos + stats
+POST  /superadmin/clientes                     → da de alta un restaurante nuevo
+PATCH /superadmin/clientes/{id}/estado         → activo/suspendido/inactivo
+PATCH /superadmin/clientes/{id}/reset-password → resetea la contraseña de su admin
+```
+
+**`GET /superadmin/clientes`** trae, por cada restaurante: nombre, email,
+estado, fecha de alta, número de usuarios/platos/mesas, y **ventas del
+mes en curso** (suma de `Comanda.total_cuenta` con `estado='cobrado'`
+desde el día 1 del mes en UTC) — lo mínimo para saber de un vistazo cuáles
+clientes están activos usando el sistema.
+
+**Suspender un restaurante** (`estado='suspendido'`) le bloquea el
+próximo login (`POST /auth/login` ya validaba `cliente.estado != 'activo'`
+desde que se implementó el login real) — pero **no invalida tokens ya
+emitidos**: alguien que ya inició sesión sigue teniendo acceso hasta que
+su token expire (máx. 12h). Revocación instantánea de tokens activos
+queda para más adelante (ver "Próximos pasos").
+
+**Frontend:** página completamente aparte —
+`frontend/superadmin.html` + `frontend/js/superadmin.js` — deliberadamente
+sin cargar `app.js`/`auth.js` (esos están atados a la sesión de UN
+restaurante; mezclarlos habría sido una fuente fácil de bugs de
+aislamiento). Pensada para escritorio, no para el celular del mozo.
+
+**Bug real encontrado y corregido en el camino:** la función que arma el
+`id` de un restaurante nuevo a partir de su nombre (`_slug()`) no manejaba
+tildes — "Pollería" se cortaba mal ("poller-a-...") porque el regex
+`[^a-z0-9]+` trata una vocal con tilde como carácter no válido igual que
+un espacio. Se corrigió normalizando el texto (`unicodedata.normalize`)
+antes de aplicar el regex, en los dos lugares donde existía esta función
+(`backend/routes/superadmin.py` y `backend/scripts/crear_cliente.py`).
 
 ## 🎨 Features agregados en la sesión final (mejoras de UX/producto)
 
@@ -220,17 +279,19 @@ backend/
 ├── config.py               # Settings (pydantic-settings) — secret_key real en .env
 ├── database.py             # SQLAlchemy engine/session
 ├── dependencies.py         # get_cliente_id/get_usuario_actual (leen el JWT), get_tz_offset
-├── models.py                # 8 tablas (Categoria agregada)
+├── models.py                # 9 tablas (Categoria, SuperAdmin agregadas)
 ├── schemas.py              # Pydantic: validación + respuestas
 ├── seed.py                 # Datos demo idempotentes + backfill automático
 ├── services.py             # Reglas de negocio
 ├── scripts/
-│   └── crear_cliente.py    # Nuevo: onboarding manual de un restaurante nuevo (CLI)
+│   ├── crear_cliente.py     # Onboarding manual de un restaurante nuevo (CLI, alternativa al Panel General)
+│   └── crear_superadmin.py  # Nuevo: bootstrap de TU cuenta del Panel General (una sola vez por servidor)
 ├── utils/
 │   ├── __init__.py
 │   └── security.py         # validar_admin() centralizado
 └── routes/
-    ├── auth.py             # Nuevo: POST /auth/login, GET /auth/me
+    ├── auth.py             # POST /auth/login, GET /auth/me (login de restaurante)
+    ├── superadmin.py       # Nuevo: login + CRUD de restaurantes para el Panel General
     ├── platos.py           # CU-01 (crear/editar/eliminar, admin-only)
     ├── categorias.py       # Nuevo: CRUD categorías con iconos
     ├── mesas.py            # Soporte + cobro de mesa
@@ -239,14 +300,16 @@ backend/
     └── dashboard.py        # CU-05 (top 3 platos/gastos, reporte Excel)
 
 frontend/
-├── index.html              # Login screen + bottom nav: Mesas / Cocina / Dinero / Admin
+├── index.html              # App de UN restaurante: login + bottom nav (Mesas/Cocina/Dinero/Admin)
+├── superadmin.html         # Nuevo: Panel General — ve y administra TODOS los restaurantes
 ├── manifest.json           # PWA manifest
 ├── sw.js                   # Service worker (v14)
-├── css/style.css           # Design system mobile-first (light + dark)
+├── css/style.css           # Design system mobile-first (light + dark) — compartido por ambas páginas
 ├── assets/platos/          # Fotos subidas (gitignored, la crea el backend)
 └── js/
     ├── app.js              # API client (Authorization: Bearer), navegación, toasts
-    ├── auth.js             # Nuevo: login/logout, guarda el token, valida sesión al abrir
+    ├── auth.js             # Login/logout de restaurante, guarda el token, valida sesión al abrir
+    ├── superadmin.js        # Nuevo: login/CRUD del Panel General — independiente de app.js/auth.js
     ├── charts.js           # Gráficos SVG a mano (sin librerías)
     ├── print.js            # Impresión dual de comandas
     ├── mozo.js             # Mesas, nuevo pedido, cuenta y cobro
@@ -269,11 +332,13 @@ pip install -r requirements.txt    # si falta algo
 uvicorn backend.app:app --reload --host 0.0.0.0 --port 8000
 ```
 
-- App (PWA): `http://localhost:8000/static/index.html` → pide login
+- App (PWA), un restaurante: `http://localhost:8000/static/index.html` → pide login
+- **Panel General (todos tus restaurantes)**: `http://localhost:8000/static/superadmin.html`
 - Docs (Swagger): `http://localhost:8000/docs`
 - Tests: `pytest tests/ -v`
 - Restaurante demo: `admin@demo.local` / `admin123`
-- Dar de alta un restaurante nuevo: `python -m backend.scripts.crear_cliente` (interactivo, por consola)
+- Crear tu cuenta de superadmin (una sola vez, la primera vez que despliegas): `python -m backend.scripts.crear_superadmin` (interactivo, por consola)
+- Dar de alta un restaurante nuevo: **desde el Panel General** una vez logueado (botón "Nuevo restaurante"), o por consola con `python -m backend.scripts.crear_cliente` si preferís no abrir el navegador
 
 El primer arranque crea `restomind.db` con datos de demo (restaurante "La Marisquería del Chef", 8 mesas, 12 platos, usuario admin). Es idempotente: si borras el archivo `restomind.db`, se vuelve a sembrar solo. Una instalación con una BD de antes de que existiera login se repara sola al arrancar (ver sección "Login real" arriba).
 
@@ -292,15 +357,16 @@ Si dos instalaciones (dev y prod, por ejemplo) comparten el mismo `SECRET_KEY` p
 
 ## 📞 Próximos pasos sugeridos (post-MVP)
 
-1. **Rate limiting en `/auth/login`** — hoy nada impide probar contraseñas al voleo (fuerza bruta). Un límite simple (ej. 5 intentos/minuto por IP) cierra ese hueco antes de exponer el sistema a internet público.
-2. **Refresh tokens / logout del lado servidor** — hoy un JWT robado sigue siendo válido hasta que expira (12h) aunque el usuario "cierre sesión" (el logout actual solo borra el token del navegador). Para revocación real haría falta una lista negra o tokens de vida más corta + refresh.
-3. **Multi-restaurante con self-service**: hoy el alta es manual (`crear_cliente.py`, la corre el dueño del sistema). Si el negocio escala a que restaurantes se den de alta solos, hace falta una pantalla de registro + verificación de email + cobro.
-4. **IA + Claude API**: reportes inteligentes sobre los datos que ya arroja el Dashboard (ver guía de negocio de JTech).
-5. **Pagos**: integración Stripe/Culqi para cobro con QR.
-6. **Zona horaria por cliente**: hoy el corte de "día" del dashboard usa UTC; con clientes en distintos países convendría guardar el timezone del restaurante (columna en `Cliente`, hoy `tz_offset` viaja por header y lo decide el navegador del que hace la consulta, no el restaurante en sí).
+1. **Rate limiting en `/auth/login` y `/superadmin/login`** — hoy nada impide probar contraseñas al voleo (fuerza bruta). Un límite simple (ej. 5 intentos/minuto por IP) cierra ese hueco antes de exponer el sistema a internet público.
+2. **Refresh tokens / logout del lado servidor** — hoy un JWT robado sigue siendo válido hasta que expira (12h) aunque el usuario "cierre sesión" (el logout actual solo borra el token del navegador). Suspender un cliente desde el Panel General tiene el mismo límite: bloquea logins nuevos, no tokens ya emitidos. Para revocación real haría falta una lista negra o tokens de vida más corta + refresh.
+3. **Facturación dentro del Panel General**: hoy "ventas del mes" es solo informativo — no hay forma de cobrarle a un restaurante cliente desde el panel ni de ver un historial de pagos. Si el negocio crece, esto es lo próximo a agregar ahí mismo.
+4. **Multi-restaurante con self-service**: hoy el alta la hace el dueño del sistema (por el Panel General o por consola). Si el negocio escala a que restaurantes se den de alta solos, hace falta una pantalla de registro pública + verificación de email + cobro automático.
+5. **IA + Claude API**: reportes inteligentes sobre los datos que ya arroja el Dashboard (ver guía de negocio de JTech).
+6. **Pagos**: integración Stripe/Culqi para cobro con QR (tanto para que el restaurante le cobre a sus clientes, como para que el sistema le cobre al restaurante).
+7. **Zona horaria por cliente**: hoy el corte de "día" del dashboard usa UTC; con clientes en distintos países convendría guardar el timezone del restaurante (columna en `Cliente`, hoy `tz_offset` viaja por header y lo decide el navegador del que hace la consulta, no el restaurante en sí).
 
 ---
 
-**Última actualización:** 2026-08-29 (sesión de login real + multi-tenant para reventa)
-**Estado:** ✅ MVP+ funcional, probado (48/48 tests), con autenticación real — listo para dar de alta el primer restaurante de pago
+**Última actualización:** 2026-08-29 (sesión de login real + Panel General para multi-tenant de reventa)
+**Estado:** ✅ MVP+ funcional, probado (56/56 tests), con autenticación real y panel de administración general — listo para dar de alta el primer restaurante de pago
 **Próxima prioridad:** rate limiting en login antes de exponer el servidor a internet público

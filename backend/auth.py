@@ -48,6 +48,23 @@ def crear_token(email: str, cliente_id: str, rol: str) -> str:
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITMO)
 
 
+def crear_token_superadmin(email: str) -> str:
+    """
+    Sin cliente_id ni rol de restaurante: un token de superadmin no debe
+    poder usarse por accidente contra una ruta de tenant (get_cliente_id
+    rechaza cualquier token que no tenga tipo != 'superadmin' con cliente_id
+    real, y viceversa las rutas de superadmin exigen tipo == 'superadmin').
+    """
+    ahora = datetime.now(timezone.utc)
+    payload = {
+        "sub": email,
+        "tipo": "superadmin",
+        "iat": ahora,
+        "exp": ahora + timedelta(hours=EXPIRACION_HORAS),
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=ALGORITMO)
+
+
 def decodificar_token(token: str) -> Optional[dict]:
     try:
         return jwt.decode(token, settings.secret_key, algorithms=[ALGORITMO])

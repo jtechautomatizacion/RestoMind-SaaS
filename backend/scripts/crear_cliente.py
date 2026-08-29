@@ -18,6 +18,7 @@ avisa en vez de fallar con un error de base de datos poco claro.
 import getpass
 import re
 import sys
+import unicodedata
 
 from backend.auth import hash_password
 from backend.database import SessionLocal, init_db
@@ -25,7 +26,8 @@ from backend.models import Cliente, Mesa, Usuario
 
 
 def _slug(texto: str) -> str:
-    limpio = re.sub(r"[^a-z0-9]+", "-", texto.lower()).strip("-")
+    sin_tildes = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
+    limpio = re.sub(r"[^a-z0-9]+", "-", sin_tildes.lower()).strip("-")
     return limpio or "restaurante"
 
 

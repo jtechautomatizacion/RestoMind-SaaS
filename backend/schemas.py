@@ -24,6 +24,56 @@ class LoginResponse(BaseModel):
     usuario: UsuarioMe
 
 
+# ============ SUPERADMIN (panel del revendedor) ============
+
+class SuperAdminLoginRequest(BaseModel):
+    email: str = Field(..., min_length=1, max_length=150)
+    password: str = Field(..., min_length=1, max_length=200)
+
+
+class SuperAdminLoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    nombre: str
+    email: str
+
+
+class SuperAdminMe(BaseModel):
+    nombre: str
+    email: str
+
+
+class ClienteConStats(BaseModel):
+    id: str
+    nombre: str
+    email: str
+    telefono: Optional[str] = None
+    pais: str
+    estado: str
+    creado_en: datetime
+    num_usuarios: int
+    num_platos: int
+    num_mesas: int
+    ventas_mes_actual: float
+
+
+class ClienteCreateRequest(BaseModel):
+    nombre: str = Field(..., min_length=1, max_length=100)
+    cliente_id: Optional[str] = Field(default=None, max_length=50)
+    email: str = Field(..., min_length=1, max_length=150)
+    telefono: Optional[str] = Field(default=None, max_length=30)
+    pais: str = Field(default="Perú", max_length=50)
+    moneda: str = Field(default="PEN", max_length=10)
+    num_mesas: int = Field(default=8, ge=0, le=200)
+    admin_nombre: str = Field(..., min_length=1, max_length=100)
+    admin_email: str = Field(..., min_length=1, max_length=150)
+    admin_password: str = Field(..., min_length=6, max_length=200)
+
+
+class ResetPasswordRequest(BaseModel):
+    nueva_password: str = Field(..., min_length=6, max_length=200)
+
+
 # ============ GENÉRICO ============
 
 class EstadoUpdate(BaseModel):

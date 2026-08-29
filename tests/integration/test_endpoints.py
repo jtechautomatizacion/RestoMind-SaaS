@@ -598,3 +598,114 @@ def test_eliminar_categoria_en_uso_falla(test_client, test_cliente):
 
     resp = test_client.delete(f'/api/categorias/{categoria_id}')
     assert resp.status_code == 400
+
+
+# ============ SUPERADMIN (panel del revendedor) ============
+
+def _login_superadmin(client):
+    from tests.conftest import TEST_SUPERADMIN_EMAIL, TEST_SUPERADMIN_PASSWORD
+    resp = client.post('/api/superadmin/login', json={
+        "email": TEST_SUPERADMIN_EMAIL, "password": TEST_SUPERADMIN_PASSWORD,
+    })
+    return resp.json()["access_token"]
+
+
+def test_superadmin_login_correcto(test_client_real_auth, test_superadmin):
+    from tests.conftest import TEST_SUPERADMIN_EMAIL, TEST_SUPERADMIN_PASSWORD
+    resp = test_client_real_auth.post('/api/superadmin/login', json={
+        "email": TEST_SUPERADMIN_EMAIL, "password": TEST_SUPERADMIN_PASSWORD,
+    })
+    assert resp.status_code == 200
+    assert resp.json()["access_token"]
+    assert resp.json()["email"] == TEST_SUPERADMIN_EMAIL
+
+
+def test_superadmin_login_password_incorrecta(test_client_real_auth, test_superadmin):
+    from tests.conftest import TEST_SUPERADMIN_EMAIL
+    resp = test_client_real_auth.post('/api/superadmin/login', json={
+        "email": TEST_SUPERADMIN_EMAIL, "password": "equivocada",
+    })
+    assert resp.status_code == 401
+
+
+def test_superadmin_lista_clientes_con_stats(test_client_real_auth, test_superadmin, test_cliente, test_platos, test_mesas):
+    token = _login_superadmin(test_client_real_auth)
+    resp = test_client_real_auth.get('/api/superadmin/clientes', headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    clientes = resp.json()
+    assert len(clientes) == 1
+    assert clientes[0]["id"] == test_cliente.id
+    assert clientes[0]["num_platos"] == len(test_platos)
+    assert clientes[0]["num_mesas"] == len(test_mesas)
+
+
+def test_superadmin_crea_restaurante_nuevo(test_client_real_auth, test_superadmin):
+    token = _login_superadmin(test_client_real_auth)
+    resp = test_client_real_auth.post('/api/superadmin/clientes', headers={"Authorization": f"Bearer {token}"}, json={
+        "nombre": "Pollería El Buen Sabor",
+        "email": "contacto@buensabor.pe",
+        "num_mesas": 5,
+        "admin_nombre": "Carlos",
+        "admin_email": "carlos@buensabor.pe",
+        "admin_password": "clave123456",
+    })
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["id"] == "polleria-el-buen-sabor"
+    assert data["num_mesas"] == 5
+
+    # El nuevo admin ya puede loguearse en su propio restaurante.
+    login = test_client_real_auth.post('/api/auth/login', json={
+        "email": "carlos@buensabor.pe", "password": "clave123456",
+    })
+    assert login.status_code == 200
+    assert login.json()["usuario"]["cliente_id"] == "polleria-el-buen-sabor"
+
+
+def test_superadmin_suspender_cliente_bloquea_su_login(test_client_real_auth, test_superadmin, test_cliente):
+    from tests.conftest import TEST_USUARIO_EMAIL, TEST_USUARIO_PASSWORD
+    token = _login_superadmin(test_client_real_auth)
+
+    resp = test_client_real_auth.patch(
+        f'/api/superadmin/clientes/{test_cliente.id}/estado',
+        headers={"Authorization": f"Bearer {token}"}, json={"estado": "suspendido"},
+    )
+    assert resp.status_code == 200
+
+    login = test_client_real_auth.post('/api/auth/login', json={
+        "email": TEST_USUARIO_EMAIL, "password": TEST_USUARIO_PASSWORD,
+    })
+    assert login.status_code == 403
+
+
+def test_superadmin_resetea_password_de_admin(test_client_real_auth, test_superadmin, test_cliente):
+    from tests.conftest import TEST_USUARIO_EMAIL
+    token = _login_superadmin(test_client_real_auth)
+
+    resp = test_client_real_auth.patch(
+        f'/api/superadmin/clientes/{test_cliente.id}/reset-password',
+        headers={"Authorization": f"Bearer {token}"}, json={"nueva_password": "nuevaclave999"},
+    )
+    assert resp.status_code == 200
+
+    login = test_client_real_auth.post('/api/auth/login', json={
+        "email": TEST_USUARIO_EMAIL, "password": "nuevaclave999",
+    })
+    assert login.status_code == 200
+
+
+def test_token_de_restaurante_no_sirve_en_superadmin(test_client_real_auth, test_cliente):
+    from tests.conftest import TEST_USUARIO_EMAIL, TEST_USUARIO_PASSWORD
+    login = test_client_real_auth.post('/api/auth/login', json={
+        "email": TEST_USUARIO_EMAIL, "password": TEST_USUARIO_PASSWORD,
+    })
+    token = login.json()["access_token"]
+
+    resp = test_client_real_auth.get('/api/superadmin/clientes', headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
+
+
+def test_token_de_superadmin_no_sirve_en_rutas_de_restaurante(test_client_real_auth, test_superadmin):
+    token = _login_superadmin(test_client_real_auth)
+    resp = test_client_real_auth.get('/api/platos', headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
