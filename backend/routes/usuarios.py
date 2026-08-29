@@ -32,6 +32,8 @@ from backend.utils.security import validar_admin
 
 router = APIRouter()
 
+_ROL_LABELS = {"mozo": "Mozo", "cajero": "Cajero", "jefe_cocina": "Cocina", "admin": "Administrador"}
+
 
 @router.get("/usuarios", response_model=List[UsuarioResponse])
 def listar_usuarios(
@@ -95,9 +97,24 @@ def crear_staff(
     """Crear mozo, cajero o cocinero. Usa celular en lugar de email."""
     validar_admin(db, usuario_actual, cliente_id)
 
-    # Validar que el celular no exista ya
-    if db.query(Usuario).filter(Usuario.celular == payload.celular.strip()).first():
-        raise HTTPException(status_code=400, detail=f"Ya existe un usuario con el celular '{payload.celular}'")
+    # El celular es único en TODO el sistema (no solo por restaurante): el
+    # login de personal lo busca sin saber a qué restaurante pertenece, así
+    # que dos restaurantes no pueden compartir un mismo celular de staff.
+    #
+    # Si el duplicado es del MISMO restaurante, el mensaje puede ser
+    # específico (nombre y rol) — es el propio dato del admin. Si es de
+    # OTRO restaurante cliente, el mensaje queda genérico a propósito: decir
+    # "ya lo tiene registrado el restaurante X" filtraría datos de otro
+    # cliente, algo que el aislamiento multi-tenant de esta app prohíbe.
+    existente = db.query(Usuario).filter(Usuario.celular == payload.celular).first()
+    if existente:
+        if existente.cliente_id == cliente_id:
+            rol_label = _ROL_LABELS.get(existente.rol, existente.rol)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Ya tienes este celular registrado: {existente.nombre} ({rol_label})",
+            )
+        raise HTTPException(status_code=400, detail="Este celular ya está registrado en el sistema")
 
     usuario = Usuario(
         id=f"usr-{cliente_id}-{payload.celular}",

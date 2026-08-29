@@ -847,6 +847,52 @@ def test_crear_staff_con_celular_invalido_falla(test_client, test_cliente):
     assert resp.status_code == 422
 
 
+def test_crear_staff_con_celular_duplicado_del_mismo_restaurante_avisa_quien_es(test_client, test_cliente):
+    """Si el celular ya está en uso dentro del propio restaurante, el mensaje
+    puede ser específico: es el propio dato del admin, no de otro cliente."""
+    test_client.post('/api/usuarios/staff', json={
+        "nombre": "Pedro Mozo", "celular": "987654321", "password": "clave123", "rol": "mozo",
+    })
+
+    resp = test_client.post('/api/usuarios/staff', json={
+        "nombre": "Otro Pedro", "celular": "987654321", "password": "clave123", "rol": "cajero",
+    })
+    assert resp.status_code == 400
+    assert "Pedro Mozo" in resp.json()["detail"]
+    assert "Mozo" in resp.json()["detail"]
+
+
+def test_crear_staff_con_celular_duplicado_de_otro_restaurante_no_revela_datos(test_client, test_db, test_cliente):
+    """Si el celular ya está registrado en OTRO restaurante cliente, el
+    mensaje debe ser genérico — no puede filtrar el nombre del restaurante,
+    del admin ni del empleado ajeno (aislamiento multi-tenant)."""
+    from backend.auth import hash_password
+    from backend.models import Cliente, Usuario
+
+    otro_cliente = Cliente(id="otro-restaurante", nombre="Otro Restaurante", email="otro@test.com")
+    test_db.add(otro_cliente)
+    test_db.commit()
+
+    test_db.add(Usuario(
+        id="usr-otro-restaurante-987654321",
+        cliente_id="otro-restaurante",
+        nombre="Empleado de otro restaurante",
+        celular="987654321",
+        password_hash=hash_password("clave123"),
+        rol="cajero",
+        estado="activo",
+    ))
+    test_db.commit()
+
+    resp = test_client.post('/api/usuarios/staff', json={
+        "nombre": "Pedro Mozo", "celular": "987654321", "password": "clave123", "rol": "mozo",
+    })
+    assert resp.status_code == 400
+    detalle = resp.json()["detail"]
+    assert "Empleado de otro restaurante" not in detalle
+    assert "Otro Restaurante" not in detalle
+
+
 def test_resetear_password_de_usuario_personal(test_client, test_cliente):
     creado = test_client.post('/api/usuarios', json={
         "nombre": "Cajero", "email": "cajero@test-restaurant.com", "password": "vieja12345", "rol": "cajero",
