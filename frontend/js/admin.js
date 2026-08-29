@@ -522,16 +522,16 @@ function renderPersonal() {
 }
 
 function abrirModalNuevoUsuario() {
-    // Solo se crea personal (mozo/cajero/cocina) desde acá — con celular,
-    // no email. Un admin no puede crear otro admin: ese lo da de alta el
-    // superadmin al registrar el restaurante.
+    // Solo se crea personal (mozo/cajero/cocina) desde acá — con un código
+    // de acceso que genera el backend, no un celular real. Un admin no
+    // puede crear otro admin: ese lo da de alta el superadmin al registrar
+    // el restaurante.
     editingUsuarioId = null;
     document.getElementById('modal-usuario-title').textContent = 'Nueva Cuenta';
     document.getElementById('form-usuario').reset();
 
-    document.getElementById('usuario-celular-group').classList.remove('hidden');
-    document.getElementById('usuario-celular').disabled = false;
-    document.getElementById('usuario-celular').required = true;
+    document.getElementById('usuario-codigo-nuevo-hint').classList.remove('hidden');
+    document.getElementById('usuario-celular-group').classList.add('hidden');
     document.getElementById('usuario-email-fijo-group').classList.add('hidden');
 
     document.getElementById('usuario-password-group').classList.remove('hidden');
@@ -550,6 +550,7 @@ function abrirModalEditarUsuario(usuarioId) {
     editingUsuarioId = usuarioId;
     document.getElementById('modal-usuario-title').textContent = 'Editar Cuenta';
     document.getElementById('usuario-nombre').value = usuario.nombre;
+    document.getElementById('usuario-codigo-nuevo-hint').classList.add('hidden');
 
     // La contraseña se cambia solo desde "Resetear contraseña", no mezclado
     // en este formulario (evita que quede en blanco por accidente y alguien
@@ -566,11 +567,11 @@ function abrirModalEditarUsuario(usuarioId) {
         document.getElementById('usuario-rol-group').classList.add('hidden');
         document.getElementById('usuario-rol-fijo-group').classList.remove('hidden');
     } else {
-        // Personal: el celular es el identificador de login, no se puede
-        // cambiar (cambiarlo sería re-crear la cuenta), pero el rol sí.
+        // Personal: el código de acceso es el identificador de login, ya
+        // generado y no se puede cambiar (cambiarlo sería re-crear la
+        // cuenta), pero el rol sí.
         document.getElementById('usuario-celular-group').classList.remove('hidden');
         document.getElementById('usuario-celular').value = usuario.celular;
-        document.getElementById('usuario-celular').disabled = true;
         document.getElementById('usuario-email-fijo-group').classList.add('hidden');
 
         document.getElementById('usuario-rol-group').classList.remove('hidden');
@@ -602,15 +603,20 @@ async function guardarUsuario(event) {
                 datos.rol = document.getElementById('usuario-rol').value;
             }
             await api.patch(`/usuarios/${editingUsuarioId}`, datos);
+            cerrarModalUsuario();
+            await refreshAdmin();
+            showToast('Cuenta actualizada', 'success');
         } else {
-            const celular = document.getElementById('usuario-celular').value.trim();
             const password = document.getElementById('usuario-password').value;
             const rol = document.getElementById('usuario-rol').value;
-            await api.post('/usuarios/staff', { nombre, celular, password, rol });
+            const creado = await api.post('/usuarios/staff', { nombre, password, rol });
+            cerrarModalUsuario();
+            await refreshAdmin();
+            // El código lo genera el backend — sin esto, el admin no tiene
+            // forma de saber qué código darle al empleado recién creado
+            // (aunque también queda visible después en la lista de Personal).
+            showToast(`Cuenta creada. Código de acceso: ${creado.celular}`, 'success');
         }
-        cerrarModalUsuario();
-        await refreshAdmin();
-        showToast(editingUsuarioId ? 'Cuenta actualizada' : 'Cuenta creada', 'success');
     } catch (err) {
         showToast(err.message || 'Error al guardar la cuenta', 'error');
     }

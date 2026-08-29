@@ -195,30 +195,32 @@ class UsuarioResponse(BaseModel):
 
 
 class StaffCreateRequest(BaseModel):
-    """Crear mozo, cajero o cocinero. Usa celular, no email.
+    """Crear mozo, cajero o cocinero.
+
+    Ya no se pide celular: el admin normalmente no tiene un número real
+    distinto para cada empleado (ni quiere repartir el suyo propio), así
+    que el "código de acceso" lo genera el backend — ver crear_staff() en
+    routes/usuarios.py. Esto también evita pedir un dato personal (celular
+    real) que no hace falta para el login, algo a favor en una auditoría
+    de datos.
 
     El valor de rol para cocina es 'jefe_cocina' — así se llama en toda la
     app (ROLES_PERMITIDOS, dashboard, permisos), no 'cocinero'.
     """
     nombre: str = Field(..., min_length=1, max_length=100)
-    celular: str = Field(..., min_length=1, max_length=20)
     password: str = Field(..., min_length=6, max_length=200)
     rol: str = Field(..., pattern="^(mozo|cajero|jefe_cocina)$")
 
-    @field_validator("celular")
-    @classmethod
-    def validar_celular(cls, v: str) -> str:
-        return _validar_celular_peru(v)
-
 
 class StaffUpdateRequest(BaseModel):
-    """Editar staff. Solo nombre y contraseña. No se puede cambiar celular ni rol."""
+    """Editar staff. Solo nombre y contraseña. No se puede cambiar el código de acceso ni el rol."""
     nombre: Optional[str] = Field(default=None, min_length=1, max_length=100)
     password: Optional[str] = Field(default=None, min_length=6, max_length=200)
 
 
 class LoginStaffRequest(BaseModel):
-    """Login para mozo, cajero, cocinero. Usa celular + contraseña."""
+    """Login para mozo, cajero, cocinero. Usa el código de acceso generado
+    al crear la cuenta (ya no es necesariamente un celular real) + contraseña."""
     celular: str = Field(..., min_length=1, max_length=20)
     password: str = Field(..., min_length=1)
 

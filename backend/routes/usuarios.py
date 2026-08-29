@@ -9,6 +9,7 @@ selector de rol por dispositivo: en vez de que cualquiera toque un botón
 su rol viene del JWT — ya no se puede falsear.
 """
 
+import secrets
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -33,6 +34,23 @@ from backend.utils.security import validar_admin
 router = APIRouter()
 
 _ROL_LABELS = {"mozo": "Mozo", "cajero": "Cajero", "jefe_cocina": "Cocina", "admin": "Administrador"}
+
+
+def _generar_codigo_acceso(db: Session) -> str:
+    """Código numérico de 6 dígitos, único en todo el sistema.
+
+    Reemplaza al celular real como identificador de login del personal: el
+    admin normalmente no tiene un número distinto para cada empleado (ni
+    quiere repartir el suyo propio), y pedir un dato personal real que ni
+    siquiera hace falta verificar es innecesario — 1 millón de
+    combinaciones hace la colisión aleatoria despreciable, y aun así se
+    revalida contra la BD antes de usarlo.
+    """
+    for _ in range(20):
+        codigo = f"{secrets.randbelow(1_000_000):06d}"
+        if not db.query(Usuario).filter(Usuario.celular == codigo).first():
+            return codigo
+    raise HTTPException(status_code=500, detail="No se pudo generar un código de acceso único, intenta de nuevo")
 
 
 @router.get("/usuarios", response_model=List[UsuarioResponse])
@@ -94,33 +112,17 @@ def crear_staff(
     cliente_id: str = Depends(get_cliente_id),
     usuario_actual: str = Depends(get_usuario_actual),
 ):
-    """Crear mozo, cajero o cocinero. Usa celular en lugar de email."""
+    """Crear mozo, cajero o cocinero. El código de acceso lo genera el
+    backend (ver _generar_codigo_acceso) — el admin no lo escribe."""
     validar_admin(db, usuario_actual, cliente_id)
 
-    # El celular es único en TODO el sistema (no solo por restaurante): el
-    # login de personal lo busca sin saber a qué restaurante pertenece, así
-    # que dos restaurantes no pueden compartir un mismo celular de staff.
-    #
-    # Si el duplicado es del MISMO restaurante, el mensaje puede ser
-    # específico (nombre y rol) — es el propio dato del admin. Si es de
-    # OTRO restaurante cliente, el mensaje queda genérico a propósito: decir
-    # "ya lo tiene registrado el restaurante X" filtraría datos de otro
-    # cliente, algo que el aislamiento multi-tenant de esta app prohíbe.
-    existente = db.query(Usuario).filter(Usuario.celular == payload.celular).first()
-    if existente:
-        if existente.cliente_id == cliente_id:
-            rol_label = _ROL_LABELS.get(existente.rol, existente.rol)
-            raise HTTPException(
-                status_code=400,
-                detail=f"Ya tienes este celular registrado: {existente.nombre} ({rol_label})",
-            )
-        raise HTTPException(status_code=400, detail="Este celular ya está registrado en el sistema")
+    codigo_acceso = _generar_codigo_acceso(db)
 
     usuario = Usuario(
-        id=f"usr-{cliente_id}-{payload.celular}",
+        id=f"usr-{cliente_id}-{codigo_acceso}",
         cliente_id=cliente_id,
         nombre=payload.nombre,
-        celular=payload.celular.strip(),
+        celular=codigo_acceso,
         email=None,  # Staff NO tiene email
         password_hash=hash_password(payload.password),
         rol=payload.rol,
