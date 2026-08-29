@@ -3,7 +3,7 @@ CU-04: Control de Compras y Caja Chica
 Endpoints para registrar gastos diarios.
 """
 
-from datetime import date
+from datetime import date, datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -17,12 +17,19 @@ router = APIRouter()
 ESTADOS_COMPRA_VALIDOS = ("registrado", "cancelado")
 
 
+def _hoy_utc() -> date:
+    # Los timestamps de la BD son UTC (datetime.utcnow()); comparar con
+    # date.today() (hora local del servidor) hace que fechas válidas se
+    # rechacen como "futuras" cuando local y UTC caen en días distintos.
+    return datetime.utcnow().date()
+
+
 def _validar_fecha_no_futura(fecha_str: str) -> None:
     try:
         fecha = date.fromisoformat(fecha_str)
     except ValueError:
         raise HTTPException(status_code=400, detail="Fecha inválida, use formato YYYY-MM-DD")
-    if fecha > date.today():
+    if fecha > _hoy_utc():
         raise HTTPException(status_code=400, detail="La fecha no puede ser futura")
 
 
@@ -68,7 +75,7 @@ def editar_compra(
     if not compra:
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
 
-    if compra.fecha != date.today().isoformat():
+    if compra.fecha != _hoy_utc().isoformat():
         raise HTTPException(status_code=403, detail="Solo se pueden editar gastos del día de hoy")
 
     datos = payload.model_dump(exclude_unset=True)

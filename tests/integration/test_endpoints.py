@@ -165,8 +165,8 @@ def test_cobrar_mesa_libera_mesa_y_suma_total(test_client, test_platos, test_mes
 # ============ CU-04: COMPRAS ============
 
 def test_crear_compra_y_editar_mismo_dia(test_client, test_cliente):
-    from datetime import date
-    payload = {"descripcion": "Pescado rojo", "categoria": "Insumos", "monto": 85.5, "fecha": date.today().isoformat()}
+    from datetime import datetime
+    payload = {"descripcion": "Pescado rojo", "categoria": "Insumos", "monto": 85.5, "fecha": datetime.utcnow().date().isoformat()}
     resp = test_client.post('/api/compras', json=payload)
     assert resp.status_code == 201
     compra_id = resp.json()["id"]
@@ -183,8 +183,8 @@ def test_crear_compra_fecha_futura_falla(test_client, test_cliente):
 
 
 def test_cancelar_compra(test_client, test_cliente):
-    from datetime import date
-    payload = {"descripcion": "Verduras", "monto": 30.0, "fecha": date.today().isoformat()}
+    from datetime import datetime
+    payload = {"descripcion": "Verduras", "monto": 30.0, "fecha": datetime.utcnow().date().isoformat()}
     compra_id = test_client.post('/api/compras', json=payload).json()["id"]
 
     resp = test_client.patch(f'/api/compras/{compra_id}/estado', json={"estado": "cancelado"})

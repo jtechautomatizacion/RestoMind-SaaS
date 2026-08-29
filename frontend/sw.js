@@ -1,9 +1,13 @@
 /**
  * Service Worker para PWA RestoMind
- * Cache estático para assets, fallback offline básico
+ * Network-first para HTML/CSS/JS: siempre se usa la versión más nueva
+ * cuando hay conexión, y se cae al caché solo si el restaurante se
+ * queda sin señal. Cache-first rompería el flujo de trabajo cada vez
+ * que se publica una actualización (el navegador seguiría sirviendo
+ * la versión vieja hasta cerrar todas las pestañas).
  */
 
-const CACHE_NAME = 'restomind-v2';
+const CACHE_NAME = 'restomind-v3';
 const STATIC_ASSETS = [
     '/static/index.html',
     '/static/css/style.css',
@@ -16,65 +20,48 @@ const STATIC_ASSETS = [
     '/static/manifest.json'
 ];
 
-// Install event
 self.addEventListener('install', event => {
-    console.log('SW: Installing...');
     event.waitUntil(
-        caches.open(CACHE_NAME).then(cache => {
-            return cache.addAll(STATIC_ASSETS)
-                .catch(err => console.log('SW: Cache error', err));
-        })
+        caches.open(CACHE_NAME)
+            .then(cache => cache.addAll(STATIC_ASSETS))
+            .catch(err => console.log('SW: Cache error', err))
     );
+    self.skipWaiting();
 });
 
-// Activate event
 self.addEventListener('activate', event => {
-    console.log('SW: Activating...');
     event.waitUntil(
-        caches.keys().then(cacheNames => {
-            return Promise.all(
-                cacheNames.map(cacheName => {
-                    if (cacheName !== CACHE_NAME) {
-                        console.log('SW: Deleting old cache', cacheName);
-                        return caches.delete(cacheName);
-                    }
-                })
-            );
-        })
+        caches.keys().then(cacheNames => Promise.all(
+            cacheNames
+                .filter(name => name !== CACHE_NAME)
+                .map(name => caches.delete(name))
+        ))
     );
+    self.clients.claim();
 });
 
-// Fetch event - Network first, fallback to cache
 self.addEventListener('fetch', event => {
     const { request } = event;
 
-    // API calls: network only
+    // API: siempre red, nunca cache (los datos deben ser frescos)
     if (request.url.includes('/api/')) {
         event.respondWith(
-            fetch(request)
-                .catch(() => new Response('{"error": "offline"}', {
-                    status: 503,
-                    headers: { 'Content-Type': 'application/json' }
-                }))
+            fetch(request).catch(() => new Response(
+                JSON.stringify({ detail: 'Sin conexión' }),
+                { status: 503, headers: { 'Content-Type': 'application/json' } }
+            ))
         );
         return;
     }
 
-    // Static assets: cache first
+    // Estáticos: red primero, cache como respaldo offline
     event.respondWith(
-        caches.match(request).then(response => {
-            return response || fetch(request).then(response => {
-                return caches.open(CACHE_NAME).then(cache => {
-                    cache.put(request, response.clone());
-                    return response;
-                });
-            }).catch(() => {
-                // Fallback 404 page
-                return new Response('Offline - archivo no en caché', {
-                    status: 404,
-                    headers: { 'Content-Type': 'text/plain' }
-                });
-            });
-        })
+        fetch(request)
+            .then(response => {
+                const clone = response.clone();
+                caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
+                return response;
+            })
+            .catch(() => caches.match(request).then(cached => cached || Response.error()))
     );
 });

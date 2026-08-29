@@ -62,10 +62,16 @@ async function init() {
         console.error(err);
     }
 
-    if (typeof initMozo === 'function') initMozo();
-    if (typeof initCocina === 'function') initCocina();
-    if (typeof initDashboard === 'function') initDashboard();
-    if (typeof initAdmin === 'function') initAdmin();
+    // Cada módulo se inicializa de forma aislada: si uno falla, no debe
+    // dejar a los demás sin arrancar (pasó con un bug de CSS que dejaba
+    // pestañas invisibles; un módulo roto no debería repetir ese efecto).
+    ['initMozo', 'initCocina', 'initDashboard', 'initAdmin'].forEach(fnName => {
+        try {
+            if (typeof window[fnName] === 'function') window[fnName]();
+        } catch (err) {
+            console.error(`Error iniciando ${fnName}:`, err);
+        }
+    });
 }
 
 async function refreshCatalogo() {
