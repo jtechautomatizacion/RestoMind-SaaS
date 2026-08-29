@@ -72,7 +72,7 @@ La aplicación soporta **tres tipos de usuarios** con métodos de acceso diferen
 - Puede ver y gestionar su restaurante
 
 #### 3. Personal (Mozo, Cajero, Cocinero)
-- **Credencial:** Celular (número de teléfono) + Contraseña
+- **Credencial:** Código de acceso (6 dígitos, generado por el sistema al crear la cuenta — no un celular real) + Contraseña
 - **Endpoint:** `POST /api/auth/login-staff`
 - **Tabla:** `usuarios` con `rol` en ('mozo', 'cajero', 'cocinero')
 - **Token:** Tipo `usuario` (acceso a endpoints de su `cliente_id`)
@@ -150,7 +150,7 @@ Los endpoints regulares (mesas, platos, etc.) usan `get_cliente_id` y rechazar t
 - Botón "Ingresar"
 
 **Tabla "Personal":**
-- Input celular (número de teléfono)
+- Input código de acceso (6 dígitos, generado por el sistema)
 - Input contraseña
 - Mensaje de error compartido
 - Botón "Ingresar"
@@ -770,9 +770,8 @@ if usuario.rol != "admin":
 ### Cómo funciona
 
 1. **El admin del restaurante crea cuentas de personal** desde Admin → Personal (nueva pestaña)
-   - Nombre, **celular** (no email), contraseña, rol (Mozo / Cajero / Cocina)
-   - El personal se loguea con celular + contraseña por `/api/auth/login-staff`, distinto del login del admin (email + contraseña por `/api/auth/login`) — ver [[sistema-login-dual]]
-   - El celular debe ser único en todo el sistema
+   - Nombre, contraseña, rol (Mozo / Cajero / Cocina) — **no pide celular**: el backend genera un código de acceso de 6 dígitos, único en todo el sistema, y lo muestra al admin para que se lo pase al empleado (ver "Código de acceso generado" más abajo)
+   - El personal se loguea con ese código + contraseña por `/api/auth/login-staff`, distinto del login del admin (email + contraseña por `/api/auth/login`) — ver [[sistema-login-dual]]
 
 2. **Cada cuenta se loguea con su credencial y contraseña**
    - El JWT que se emite lleva el rol de verdad (no es un click sin validar)
@@ -796,7 +795,7 @@ Cada restaurante tiene exactamente un admin, dado de alta por el superadmin al r
 Todos admin-only (requieren `rol == "admin"` en el JWT):
 ```
 GET    /api/usuarios                 → lista el personal del restaurante (incluye al propio admin)
-POST   /api/usuarios/staff           → crea mozo/cajero/cocina (nombre, celular, password, rol)
+POST   /api/usuarios/staff           → crea mozo/cajero/cocina (nombre, password, rol — el código de acceso lo genera el backend)
 PATCH  /api/usuarios/{id}            → edita nombre/rol/estado (rol nunca puede ser "admin" salvo que ya lo sea)
 PATCH  /api/usuarios/{id}/password   → resetea contraseña de alguien
 DELETE /api/usuarios/{id}            → elimina la cuenta
@@ -815,28 +814,20 @@ Estas reglas juntas garantizan que un restaurante **nunca** se queda sin ningún
 
 ### UI del modal "Nueva Cuenta" / "Editar Cuenta"
 
-- Campo renombrado de "Email de login" a **"Celular de acceso"** — refleja que el personal entra con celular, no email.
+- Al crear, no hay campo de celular: un texto avisa que el código de acceso se genera solo al guardar.
 - El selector de Rol al crear solo ofrece Mozo / Cajero / Cocina (sin "Administrador").
+- Al editar una cuenta de personal, el código de acceso ya generado se muestra de solo lectura, etiquetado **"Código de acceso"**.
 - Al editar la fila del propio admin ("Tú"), el email y el rol se muestran como texto fijo no editable, en vez de inputs — visualmente distinto a poder cambiar algo y que el backend lo rechace después.
 
-### Validación de celular (formato peruano)
+### Código de acceso generado (no un celular real)
 
-Todo campo de celular/teléfono en la app —el del personal, el de contacto del restaurante en el panel de superadmin, y el del login de Personal— exige el formato de un celular peruano real: **9 dígitos, empieza con 9** (ej. `987654321`).
+**Por qué existe:** al principio el personal se creaba con un celular real como identificador de login (validado con formato peruano: 9 dígitos, empieza con 9). En la práctica, el admin de un restaurante chico no tiene un número distinto por cada mozo/cajero/cocinero, y menos quiere repartir el suyo propio como credencial compartida. Pedir un celular real ahí no protegía nada — el login nunca lo verificaba por SMS ni nada parecido, solo lo usaba como texto único — así que era un dato personal de más sin ningún beneficio, justo lo que una auditoría de datos señalaría.
 
-- **Frontend:** `soloDigitos(event)` (en `app.js` y `superadmin.js`) filtra cualquier tecla que no sea número mientras el usuario escribe — no deja ni llegar a escribir una letra. Los inputs además usan `inputmode="numeric"` y `maxlength="9"`.
-- **Backend:** `_validar_celular_peru()` en `schemas.py` es la validación real (la del frontend es solo UX; nunca hay que confiar en el cliente). Aplica a:
-  - `StaffCreateRequest.celular` — obligatorio, para crear mozo/cajero/cocina
-  - `ClienteCreateRequest.telefono` — opcional, pero si el superadmin lo llena al crear/editar un restaurante, tiene que ser un celular válido
-- Si el formato no cumple, el backend responde 422 con un mensaje como *"El celular debe tener 9 dígitos y empezar con 9 (ej: 987654321)"*. `extraerMensajeError()` (en `app.js`/`superadmin.js`) es lo que traduce la respuesta 422 de FastAPI (una lista de objetos) a ese texto legible para el toast — sin esto, el usuario vería JSON crudo en la notificación de error.
-
-### Celular duplicado: aviso sin filtrar datos de otro restaurante
-
-El celular es único en **todo el sistema**, no solo por restaurante: `login-staff` resuelve a qué restaurante pertenece alguien buscando únicamente por celular, sin saber de antemano el `cliente_id` — así que dos restaurantes no pueden compartir un mismo celular de personal.
-
-Al crear personal (`POST /usuarios/staff`), si el celular ya existe, el mensaje de error depende de a quién pertenece:
-
-- **Mismo restaurante:** mensaje específico, con nombre y rol — es el propio dato del admin. *"Ya tienes este celular registrado: Pedro Ramírez (Mozo)"*.
-- **Otro restaurante cliente:** mensaje genérico a propósito — *"Este celular ya está registrado en el sistema"*, sin nombrar el restaurante, el admin ni el empleado ajeno. Decir cuál restaurante lo tiene sería filtrar datos de otro cliente, algo que el aislamiento multi-tenant de esta app prohíbe explícitamente (ver "Aislamiento de Datos y Seguridad" arriba).
+- `POST /api/usuarios/staff` ya **no** recibe celular en el payload (solo `nombre`, `password`, `rol`). El backend genera un código numérico de 6 dígitos con `_generar_codigo_acceso()` (`backend/routes/usuarios.py`), revalidando contra la BD que sea único en todo el sistema (colisión aleatoria despreciable con 1 millón de combinaciones, pero igual se revisa).
+- La respuesta de creación incluye el código generado (campo `celular` en `UsuarioResponse` — el nombre de columna no cambió para no forzar una migración, pero ya no representa un celular real). El frontend lo muestra en el toast de éxito y queda visible después en la fila de esa persona dentro de Admin → Personal.
+- El campo ya no se valida con `_validar_celular_peru()` — esa función se sigue usando solo para `ClienteCreateRequest.telefono` (el teléfono de contacto real del restaurante, un concepto aparte).
+- Cuentas de personal creadas **antes** de este cambio, con un celular real de 9 dígitos, siguen funcionando igual: el login nunca valida el formato, solo compara el valor guardado.
+- Como el código sale del backend, ya no puede haber duplicados que el admin provoque sin querer — se eliminó por completo la lógica de "celular ya registrado" (tanto el aviso específico del mismo restaurante como el genérico de otro cliente).
 
 ### El selector de dispositivo sigue existiendo
 
