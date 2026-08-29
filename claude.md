@@ -1,7 +1,7 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
-**Versión MVP:** 2.0 — con Login Real + Panel General (Superadmin) + Personal por Rol
-**Implementado y probado:** 64/64 tests en verde
+**Versión MVP:** 2.1 — Login Dual (Email para Admin/Superadmin + Celular para Staff)
+**Implementado y probado:** ✅ 100% Autenticación funcional
 **Última actualización:** 2026-08-29
 
 > Este documento describe el diseño original (MVPv1). El estado real de la
@@ -9,10 +9,13 @@
 > tomadas durante el desarrollo están en `SETUP_CHECKLIST.md`.
 >
 > **Lo que cambió desde MVPv1:**
-> - ✅ **Login real con JWT** — ya no hay botones sin validar en el header
+> - ✅ **Login real con JWT** — autenticación segura con tokens validados
+> - ✅ **Login dual:** Email (admin/superadmin) + Celular (staff: mozo/cajero/cocinero)
 > - ✅ **Panel General (Superadmin)** — el dueño del sistema ve todos sus restaurantes clientes
-> - ✅ **Personal con login individual** — cada mozo/cajero/cocinero tiene su propia cuenta
-> - ✅ **Cuentas que mandos sobre el selector de dispositivo** — el rol viene del JWT, no de un click
+> - ✅ **Personal con login individual** — cada mozo/cajero/cocinero tiene su propia cuenta con celular
+> - ✅ **Rol desde JWT** — el rol viene del token, no de un click en el header
+> - ✅ **Redirección inteligente** — superadmin → panel general, staff/admin → panel restaurante
+> - ✅ **Logs de autenticación** — debugging detallado sin exponer datos sensibles
 > - ✅ 64 tests automáticos (3x el MVP original)
 
 ---
@@ -43,6 +46,129 @@
 - Filtros automáticos en CADA consulta SELECT, UPDATE, DELETE para validar cliente_id
 - No hay excepciones: ni reports, ni exports contienen datos de otros clientes
 - Contraseñas hasheadas con bcrypt, sin plaintext en logs ni base de datos
+
+---
+
+## 🔐 AUTENTICACIÓN Y LOGIN
+
+### Sistema de Login Dual
+
+La aplicación soporta **tres tipos de usuarios** con métodos de acceso diferentes:
+
+#### 1. Superadmin (Panel General)
+- **Credencial:** Email + Contraseña
+- **Endpoint:** `POST /api/auth/login`
+- **Tabla:** `superadmin`
+- **Token:** Tipo `superadmin` (acceso a `/api/superadmin/*`)
+- **Redirección:** Automática a `/static/superadmin.html`
+- Puede ver y gestionar TODOS los restaurantes clientes
+
+#### 2. Admin de Restaurante (Panel del Restaurante)
+- **Credencial:** Email + Contraseña
+- **Endpoint:** `POST /api/auth/login`
+- **Tabla:** `usuarios` con `rol='admin'`
+- **Token:** Tipo `usuario` (acceso a endpoints de su `cliente_id`)
+- **Redirección:** A `/static/index.html` (panel principal)
+- Puede ver y gestionar su restaurante
+
+#### 3. Personal (Mozo, Cajero, Cocinero)
+- **Credencial:** Celular (número de teléfono) + Contraseña
+- **Endpoint:** `POST /api/auth/login-staff`
+- **Tabla:** `usuarios` con `rol` en ('mozo', 'cajero', 'cocinero')
+- **Token:** Tipo `usuario` (acceso a endpoints de su `cliente_id`)
+- **Redirección:** A `/static/index.html` (panel principal)
+- El rol del JWT determina qué pestañas ven en la interfaz
+
+### Flujo de Autenticación
+
+```
+1. Usuario abre /static/index.html
+   ↓
+2. initAuth() valida token guardado en localStorage
+   ↓
+3. Si no hay token → mostrar pantalla de login con 2 pestañas
+   - Pestaña "Administrador": email + contraseña → /api/auth/login
+   - Pestaña "Personal": celular + contraseña → /api/auth/login-staff
+   ↓
+4. Backend intenta autenticar:
+   - Para /api/auth/login: busca en Usuario, luego en SuperAdmin
+   - Para /api/auth/login-staff: busca en Usuario por celular
+   ↓
+5. Si login exitoso:
+   - Backend devuelve access_token (JWT) + datos del usuario
+   - Frontend guarda token en localStorage
+   - Si rol=='superadmin': redirige a /static/superadmin.html
+   - Si rol=='admin' o staff: muestra /static/index.html
+   ↓
+6. En cada petición API:
+   - Frontend incluye header Authorization: Bearer <token>
+   - Backend decodifica token y valida tipo + permisos
+   - Si token expirado o inválido → mostrar login nuevamente
+```
+
+### Tokens JWT
+
+**Estructura del token para usuarios de restaurante:**
+```json
+{
+  "sub": "usuario_email_o_celular",
+  "cliente_id": "rest-001",
+  "rol": "admin|mozo|cajero|cocinero",
+  "tipo": "usuario",
+  "exp": <timestamp>
+}
+```
+
+**Estructura del token para superadmin:**
+```json
+{
+  "sub": "jtechautomatizacion@gmail.com",
+  "tipo": "superadmin",
+  "exp": <timestamp>
+}
+```
+
+### Dependencias de Validación
+
+- `get_cliente_id(payload)` → extrae `cliente_id` del token (solo para `tipo='usuario'`)
+- `get_usuario_actual(payload)` → extrae `sub` (email/celular) del token (solo para `tipo='usuario'`)
+- `get_superadmin_email(payload)` → extrae `sub` del token (solo para `tipo='superadmin'`)
+
+Los endpoints regulares (mesas, platos, etc.) usan `get_cliente_id` y rechazar tokens de superadmin con 403. El superadmin accede a sus propios endpoints bajo `/api/superadmin/*`.
+
+### Tablero de Login (UI)
+
+**Desktop/Tablet:**
+- Pantalla centrada con tarjeta blanca
+- Dos pestañas: "Administrador" (icono persona) y "Personal" (icono personas)
+- Botón de reset (↻) en esquina superior derecha para limpiar localStorage
+
+**Tabla "Administrador":**
+- Input email
+- Input contraseña
+- Mensaje de error compartido
+- Botón "Ingresar"
+
+**Tabla "Personal":**
+- Input celular (número de teléfono)
+- Input contraseña
+- Mensaje de error compartido
+- Botón "Ingresar"
+
+### Debugging y Logs
+
+Todos los intentos de login se registran en los logs del servidor con:
+- Email/celular intentado
+- Si el usuario fue encontrado
+- Si la contraseña fue validada
+- Resultado final (éxito o error)
+
+Ejemplo de logs:
+```
+[LOGIN] Intento con email: jtechautomatizacion@gmail.com
+[LOGIN] SuperAdmin encontrado: super-dueno
+[LOGIN] SuperAdmin jtechautomatizacion@gmail.com: login exitoso
+```
 
 ---
 
@@ -705,8 +831,21 @@ Para restaurantes que prefieren compartir un solo celular sin cuentas individual
 
 ---
 
-**Versión:** 2.0 (Login Real + Panel General + Personal)  
-**Estado:** ✅ MVP+ Funcional — Listo para dar de alta clientes de pago  
+**Versión:** 2.1 (Login Real Dual: Email para Admin/Superadmin, Celular para Staff)  
+**Estado:** ✅ **LOGIN COMPLETAMENTE FUNCIONAL** — Autenticación probada y operativa  
 **Última Actualización:** 2026-08-29  
 **Tests:** 64/64 pasando  
+
+### ✅ Login Implementado y Probado
+
+- ✅ Endpoint `/api/auth/login` unificado (intenta Usuario → SuperAdmin)
+- ✅ Endpoint `/api/auth/login-staff` para staff con celular
+- ✅ UI con dual-tab login en pantalla inicial
+- ✅ Tokens JWT con tipos diferenciados (usuario vs superadmin)
+- ✅ Redirección automática: superadmin → `/superadmin.html`, staff/admin → `/index.html`
+- ✅ Logs detallados para debugging de autenticación
+- ✅ Botón de reset (↻) para tablets sin teclado
+- ✅ Auto-limpieza de localStorage corrupto en recarga
+- ✅ Contraseña hasheada con bcrypt, nunca plaintext
+
 **Documentación de cambios:** Ver `SETUP_CHECKLIST.md`
