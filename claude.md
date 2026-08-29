@@ -829,6 +829,15 @@ Todo campo de celular/teléfono en la app —el del personal, el de contacto del
   - `ClienteCreateRequest.telefono` — opcional, pero si el superadmin lo llena al crear/editar un restaurante, tiene que ser un celular válido
 - Si el formato no cumple, el backend responde 422 con un mensaje como *"El celular debe tener 9 dígitos y empezar con 9 (ej: 987654321)"*. `extraerMensajeError()` (en `app.js`/`superadmin.js`) es lo que traduce la respuesta 422 de FastAPI (una lista de objetos) a ese texto legible para el toast — sin esto, el usuario vería JSON crudo en la notificación de error.
 
+### Celular duplicado: aviso sin filtrar datos de otro restaurante
+
+El celular es único en **todo el sistema**, no solo por restaurante: `login-staff` resuelve a qué restaurante pertenece alguien buscando únicamente por celular, sin saber de antemano el `cliente_id` — así que dos restaurantes no pueden compartir un mismo celular de personal.
+
+Al crear personal (`POST /usuarios/staff`), si el celular ya existe, el mensaje de error depende de a quién pertenece:
+
+- **Mismo restaurante:** mensaje específico, con nombre y rol — es el propio dato del admin. *"Ya tienes este celular registrado: Pedro Ramírez (Mozo)"*.
+- **Otro restaurante cliente:** mensaje genérico a propósito — *"Este celular ya está registrado en el sistema"*, sin nombrar el restaurante, el admin ni el empleado ajeno. Decir cuál restaurante lo tiene sería filtrar datos de otro cliente, algo que el aislamiento multi-tenant de esta app prohíbe explícitamente (ver "Aislamiento de Datos y Seguridad" arriba).
+
 ### El selector de dispositivo sigue existiendo
 
 Para restaurantes que prefieren compartir un solo celular sin cuentas individuales, el botón redondo del header (selector manual de rol) continúa funcionando como respaldo. Las dos formas conviven:
