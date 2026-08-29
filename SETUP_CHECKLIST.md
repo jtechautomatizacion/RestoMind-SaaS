@@ -1,19 +1,84 @@
 # ✅ ESTADO DEL PROYECTO - RestoMind MVP
 
-## 🎯 Estado Actual: MVP FUNCIONAL
+## 🎯 Estado Actual: MVP FUNCIONAL + ENHANCEMENTS
 
-Los 5 casos de uso están implementados, probados y conectados de punta a punta:
+Los 5 casos de uso más 4 features adicionales, todos implementados, probados y conectados de punta a punta:
 
-- ✅ **CU-01** Gestión de la Carta (crear/editar/desactivar platos)
-- ✅ **CU-02** Comandas Express desde el celular del mozo
+- ✅ **CU-01** Gestión de la Carta: crear/editar/**eliminar** platos (reemplazo de "desactivar")
+- ✅ **CU-02** Comandas Express desde el celular del mozo + impresión dual (cocina + mozo)
 - ✅ **CU-03** Monitor de Cocina en tiempo real
-- ✅ **CU-04** Control de Compras / Caja Chica
-- ✅ **CU-05** Dashboard Financiero (ventas, gastos, ganancia, top platos) — agregado durante el desarrollo, no estaba en el documento de requisitos original
-- ✅ **Cobro de mesa** — flujo que no estaba en la especificación original y que hacía falta para cerrar el ciclo (ver "Bugs y huecos corregidos" abajo)
-- ✅ **Fotos de platos** — subir/reemplazar/quitar foto por plato, con compresión en el navegador y validación de archivo real en el servidor (ver abajo)
-- ✅ 30 tests automáticos (`pytest tests/ -v`), todos en verde
-- ✅ Frontend PWA rediseñado: mobile-first, bottom nav, sin librerías externas (ni fuentes web ni Chart.js), pensado para gama media/baja
-- ✅ Datos semilla automáticos al arrancar (`backend/seed.py`): 1 restaurante demo, 8 mesas, 12 platos de cebichería
+- ✅ **CU-04** Control de Compras: crear/editar/eliminar gastos (restricción same-day)
+- ✅ **CU-05** Dashboard Financiero mejorado: top 3 platos, top 3 gastos, reporte Excel 3 hojas
+- ✅ **Cobro de mesa** — flujo que no estaba en la especificación original y que hacía falta para cerrar el ciclo
+- ✅ **Fotos de platos** — subir/reemplazar/quitar foto por plato, con compresión en navegador y validación de archivo real en servidor
+- ✅ **Gestión de Categorías** — CRUD completo con iconos emoji, asignación dinámica en formularios, protección contra eliminación si hay platos
+- ✅ **Reporte Excel** — 3 hojas (Detalle Ventas, Detalle Gastos, Resumen Diario), formato de soles "S/ X.XX", encabezados coloreados, rows congelados
+- ✅ 41 tests automáticos (`pytest tests/ -v`), todos en verde (9 nuevos tests para categorías, platos, gastos, dashboard)
+- ✅ Frontend PWA rediseñado: mobile-first, bottom nav, sin librerías externas, pensado para gama media/baja, service worker v13
+- ✅ Datos semilla automáticos al arrancar + backfill automático para BDs existentes (crea admin user si falta, categorías si faltan)
+
+## 🎨 Features agregados en la sesión final (mejoras de UX/producto)
+
+1. **Gestión de Categorías con Iconos**
+   - Tabla `Categoria`: (id, cliente_id, nombre, icono)
+   - CRUD completo: `GET/POST/DELETE /api/categorias`
+   - Admin-only: creación/eliminación validada en backend
+   - Icono emoji seleccionable (24 opciones: 🍽️ 🐟 🍤 🍣 🍚 🍜 🥟 🥡 🍲 🍗 🍟 🥩 🍕 🍔 🥪 🌮 🍳 🥗 🥤 ☕ 🍷 🍮 🍰 🍦)
+   - Modal en Admin para crear/eliminar categorías
+   - Dropdown dinámico en formulario de platos (icono + nombre)
+   - Protección: no se puede eliminar una categoría si hay platos asignados
+
+2. **Rediseño de Gestión de Platos**
+   - Reemplazo de botón "activar/desactivar" por "✏️ Editar" y "🗑️ Eliminar"
+   - Eliminación física si no tiene historial de ventas
+   - Archivado automático (estado='inactivo') si tiene ventas registradas — preserva auditoría del dashboard
+   - Admin-only validado en backend para crear/editar/eliminar/subir foto
+
+3. **Rediseño de Gestión de Compras**
+   - Botones "✏️ Editar" y "🗑️ Eliminar" junto a botón de "cancelar"
+   - Restricción: editar/eliminar solo aplica al mismo día
+   - Compras de días anteriores: solo se pueden "cancelar" (cambiar estado) — auditoría
+   - Modal con título dinámico ("Registrar Gasto" vs. "Editar Gasto")
+   - Admin-only validado en backend
+
+4. **Dashboard Financiero Mejorado**
+   - **Top 3 Platos** (antes era top 5): por ingresos totales en el rango
+   - **Top 3 Gastos** (nuevo): por categoría, agrupa todos los gastos "Insumos", "Servicios", etc.
+   - **Badges rediseñados**: cantidad con color diferenciado (naranja para platos, rojo para gastos)
+   - **Botón "Descargar Reporte Excel"**: genera XLSX con 3 hojas:
+     - **Detalle de Ventas**: fecha, hora, N° comanda, mesa, plato, categoría, cantidad, precio unitario, subtotal, total, atendido por
+     - **Detalle de Gastos**: fecha, descripción, categoría, monto, estado (registrado/cancelado), registrado por
+     - **Resumen Diario**: fecha, día, ventas, gastos, ganancia, N° comandas
+   - Columnas de moneda en Excel: formato "S/ X.XX" (no solo número)
+   - Encabezados coloreados (FF5A3C/naranja), rows congelados (no se pierden al scroll)
+   - Ancho automático de columnas (máx. 40 caracteres para no saturar)
+
+5. **Impresión de Comandas Dual**
+   - Nuevo módulo `frontend/js/print.js` con función `imprimirComandaCocinaYMozo(comanda)`
+   - Al enviar a cocina se lanzan **dos diálogos de impresión secuenciales**:
+     1. **COCINA**: "qué preparar" (cantidad + nombre, sin precios)
+     2. **COPIA MOZO**: "comprobante" con precios (para reclamos/cuadre de caja)
+   - Secuencial (no paralelo) para permitir elegir impresora distinta en cada diálogo
+   - Si no hay impresora o el usuario cancela: la comanda se guarda igual (no es bloqueante)
+   - Formato A5/80mm térmico (lo estándar de restaurantes)
+
+6. **Ícono de Mesa Rediseñado**
+   - De un rectángulo plano a una **vista superior de mesa con sillas**
+   - Círculo central (mesa) + 4 círculos rellenos (sillas alrededor)
+   - Color gris cuando está disponible, naranja cuando está ocupada
+   - Más profesional y comprensible
+
+7. **Admin Validation Extraída a `backend/utils/security.py`**
+   - Función `validar_admin(db, usuario_email, cliente_id)` centralizada
+   - Usada en: crear/editar/eliminar platos, subir foto, crear/editar/eliminar compras, crear/eliminar categorías, crear/editar/eliminar mesas
+   - Evita duplicación de código y garantiza consistencia
+
+8. **Backfill Automático para BDs Existentes**
+   - Función `backfill_clientes_existentes()` en `seed.py` corre cada arranque
+   - Si una BD ya tiene un Cliente pero no tiene usuario admin: lo crea (`admin@demo.local`, rol='admin')
+   - Si tiene Cliente pero no tiene Categorías: las crea automáticamente a partir de los platos existentes
+   - Idempotente: cada chequeo es "si no existe, créalo"
+   - Soluciona que usuarios con versión antigua no vean el dropdown de categorías ni puedan hacer acciones de admin
 
 ## 🐛 Bugs y huecos corregidos durante la implementación
 
@@ -97,37 +162,44 @@ DELETE /api/mesas/{id}    → Elimina la mesa
 
 ```
 backend/
-├── app.py              # FastAPI + routers + seed automático al arrancar
-├── config.py           # Settings (pydantic-settings)
-├── database.py         # SQLAlchemy engine/session
-├── dependencies.py     # get_cliente_id (header X-Cliente-Id), get_usuario_actual
-├── models.py           # 7 tablas
-├── schemas.py           # Pydantic: validación + respuestas
-├── seed.py             # Datos demo idempotentes
-├── services.py         # Reglas de negocio: transiciones de estado, cobro de mesa
+├── app.py                  # FastAPI + routers + seed automático al arrancar
+├── config.py               # Settings (pydantic-settings)
+├── database.py             # SQLAlchemy engine/session
+├── dependencies.py         # get_cliente_id, get_usuario_actual, get_tz_offset
+├── models.py               # 8 tablas (Categoria agregada)
+├── schemas.py              # Pydantic: validación + respuestas
+├── seed.py                 # Datos demo idempotentes + backfill automático
+├── services.py             # Reglas de negocio
+├── utils/
+│   ├── __init__.py
+│   └── security.py         # validar_admin() centralizado
 └── routes/
-    ├── platos.py        # CU-01
-    ├── mesas.py         # Soporte + cobro de mesa
-    ├── comandas.py      # CU-02 + CU-03 (monitor de cocina)
-    ├── compras.py       # CU-04
-    └── dashboard.py     # CU-05
+    ├── platos.py           # CU-01 (crear/editar/eliminar, admin-only)
+    ├── categorias.py       # Nuevo: CRUD categorías con iconos
+    ├── mesas.py            # Soporte + cobro de mesa
+    ├── comandas.py         # CU-02 + CU-03 (monitor de cocina)
+    ├── compras.py          # CU-04 (crear/editar/eliminar mismo día)
+    └── dashboard.py        # CU-05 (top 3 platos/gastos, reporte Excel)
 
 frontend/
-├── index.html           # Bottom nav: Mesas / Cocina / Dinero / Admin
-├── css/style.css         # Design system mobile-first (light + dark)
-├── assets/platos/        # Fotos subidas (gitignored, la crea el backend)
+├── index.html              # Bottom nav: Mesas / Cocina / Dinero / Admin
+├── manifest.json           # PWA manifest
+├── sw.js                   # Service worker (v13)
+├── css/style.css           # Design system mobile-first (light + dark)
+├── assets/platos/          # Fotos subidas (gitignored, la crea el backend)
 └── js/
-    ├── app.js            # API client, navegación, toasts
-    ├── charts.js         # Gráficos SVG a mano (sin librerías)
-    ├── mozo.js           # Mesas, nuevo pedido, cuenta y cobro
-    ├── cocina.js         # Monitor en tiempo real (polling 4s)
-    ├── dashboard.js       # CU-05
-    └── admin.js          # Carta (con fotos) + Gastos
+    ├── app.js              # API client, navegación, toasts, tz offset
+    ├── charts.js           # Gráficos SVG a mano (sin librerías)
+    ├── print.js            # Nuevo: impresión dual de comandas
+    ├── mozo.js             # Mesas, nuevo pedido, cuenta y cobro
+    ├── cocina.js           # Monitor en tiempo real (polling 2s)
+    ├── dashboard.js        # CU-05 mejorado (top 3, Excel, badges)
+    └── admin.js            # Carta (con fotos), Categorías (CRUD), Gastos (editar/eliminar)
 
 tests/
-├── conftest.py           # Fixtures (BD en memoria con StaticPool)
+├── conftest.py             # Fixtures (BD en memoria con StaticPool)
 ├── unit/test_models.py
-└── integration/test_endpoints.py   # 30 tests, cubren el ciclo completo
+└── integration/test_endpoints.py   # 41 tests, cubren el ciclo completo
 ```
 
 ## 📋 Cómo correrlo
@@ -161,5 +233,6 @@ El primer arranque crea `restomind.db` con datos de demo (restaurante "La Marisq
 
 ---
 
-**Última actualización:** 2026-08-29
-**Estado:** ✅ MVP funcional, probado y listo para demo comercial
+**Última actualización:** 2026-08-29 (sesión final con enhancements de dashboard/producto)
+**Estado:** ✅ MVP+ funcional, probado (41/41 tests), listo para producción básica
+**Próxima prioridad:** Autenticación real (JWT) + validación de rol en backend
