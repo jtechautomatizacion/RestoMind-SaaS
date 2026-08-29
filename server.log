@@ -1,35 +1,4 @@
-INFO:     Started server process [31536]
+INFO:     Started server process [47444]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     127.0.0.1:64088 - "GET /health HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52835 - "GET /superadmin.html HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52835 - "GET /css/style.css HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52835 - "GET /js/superadmin.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52835 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 Not Found
-INFO:     127.0.0.1:63139 - "GET /js/superadmin.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52835 - "POST /api/superadmin/login HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52835 - "GET /api/superadmin/clientes HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52835 - "GET /api/superadmin/me HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52835 - "PATCH /api/superadmin/me/password HTTP/1.1" 200 OK
-INFO:     127.0.0.1:65377 - "GET /api/superadmin/me HTTP/1.1" 200 OK
-INFO:     127.0.0.1:55249 - "PATCH /api/superadmin/me/password HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58411 - "GET /superadmin.html HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58411 - "GET /css/style.css HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58356 - "GET /js/superadmin.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:58356 - "GET /.well-known/appspecific/com.chrome.devtools.json HTTP/1.1" 404 Not Found
-INFO:     127.0.0.1:50061 - "GET /js/superadmin.js HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57113 - "POST /api/superadmin/login HTTP/1.1" 200 OK
-INFO:     127.0.0.1:57113 - "GET /api/superadmin/clientes HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52273 - "PATCH /api/superadmin/clientes/rest-001/estado HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52273 - "GET /api/superadmin/clientes HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52273 - "PATCH /api/superadmin/clientes/rest-001/estado HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52273 - "GET /api/superadmin/clientes HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63457 - "POST /api/superadmin/clientes HTTP/1.1" 201 Created
-INFO:     127.0.0.1:63457 - "GET /api/superadmin/clientes HTTP/1.1" 200 OK
-INFO:     127.0.0.1:60296 - "GET / HTTP/1.1" 200 OK
-INFO:     127.0.0.1:60296 - "GET /favicon.ico HTTP/1.1" 404 Not Found
-INFO:     127.0.0.1:52727 - "GET /static HTTP/1.1" 307 Temporary Redirect
-INFO:     127.0.0.1:52727 - "GET / HTTP/1.1" 404 Not Found
-INFO:     127.0.0.1:52941 - "PATCH /api/superadmin/clientes/cevicheria-el-puerto-de-susy/estado HTTP/1.1" 200 OK
-INFO:     127.0.0.1:52941 - "GET /api/superadmin/clientes HTTP/1.1" 200 OK

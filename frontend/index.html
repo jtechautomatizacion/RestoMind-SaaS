@@ -11,9 +11,29 @@
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
+    <!-- Limpieza automática de sesión corrupta -->
+    <script>
+        if (new URLSearchParams(window.location.search).has('reset')) {
+            localStorage.clear();
+            sessionStorage.clear();
+            window.location.href = '/static/index.html';
+        }
+        try {
+            const stored = localStorage.getItem('restomind_usuario');
+            if (stored && stored !== 'null') {
+                JSON.parse(stored);
+            }
+        } catch (e) {
+            localStorage.clear();
+            sessionStorage.clear();
+            window.location.reload();
+        }
+    </script>
+
     <div id="toast-container" class="toast-container"></div>
 
     <div id="login-screen" class="login-screen hidden">
+        <button id="btn-reset-login" class="btn-reset-login" title="Limpiar datos" onclick="limpiarYRecargar()">↻</button>
         <div class="login-card">
             <div class="login-logo">RestoMind</div>
             <p class="login-subtitulo">Sistema de gestión para restaurantes</p>

@@ -32,6 +32,12 @@ function limpiarSesion() {
     localStorage.removeItem(USUARIO_KEY);
 }
 
+function limpiarYRecargar() {
+    localStorage.clear();
+    sessionStorage.clear();
+    window.location.href = '/static/index.html';
+}
+
 function mostrarLogin(mensaje) {
     document.getElementById('login-screen').classList.remove('hidden');
     document.getElementById('app').classList.add('hidden');
@@ -165,8 +171,6 @@ function cerrarSesion() {
 // sesión guardada contra el servidor (¿el token no expiró? ¿el usuario
 // sigue activo?) antes de mostrar la app o el login.
 async function initAuth() {
-    document.getElementById('form-login').addEventListener('submit', manejarLogin);
-
     const token = getToken();
     const usuarioGuardado = getUsuarioGuardado();
     if (!token || !usuarioGuardado) {
