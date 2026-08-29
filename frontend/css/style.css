@@ -588,6 +588,16 @@ body {
     flex-shrink: 0;
 }
 
+/* Filtro de categorías en Admin > Carta: mismo chip que ya usa el mozo para
+   elegir platos, pero sin el padding pensado para el modal de comanda. */
+#admin-categorias-filtro {
+    padding: 0 0 12px;
+}
+
+#admin-categorias-filtro:empty {
+    display: none;
+}
+
 .categoria-btn {
     padding: 8px 16px;
     border: none;

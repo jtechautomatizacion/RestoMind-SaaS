@@ -11,6 +11,7 @@ let usuarioEnResetPassword = null;
 let adminCompras = [];
 let adminCategorias = [];
 let adminPersonal = [];
+let adminFiltroCategoria = null; // null = "Todas"; si no, nombre exacto de la categoría
 let archivoImagenPendiente = null; // Blob ya comprimido, listo para subir tras guardar
 let platoImagenActualUrl = null;   // imagen_url ya guardada en el server (si se está editando)
 
@@ -58,7 +59,57 @@ async function refreshAdmin() {
 
 // ============ CU-01: PLATOS ============
 
+/**
+ * Chips de categoría para filtrar la carta del admin — mismo patrón que ya
+ * usa el mozo (frontend/js/mozo.js) para elegir platos. Sin esto, un
+ * restaurante con muchas categorías (Cebiches, Bebidas, Postres, Piqueos...)
+ * y muchos platos obliga a scrollear una lista plana entera para encontrar
+ * uno solo. "Todas" siempre va primero para no perder la vista general.
+ */
+function renderFiltroCategoriasAdmin() {
+    const contenedor = document.getElementById('admin-categorias-filtro');
+    contenedor.innerHTML = '';
+
+    // Categorías con al menos un plato, no solo las del catálogo de
+    // /api/categorias — así un plato con una categoría ya borrada del
+    // catálogo sigue teniendo un chip para encontrarlo.
+    const nombresConPlatos = [...new Set(estado.platos.map(p => p.categoria))];
+    if (nombresConPlatos.length <= 1) {
+        // Con 0 o 1 categoría en uso, filtrar no ayuda a ubicar nada.
+        return;
+    }
+
+    if (adminFiltroCategoria && !nombresConPlatos.includes(adminFiltroCategoria)) {
+        adminFiltroCategoria = null;
+    }
+
+    const iconoDe = (nombre) => adminCategorias.find(c => c.nombre === nombre)?.icono || '🍽️';
+
+    // Elementos creados con la API del DOM (no innerHTML con el nombre
+    // interpolado) para que un nombre de categoría con comillas no rompa
+    // el atributo onclick que se generaría al armarlo como string.
+    const chips = [{ nombre: null, etiqueta: 'Todas', icono: '' }, ...nombresConPlatos.map(nombre => ({
+        nombre, etiqueta: nombre, icono: iconoDe(nombre) + ' ',
+    }))];
+
+    chips.forEach(chip => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `categoria-btn ${adminFiltroCategoria === chip.nombre ? 'active' : ''}`;
+        btn.textContent = `${chip.icono}${chip.etiqueta}`;
+        btn.onclick = () => filtrarPlatosPorCategoria(chip.nombre);
+        contenedor.appendChild(btn);
+    });
+}
+
+function filtrarPlatosPorCategoria(nombreCategoria) {
+    adminFiltroCategoria = nombreCategoria;
+    renderPlatosAdmin();
+}
+
 function renderPlatosAdmin() {
+    renderFiltroCategoriasAdmin();
+
     const container = document.getElementById('admin-platos-list');
 
     if (estado.platos.length === 0) {
@@ -66,7 +117,16 @@ function renderPlatosAdmin() {
         return;
     }
 
-    container.innerHTML = estado.platos.map(plato => `
+    const platosFiltrados = adminFiltroCategoria
+        ? estado.platos.filter(p => p.categoria === adminFiltroCategoria)
+        : estado.platos;
+
+    if (platosFiltrados.length === 0) {
+        container.innerHTML = '<p class="empty-hint">No hay platos en esta categoría.</p>';
+        return;
+    }
+
+    container.innerHTML = platosFiltrados.map(plato => `
         <div class="admin-item">
             <div class="admin-item-main">
                 ${_thumbHtml(plato.imagen_url)}
