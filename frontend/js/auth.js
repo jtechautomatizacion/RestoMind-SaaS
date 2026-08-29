@@ -89,6 +89,13 @@ async function loginAdmin(event) {
         const data = await resp.json();
         guardarSesion(data.access_token, data.usuario);
         aplicarUsuarioDeSesion(data.usuario);
+
+        // Redirigir a superadmin a su panel si es superadmin
+        if (data.usuario.rol === 'superadmin') {
+            window.location.href = '/static/superadmin.html';
+            return;
+        }
+
         mostrarApp();
         init();
     } catch (err) {
