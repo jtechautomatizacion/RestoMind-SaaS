@@ -232,11 +232,12 @@ async function enviarComanda() {
         return;
     }
 
+    const data = {
+        numero_mesa: mesaActual.numero,
+        platos: carrito.map(item => ({ plato_id: item.platoId, cantidad: item.cantidad })),
+    };
+
     try {
-        const data = {
-            numero_mesa: mesaActual.numero,
-            platos: carrito.map(item => ({ plato_id: item.platoId, cantidad: item.cantidad })),
-        };
         const comanda = await api.post('/comandas', data);
 
         showToast('Comanda enviada a cocina', 'success');
@@ -250,8 +251,50 @@ async function enviarComanda() {
             imprimirComandaCocinaYMozo(comanda);
         }
     } catch (err) {
+        if (err instanceof NetworkError) {
+            // Sin señal: el pedido no se pierde. Se guarda para reenviarlo
+            // solo, y la mesa se marca ocupada localmente para que el mozo
+            // pueda seguir trabajando sin esperar al servidor.
+            const comandaLocal = construirComandaLocal(data, carrito);
+            encolarComanda(data);
+            marcarMesaOcupadaLocal(mesaActual.numero, comandaLocal.total_cuenta);
+
+            showToast('Sin conexión: pedido guardado, se enviará solo al volver la señal', 'warning');
+            cerrarModal();
+
+            if (typeof imprimirComandaCocinaYMozo === 'function') {
+                imprimirComandaCocinaYMozo(comandaLocal);
+            }
+            return;
+        }
         showToast(err.message || 'Error al enviar comanda', 'error');
     }
+}
+
+// Construye un objeto con la forma de una Comanda del backend a partir del
+// carrito local — para imprimir el ticket al toque aunque todavía no haya
+// respuesta del servidor (ver enviarComanda, caso sin conexión).
+function construirComandaLocal(data, carritoSnapshot) {
+    return {
+        creado_en: new Date().toISOString(),
+        numero_mesa: data.numero_mesa,
+        platos: carritoSnapshot.map(item => ({
+            cantidad: item.cantidad,
+            nombre: item.nombre,
+            subtotal: item.precio * item.cantidad,
+        })),
+        total_cuenta: carritoSnapshot.reduce((sum, item) => sum + item.precio * item.cantidad, 0),
+    };
+}
+
+// Actualiza la mesa en memoria sin esperar al servidor — se corrige solo
+// en el próximo refreshMozo() ni bien vuelva la señal.
+function marcarMesaOcupadaLocal(numeroMesa, montoAgregado) {
+    const mesa = estado.mesas.find(m => m.numero === numeroMesa);
+    if (!mesa) return;
+    mesa.estado = 'ocupada';
+    mesa.cuenta_actual = (mesa.cuenta_actual || 0) + montoAgregado;
+    renderMesas();
 }
 
 // ============ CUENTA DE MESA / COBRO ============

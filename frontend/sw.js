@@ -7,11 +7,12 @@
  * la versión vieja hasta cerrar todas las pestañas).
  */
 
-const CACHE_NAME = 'restomind-v16';
+const CACHE_NAME = 'restomind-v17';
 const STATIC_ASSETS = [
     '/static/index.html',
     '/static/css/style.css',
     '/static/js/app.js',
+    '/static/js/offline.js',
     '/static/js/auth.js',
     '/static/js/charts.js',
     '/static/js/print.js',

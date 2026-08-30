@@ -67,17 +67,27 @@ function extraerMensajeError(body, statusFallback) {
     return statusFallback;
 }
 
+// Distingue "no hay señal" (fetch ni siquiera llegó a un servidor) de un
+// error real del backend (400, 404, 500...). Solo el primero tiene sentido
+// reintentarlo solo cuando vuelva la conexión — ver frontend/js/offline.js.
+class NetworkError extends Error {}
+
 const api = {
     async _fetch(endpoint, options = {}) {
-        const resp = await fetch(`${API_BASE_URL}${endpoint}`, {
-            ...options,
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${getToken()}`,
-                'X-TZ-Offset': tzOffsetMinutos(),
-                ...(options.headers || {}),
-            },
-        });
+        let resp;
+        try {
+            resp = await fetch(`${API_BASE_URL}${endpoint}`, {
+                ...options,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${getToken()}`,
+                    'X-TZ-Offset': tzOffsetMinutos(),
+                    ...(options.headers || {}),
+                },
+            });
+        } catch (err) {
+            throw new NetworkError('Sin conexión');
+        }
         if (resp.status === 401) {
             manejarSesionExpirada();
             throw new Error('Sesión expirada');
@@ -148,6 +158,8 @@ async function init() {
         console.error(err);
     }
 
+    if (typeof initOffline === 'function') initOffline();
+
     // Cada módulo se inicializa de forma aislada: si uno falla, no debe
     // dejar a los demás sin arrancar (pasó con un bug de CSS que dejaba
     // pestañas invisibles; un módulo roto no debería repetir ese efecto).
@@ -160,13 +172,35 @@ async function init() {
     });
 }
 
+const CACHE_PLATOS_KEY = 'restomind_cache_platos';
+const CACHE_MESAS_KEY = 'restomind_cache_mesas';
+
 async function refreshCatalogo() {
-    const [platos, mesas] = await Promise.all([
-        api.get('/platos'),
-        api.get('/mesas'),
-    ]);
-    estado.platos = platos;
-    estado.mesas = mesas;
+    try {
+        const [platos, mesas] = await Promise.all([
+            api.get('/platos'),
+            api.get('/mesas'),
+        ]);
+        estado.platos = platos;
+        estado.mesas = mesas;
+        localStorage.setItem(CACHE_PLATOS_KEY, JSON.stringify(platos));
+        localStorage.setItem(CACHE_MESAS_KEY, JSON.stringify(mesas));
+    } catch (err) {
+        // Sin señal: se usa la última carta/mesas conocida en vez de dejar
+        // la pantalla en blanco. Puede estar desactualizada (alguien pudo
+        // haber ocupado una mesa desde otro dispositivo mientras tanto),
+        // pero es preferible a que el mozo no pueda ni ver el menú.
+        if (err instanceof NetworkError) {
+            const platosCache = JSON.parse(localStorage.getItem(CACHE_PLATOS_KEY) || '[]');
+            const mesasCache = JSON.parse(localStorage.getItem(CACHE_MESAS_KEY) || '[]');
+            if (platosCache.length > 0 || mesasCache.length > 0) {
+                estado.platos = platosCache;
+                estado.mesas = mesasCache;
+                return;
+            }
+        }
+        throw err;
+    }
 }
 
 // ============ NAVEGACIÓN ============
