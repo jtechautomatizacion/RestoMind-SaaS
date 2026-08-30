@@ -46,13 +46,23 @@ function renderMesas() {
             ? `<div class="mesa-ubicacion">${escapeHtml(mesa.ubicacion)}</div>`
             : '';
 
+        const ocupada = mesa.estado === 'ocupada';
+        const gradTop = ocupada ? 'url(#mesaTopOcupada)' : 'url(#mesaTopLibre)';
+        const gradSilla = ocupada ? 'url(#sillaOcupada)' : 'url(#sillaLibre)';
+
+        // Ícono 3D: disco con gradiente radial (relieve), sombra elíptica
+        // "en el piso" para dar sensación de profundidad, brillo especular
+        // arriba-izquierda (glossy) y sillas con degradé propio — todo con
+        // formas planas (sin filter/blur), mismo costo que un ícono plano.
         btn.innerHTML = `
             <svg class="mesa-icono" viewBox="0 0 24 24">
-                <circle cx="12" cy="12" r="5.5"/>
-                <circle class="mesa-icono-silla" cx="12" cy="2.2" r="1.7"/>
-                <circle class="mesa-icono-silla" cx="12" cy="21.8" r="1.7"/>
-                <circle class="mesa-icono-silla" cx="2.2" cy="12" r="1.7"/>
-                <circle class="mesa-icono-silla" cx="21.8" cy="12" r="1.7"/>
+                <ellipse class="mesa-icono-sombra" cx="12" cy="21.1" rx="6.6" ry="1.35"/>
+                <circle class="mesa-icono-silla" fill="${gradSilla}" cx="12" cy="2.6" r="1.65"/>
+                <circle class="mesa-icono-silla" fill="${gradSilla}" cx="12" cy="19.3" r="1.65"/>
+                <circle class="mesa-icono-silla" fill="${gradSilla}" cx="2.6" cy="11" r="1.65"/>
+                <circle class="mesa-icono-silla" fill="${gradSilla}" cx="21.4" cy="11" r="1.65"/>
+                <circle class="mesa-icono-mesa" fill="${gradTop}" cx="12" cy="11" r="6"/>
+                <ellipse class="mesa-icono-brillo" cx="9.4" cy="8.3" rx="2.5" ry="1.3"/>
             </svg>
             <span class="mesa-numero">${mesa.numero}</span>
             ${ubicacionHtml}

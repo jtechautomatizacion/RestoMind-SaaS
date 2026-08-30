@@ -1,8 +1,8 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
-**Versión MVP:** 2.2 — Login Dual + Hardening de Producción
-**Implementado y probado:** ✅ 100% Autenticación + Seguridad + Compresión de Imágenes
-**Última actualización:** 2026-08-29
+**Versión MVP:** 2.3 — Login Dual + Hardening de Producción + Rediseño UI
+**Implementado y probado:** ✅ 100% Autenticación + Seguridad + Compresión de Imágenes + UI 3D
+**Última actualización:** 2026-08-30
 
 > Este documento describe el diseño original (MVPv1). El estado real de la
 > implementación actual, bugs corregidos, features agregados y decisiones
@@ -22,6 +22,10 @@
 > - ✅ **[NUEVA] Filtro de categorías:** Admin > Carta agrupa platos con chips por categoría
 > - ✅ **[NUEVA] Tabla de auditoría:** Registro persistente de logins y cambios administrativos
 > - ✅ **[NUEVA] Cascade delete:** Eliminar cliente limpia todas sus categorías (antes quedaban huérfanas)
+> - ✅ **[NUEVA] Rediseño UI 3D:** ícono de mesa con relieve (gradientes + sombra), cajitas de texto con glow al enfocar, nav inferior con píldora animada — pensado para PWA, sin costo extra de rendimiento (ver sección "Rediseño Visual" más abajo)
+>
+> **Pendiente (a futuro, no bloquea el flujo actual):**
+> - ⏳ **Comandas en PDF** — generación/impresión de comanda y cuenta en PDF, por configurar
 
 > **Para análisis técnico COMPLETO del sistema:**  
 > → [`LOGIN_ANALYSIS.md`](LOGIN_ANALYSIS.md) — flujo de auth, tokens, permisos, seguridad  
@@ -892,6 +896,74 @@ Para que no sea un registro de solo-escritura, hay un endpoint de lectura:
 GET /api/superadmin/auditoria?cliente_id=<opcional>&limit=<opcional, máx 1000>
 ```
 Superadmin-only (mismo tipo de token que el resto de `/superadmin/*`).
+
+---
+
+## 🎨 REDISEÑO VISUAL (UI 3D, pensado para PWA)
+
+**Contexto:** con el flujo de login, seguridad y datos ya sólidos, tocaba
+subir el nivel visual — la app se usa como un aplicativo móvil real (PWA
+instalada en el celular del mozo/cajero/cocina), no como una demo de
+escritorio. El objetivo: que se sienta "profesional y dinámica" sin romper
+la restricción de rendimiento que ya tenía el CSS desde el inicio (gama
+media/baja: sin `backdrop-filter`, sin animaciones costosas — ver el
+comentario en la cabecera de `frontend/css/style.css`).
+
+### Ícono de mesa con relieve 3D
+
+Antes era un círculo plano + 4 puntos como sillas. Ahora (`frontend/js/mozo.js`,
+`frontend/css/style.css`, `frontend/index.html`):
+
+- El disco de la mesa usa un **gradiente radial** (claro arriba-izquierda,
+  oscuro abajo-derecha) en vez de un color sólido — da sensación de
+  superficie curva/pulida.
+- **Sombra elíptica** debajo de la mesa (ancla el ícono al piso, look "flotante").
+- **Brillo especular** (una elipse blanca translúcida) arriba-izquierda,
+  simula reflejo de luz sobre una superficie brillante.
+- Las sillas tienen su propio gradiente lineal, en vez de color plano.
+- Los gradientes viven en un único `<defs>` global inyectado en
+  `frontend/index.html` (no uno por botón) — evita duplicar SVG cuando hay
+  20+ mesas en la grilla, y usa `var()` en los `<stop>` para heredar el
+  tema oscuro automáticamente sin lógica en JS.
+- **Nada de esto usa `filter`/blur**: son formas planas (`circle`, `ellipse`)
+  con gradiente — mismo costo de pintado que un ícono de color sólido.
+
+### Interacciones táctiles ("feel" de app nativa)
+
+- Al presionar una mesa: se "hunde" (`scale(0.94) translateY(1px)` +
+  reducción de sombra) en vez de solo achicarse — imita un botón físico.
+- Mesas ocupadas: halo cálido (`box-shadow` extra) además del cambio de
+  color, para que salten a la vista en una grilla grande sin depender solo
+  del color (accesibilidad para daltonismo parcial).
+- Botón primario (`.btn-primary`): gradiente diagonal + sombra que se
+  comprime al presionar, en vez de un color plano.
+- Nav inferior: el ítem activo tiene una "píldora" de fondo detrás del
+  ícono, con una animación de entrada corta (`scale` + `opacity`) — patrón
+  que ya usan iOS/Android nativos, reemplaza el simple cambio de color de
+  antes.
+
+### Cajitas de texto (inputs, textarea, select)
+
+Usadas en todos los formularios y en el login. Cambios en
+`.form-group input/textarea/select`:
+
+- Relieve "hundido" sutil (`box-shadow: inset`) — el campo se distingue de
+  la tarjeta que lo contiene en vez de ser un rectángulo plano indistinguible.
+- Al enfocar: **glow cálido** alrededor del borde (color del acento) en vez
+  del outline azul genérico del navegador, con transición suave.
+- Hover: el borde se oscurece levemente como anticipo antes de tocar.
+- Labels en mayúsculas con letter-spacing, mismo lenguaje visual que ya
+  usaban los títulos de sección (`.section-title`) — antes eran inconsistentes.
+- `<select>` con flecha custom en SVG (antes usaba el ícono feo por defecto
+  del navegador, distinto en cada plataforma).
+
+### Por qué nada de esto pesa más
+
+Todo el rediseño usa únicamente `linear-gradient`/`radial-gradient`,
+`box-shadow` y `transform` — las tres primitivas más baratas de pintar en
+CSS (compositing por GPU, sin recalcular píxeles como sí exige
+`backdrop-filter` o un blur). Cero librerías nuevas, cero imágenes
+adicionales, cero peso extra en la carga de la PWA.
 
 ---
 

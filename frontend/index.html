@@ -30,6 +30,34 @@
         }
     </script>
 
+    <!-- Gradientes 3D compartidos por los íconos de mesa (ver mozo.js).
+         Un solo <defs> global evita repetir gradientes por cada botón de
+         mesa (podrían ser 20+) y usa var() para heredar el tema oscuro
+         automáticamente. Son gradientes planos (radial/linear), no
+         filter/blur: mismo costo de pintado que un color sólido. -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+        <defs>
+            <radialGradient id="mesaTopLibre" cx="35%" cy="28%" r="78%">
+                <stop offset="0%" style="stop-color:var(--mesa-top-a)"/>
+                <stop offset="60%" style="stop-color:var(--mesa-top-b)"/>
+                <stop offset="100%" style="stop-color:var(--mesa-top-c)"/>
+            </radialGradient>
+            <radialGradient id="mesaTopOcupada" cx="35%" cy="28%" r="78%">
+                <stop offset="0%" style="stop-color:var(--mesa-top-a-ocupada)"/>
+                <stop offset="60%" style="stop-color:var(--mesa-top-b-ocupada)"/>
+                <stop offset="100%" style="stop-color:var(--mesa-top-c-ocupada)"/>
+            </radialGradient>
+            <linearGradient id="sillaLibre" x1="10%" y1="0%" x2="90%" y2="100%">
+                <stop offset="0%" style="stop-color:var(--silla-a)"/>
+                <stop offset="100%" style="stop-color:var(--silla-b)"/>
+            </linearGradient>
+            <linearGradient id="sillaOcupada" x1="10%" y1="0%" x2="90%" y2="100%">
+                <stop offset="0%" style="stop-color:var(--silla-a-ocupada)"/>
+                <stop offset="100%" style="stop-color:var(--silla-b-ocupada)"/>
+            </linearGradient>
+        </defs>
+    </svg>
+
     <div id="toast-container" class="toast-container"></div>
 
     <div id="login-screen" class="login-screen hidden">

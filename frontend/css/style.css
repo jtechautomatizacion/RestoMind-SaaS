@@ -35,6 +35,21 @@
     --shadow-md: 0 6px 20px rgba(20, 20, 20, 0.10);
     --nav-height: 64px;
     --topbar-height: 52px;
+
+    /* Gradientes 3D del ícono de mesa (mozo.js) y accents con relieve.
+       Solo linear/radial-gradient — sin filter/blur, mismo costo de
+       pintado que un color plano, apto para gama baja. */
+    --mesa-top-a: #FFFFFF;
+    --mesa-top-b: #E7E2DA;
+    --mesa-top-c: #C7BFB2;
+    --mesa-top-a-ocupada: #FFC1AC;
+    --mesa-top-b-ocupada: #FF5A3C;
+    --mesa-top-c-ocupada: #C43718;
+    --silla-a: #AEB4BE;
+    --silla-b: #7C8291;
+    --silla-a-ocupada: #FF9478;
+    --silla-b-ocupada: #D9451F;
+    --accent-gradient: linear-gradient(135deg, #FF7A5C 0%, var(--accent) 55%, var(--accent-dark) 100%);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -52,6 +67,18 @@
         --warning-bg: #332707;
         --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
         --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.5);
+
+        --mesa-top-a: #3A3A3C;
+        --mesa-top-b: #2A2A2C;
+        --mesa-top-c: #1A1A1B;
+        --mesa-top-a-ocupada: #FF9478;
+        --mesa-top-b-ocupada: #FF6B4E;
+        --mesa-top-c-ocupada: #8A2A12;
+        --silla-a: #55565C;
+        --silla-b: #3A3B40;
+        --silla-a-ocupada: #FF9478;
+        --silla-b-ocupada: #B3391A;
+        --accent-gradient: linear-gradient(135deg, #FF9478 0%, var(--accent) 55%, var(--accent-dark) 100%);
     }
 }
 
@@ -302,6 +329,7 @@ body {
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
+    position: relative;
 }
 
 .nav-btn svg {
@@ -312,15 +340,42 @@ body {
     stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
+    position: relative;
+    z-index: 1;
+    transition: transform 0.15s cubic-bezier(.34,1.4,.64,1);
 }
 
 .nav-btn .nav-label {
     font-size: 11px;
     font-weight: 600;
+    position: relative;
+    z-index: 1;
 }
 
 .nav-btn.active {
     color: var(--accent);
+}
+
+.nav-btn.active::before {
+    /* Píldora de fondo tras el ícono activo, look de app nativa (iOS/Android)
+       en vez del texto simplemente cambiando de color. Solo opacity/transform. */
+    content: '';
+    position: absolute;
+    top: 6px;
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    background: var(--surface-alt);
+    animation: nav-pill-in 0.18s ease-out;
+}
+
+@keyframes nav-pill-in {
+    from { transform: scale(0.6); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+
+.nav-btn.active svg {
+    transform: translateY(-1px);
 }
 
 .nav-btn:active {
@@ -333,7 +388,7 @@ body {
     background: var(--surface);
     border-radius: var(--radius-lg);
     padding: 16px;
-    box-shadow: var(--shadow-sm);
+    box-shadow: 0 1px 2px rgba(20, 20, 20, 0.05), var(--shadow-sm);
     margin-bottom: 14px;
 }
 
@@ -367,32 +422,46 @@ body {
     background: var(--surface);
     border-radius: var(--radius-md);
     cursor: pointer;
-    box-shadow: var(--shadow-sm);
+    /* Sombra en dos capas: una de contacto (pegada) + una difusa (elevación),
+       simula profundidad real sin usar filter — mismo costo que shadow-sm. */
+    box-shadow: 0 1px 2px rgba(20, 20, 20, 0.06), var(--shadow-sm);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 2px;
     padding: 6px 4px;
-    transition: transform 0.12s ease, box-shadow 0.12s ease;
+    transition: transform 0.15s cubic-bezier(.34,1.4,.64,1), box-shadow 0.15s ease;
 }
 
 .mesa-btn:active {
-    transform: scale(0.95);
+    /* Se "hunde": baja y pierde elevación, como un botón físico. */
+    transform: scale(0.94) translateY(1px);
+    box-shadow: 0 1px 1px rgba(20, 20, 20, 0.08);
 }
 
 .mesa-btn .mesa-icono {
-    width: 26px;
-    height: 26px;
-    stroke: var(--text-muted);
-    fill: none;
-    stroke-width: 1.6;
+    width: 30px;
+    height: 30px;
     margin-bottom: 2px;
+    overflow: visible;
+}
+
+.mesa-btn .mesa-icono-mesa {
+    stroke: rgba(0, 0, 0, 0.12);
+    stroke-width: 0.4;
 }
 
 .mesa-btn .mesa-icono-silla {
-    fill: var(--text-muted);
     stroke: none;
+}
+
+.mesa-btn .mesa-icono-sombra {
+    fill: rgba(0, 0, 0, 0.16);
+}
+
+.mesa-btn .mesa-icono-brillo {
+    fill: rgba(255, 255, 255, 0.55);
 }
 
 .mesa-btn .mesa-numero {
@@ -436,15 +505,13 @@ body {
 .mesa-btn.ocupada {
     background: var(--surface-alt);
     border-color: var(--accent);
-    box-shadow: var(--shadow-md);
+    /* Halo cálido además de la elevación normal: distingue "ocupada" de
+       un vistazo en una grilla de 15+ mesas sin depender solo del color. */
+    box-shadow: 0 0 0 3px rgba(255, 90, 60, 0.10), var(--shadow-md);
 }
 
-.mesa-btn.ocupada .mesa-icono {
-    stroke: var(--accent);
-}
-
-.mesa-btn.ocupada .mesa-icono-silla {
-    fill: var(--accent);
+.mesa-btn.ocupada .mesa-icono-mesa {
+    stroke: rgba(120, 30, 10, 0.25);
 }
 
 .mesa-btn.ocupada .mesa-estado-dot {
@@ -459,6 +526,7 @@ body {
 
 .mesa-btn-inactiva:active {
     transform: none;
+    box-shadow: 0 1px 2px rgba(20, 20, 20, 0.06), var(--shadow-sm);
 }
 
 /* ============ SELECTOR DE ROL ============ */
@@ -1460,15 +1528,21 @@ body {
     cursor: pointer;
     font-size: 13.5px;
     font-weight: 700;
+    transition: transform 0.12s cubic-bezier(.34,1.4,.64,1), box-shadow 0.12s ease;
 }
 
 .btn:active {
-    transform: scale(0.98);
+    transform: scale(0.98) translateY(1px);
 }
 
 .btn-primary {
-    background: var(--accent);
+    background: var(--accent-gradient);
     color: var(--accent-contrast);
+    box-shadow: 0 3px 10px rgba(255, 90, 60, 0.28);
+}
+
+.btn-primary:active {
+    box-shadow: 0 1px 4px rgba(255, 90, 60, 0.22);
 }
 
 .btn-secondary {
@@ -1595,9 +1669,11 @@ body {
 
 .form-group label {
     display: block;
-    margin-bottom: 6px;
-    font-weight: 600;
-    font-size: 13px;
+    margin-bottom: 7px;
+    font-weight: 700;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
     color: var(--text-muted);
 }
 
@@ -1605,32 +1681,63 @@ body {
 .form-group textarea,
 .form-group select {
     width: 100%;
-    padding: 11px 12px;
-    border: 1px solid var(--border);
-    background: var(--bg);
-    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    border: 1.5px solid var(--border);
+    background: var(--surface);
+    border-radius: var(--radius-md);
     font-size: 14.5px;
+    font-family: inherit;
     color: var(--text);
+    /* Relieve sutil "hundido": distingue el campo de la tarjeta que lo
+       contiene sin gastar más que un box-shadow (mismo costo que un borde). */
+    box-shadow: inset 0 1px 2px rgba(20, 20, 20, 0.04);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.form-group input::placeholder,
+.form-group textarea::placeholder {
+    color: var(--text-muted);
+    opacity: 0.65;
+}
+
+.form-group input:hover,
+.form-group textarea:hover,
+.form-group select:hover {
+    border-color: color-mix(in srgb, var(--border) 40%, var(--text-muted));
 }
 
 .form-group input:focus,
 .form-group textarea:focus,
 .form-group select:focus {
-    outline: 2px solid var(--accent);
-    outline-offset: -1px;
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: inset 0 1px 2px rgba(20, 20, 20, 0.04), 0 0 0 3.5px rgba(255, 90, 60, 0.14);
 }
 
 .form-group textarea {
     resize: vertical;
     min-height: 70px;
+    line-height: 1.5;
+}
+
+.form-group select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236B7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 16px;
+    padding-right: 36px;
 }
 
 /* Valor no editable dentro de un form (email de admin, rol fijo, etc.) */
 .campo-fijo {
-    padding: 11px 12px;
+    padding: 12px 14px;
     background: var(--surface-alt);
-    border-radius: var(--radius-sm);
+    border: 1.5px solid transparent;
+    border-radius: var(--radius-md);
     font-size: 14.5px;
+    font-weight: 600;
     color: var(--text-muted);
 }
 
