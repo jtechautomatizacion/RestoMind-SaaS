@@ -1,7 +1,7 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
-**Versión MVP:** 2.1 — Login Dual (Email para Admin/Superadmin + Celular para Staff)
-**Implementado y probado:** ✅ 100% Autenticación funcional
+**Versión MVP:** 2.2 — Login Dual + Hardening de Producción
+**Implementado y probado:** ✅ 100% Autenticación + Seguridad + Compresión de Imágenes
 **Última actualización:** 2026-08-29
 
 > Este documento describe el diseño original (MVPv1). El estado real de la
@@ -10,18 +10,22 @@
 >
 > **Lo que cambió desde MVPv1:**
 > - ✅ **Login real con JWT** — autenticación segura con tokens validados
-> - ✅ **Login dual:** Email (admin/superadmin) + Celular (staff: mozo/cajero/cocinero)
+> - ✅ **Login dual:** Email (admin/superadmin) + Código de acceso (staff: mozo/cajero/jefe_cocina)
 > - ✅ **Panel General (Superadmin)** — el dueño del sistema ve todos sus restaurantes clientes
-> - ✅ **Personal con login individual** — cada mozo/cajero/cocinero tiene su propia cuenta con celular
+> - ✅ **Personal con login individual** — cada mozo/cajero/cocinero con código de acceso auto-generado
 > - ✅ **Rol desde JWT** — el rol viene del token, no de un click en el header
 > - ✅ **Redirección inteligente** — superadmin → panel general, staff/admin → panel restaurante
 > - ✅ **Logs de autenticación** — debugging detallado sin exponer datos sensibles
-> - ✅ 86 tests automáticos (9x el MVP original, con cobertura de seguridad)
+> - ✅ 93 tests automáticos (cobertura de seguridad, rate limit, auditoría)
+> - ✅ **[NUEVA] Hardening de producción:** SECRET_KEY obligatorio, rate limiting, CSP, headers de seguridad
+> - ✅ **[NUEVA] Compresión de imágenes:** Pillow server-side (800px máx, JPEG 82%), preview con blob: URLs
+> - ✅ **[NUEVA] Filtro de categorías:** Admin > Carta agrupa platos con chips por categoría
+> - ✅ **[NUEVA] Tabla de auditoría:** Registro persistente de logins y cambios administrativos
+> - ✅ **[NUEVA] Cascade delete:** Eliminar cliente limpia todas sus categorías (antes quedaban huérfanas)
 
-> **Para un análisis técnico COMPLETO del sistema de autenticación:**  
-> → Ver [`LOGIN_ANALYSIS.md`](LOGIN_ANALYSIS.md)  
-> Incluye: flujo completo, estructura de tokens, dependencias de validación, rate limiting,
-> auditoría, tests, matriz de permisos, seguridad y problemas conocidos.
+> **Para análisis técnico COMPLETO del sistema:**  
+> → [`LOGIN_ANALYSIS.md`](LOGIN_ANALYSIS.md) — flujo de auth, tokens, permisos, seguridad  
+> → [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) — checklist para despliegue en producción
 
 ---
 
