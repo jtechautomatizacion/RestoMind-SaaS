@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime, Text, ForeignKey, func, UniqueConstraint
+from sqlalchemy import Column, String, Integer, Float, DateTime, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from backend.database import Base
@@ -34,6 +34,30 @@ class Cliente(Base):
     estado = Column(String, default="activo")
     creado_en = Column(DateTime, default=datetime.utcnow)
 
+    # Datos tributarios del restaurante (emisor de boletas SUNAT).
+    # Viven en el Cliente (tenant), no en config/env: cada restaurante tiene
+    # su propio RUC. Ponerlo en config.py sería un bug de aislamiento
+    # multi-tenant real — el día que se de de alta un segundo restaurante,
+    # sus boletas saldrían emitidas con el RUC del primero.
+    ruc = Column(String, nullable=True)
+    # Para RUC persona natural con negocio (empieza con "10"), SUNAT registra
+    # dos nombres distintos: la razón social (la persona: "Juan Joaquín
+    # Aliaga Peña") y el nombre comercial, que es Cliente.nombre ("Pollería
+    # Fogones", el que usa el resto de la app). No siempre son iguales —
+    # nunca asumir uno a partir del otro.
+    razon_social = Column(String, nullable=True)
+    direccion = Column(String, nullable=True)  # Domicilio fiscal, para el encabezado de tickets/boletas
+
+    # Correlativo de boletas (serie B001), incrementado atómicamente al
+    # generar cada Factura. Vive acá y no como MAX(numero_correlativo)
+    # calculado al vuelo porque esta app corre en un solo proceso uvicorn
+    # (ver AUDITORIA/rate_limit en CLAUDE.md) pero SÍ puede recibir dos
+    # cobros concurrentes de dos mozos distintos — un MAX+1 leído dos veces
+    # antes de que el primer INSERT confirme repetiría número de boleta,
+    # y SUNAT rechaza duplicados. Se protege ADEMÁS con un UNIQUE en
+    # Factura(cliente_id, serie, numero_correlativo) como red de seguridad.
+    boleta_correlativo_actual = Column(Integer, default=0, nullable=False)
+
     # Relationships
     usuarios = relationship("Usuario", back_populates="cliente", cascade="all, delete-orphan")
     platos = relationship("Plato", back_populates="cliente", cascade="all, delete-orphan")
@@ -45,6 +69,11 @@ class Cliente(Base):
     # en la app (todo se filtra por cliente_id) pero basura acumulándose
     # para siempre en la BD cada vez que se borra un restaurante.
     categorias = relationship("Categoria", cascade="all, delete-orphan")
+    # Mismo caso que Categoria (ver arriba): sin esta relación, borrar un
+    # cliente dejaba sus facturas —y las filas de factura_comandas que
+    # cuelgan de ellas— huérfanas en la BD. Peor que con categorías: son
+    # registros tributarios, justo lo que una auditoría iría a buscar.
+    facturas = relationship("Factura", cascade="all, delete-orphan")
 
 
 class Usuario(Base):
@@ -183,3 +212,87 @@ class AuditLog(Base):
     entidad_id = Column(String, nullable=False)
     cliente_id = Column(String, nullable=True, index=True)  # null para acciones a nivel superadmin
     detalle = Column(String, nullable=True)
+
+
+class Factura(Base):
+    """
+    Boleta electrónica emitida a SUNAT (vía proveedor Facturación.pe).
+
+    Se genera a partir de comandas ya cobradas (Comanda.estado=='cobrado'),
+    nunca a partir de una lista de platos que mande el frontend — el detalle
+    (nombre/cantidad/precio) se copia de ComandaPlato en el momento de emitir,
+    para que la boleta no pueda declarar algo distinto de lo que realmente
+    se vendió (ver backend/routes/facturas.py).
+    """
+    __tablename__ = "facturas"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cliente_id = Column(String, ForeignKey("clientes.id"), nullable=False, index=True)
+
+    numero_mesa = Column(Integer, nullable=False)
+    subtotal = Column(Float, nullable=False)  # Sin IGV
+    igv = Column(Float, nullable=False)
+    total = Column(Float, nullable=False)  # subtotal + igv
+
+    # Fecha/hora LOCAL (Perú) de la primera emisión, congeladas al crear la
+    # Factura — no derivar de creado_en (UTC) al exportar: un reintento
+    # horas después NO debe cambiar la fecha de emisión del comprobante,
+    # y cerca de medianoche UTC/local caen en días de calendario distintos
+    # (el mismo bug que ya corrigieron en dashboard/compras, ver CLAUDE.md).
+    fecha_emision_local = Column(String, nullable=True)  # YYYY-MM-DD
+    hora_emision_local = Column(String, nullable=True)  # HH:MM:SS
+
+    # Comprobante SUNAT (boleta = tipo 03, serie fija B001 para el MVP)
+    tipo_comprobante = Column(String, default="03")
+    serie = Column(String, default="B001")
+    numero_correlativo = Column(Integer, nullable=False)
+
+    # Datos del comprador — opcionales. "Público General" (sin documento) es
+    # válido para una boleta; solo se piden si el cliente los solicita.
+    tipo_documento_comprador = Column(String, nullable=True)  # "1"=DNI, "6"=RUC
+    numero_documento_comprador = Column(String, nullable=True)
+    nombre_comprador = Column(String, nullable=True)
+
+    # Resultado del emisor usado (ver backend/config.py: emisor_facturacion).
+    # pdf_url/qr_code/codigo_hash solo se llenan con el emisor "facturacion_pe"
+    # (confirma con SUNAT en el momento); archivo_local solo con "sfs_local".
+    pdf_url = Column(String, nullable=True)
+    qr_code = Column(Text, nullable=True)  # data URI base64, puede ser largo
+    codigo_hash = Column(String, nullable=True)  # Hash/CDR que devuelve SUNAT
+    archivo_local = Column(String, nullable=True)  # Ruta del .cab escrito para el Facturador SUNAT
+
+    # pendiente: recién creada, aún no se llamó al proveedor (o llamada en curso)
+    # enviada_sunat: SUNAT la aceptó
+    # error: el proveedor o SUNAT la rechazó (ver error_mensaje) — reintentable
+    estado = Column(String, default="pendiente")
+    error_mensaje = Column(String, nullable=True)
+
+    creado_en = Column(DateTime, default=datetime.utcnow)
+    enviado_en = Column(DateTime, nullable=True)
+
+    cliente = relationship("Cliente", foreign_keys=[cliente_id], overlaps="facturas")
+    # Sin este cascade, borrar una Factura (o el Cliente que la contiene)
+    # dejaba sus filas de factura_comandas colgando: apuntando a un
+    # factura_id que ya no existe.
+    factura_comandas = relationship("FacturaComanda", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("cliente_id", "serie", "numero_correlativo", name="uq_cliente_serie_correlativo"),
+    )
+
+
+class FacturaComanda(Base):
+    """
+    Asociación N:N entre Factura y Comanda (una boleta puede juntar varias
+    comandas de la misma mesa si el mozo mandó más de un pedido antes de
+    cobrar). Tabla de unión simple, sin columnas propias.
+    """
+    __tablename__ = "factura_comandas"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    factura_id = Column(Integer, ForeignKey("facturas.id"), nullable=False, index=True)
+    comanda_id = Column(Integer, ForeignKey("comandas.id"), nullable=False, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("factura_id", "comanda_id", name="uq_factura_comanda"),
+    )

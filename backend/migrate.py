@@ -73,6 +73,68 @@ def migrate():
         else:
             print("[OK] 'email' ya es nullable")
 
+        # Datos tributarios del restaurante (RUC/razón social) para poder
+        # emitir boletas SUNAT — no existían en el esquema original.
+        cursor.execute("PRAGMA table_info(clientes)")
+        columns_clientes = [row[1] for row in cursor.fetchall()]
+
+        if "ruc" not in columns_clientes:
+            print("Agregando columna 'ruc' a clientes...")
+            cursor.execute("ALTER TABLE clientes ADD COLUMN ruc VARCHAR DEFAULT NULL")
+            conn.commit()
+            print("[OK] Columna 'ruc' agregada")
+        else:
+            print("[OK] Columna 'ruc' ya existe")
+
+        if "razon_social" not in columns_clientes:
+            print("Agregando columna 'razon_social' a clientes...")
+            cursor.execute("ALTER TABLE clientes ADD COLUMN razon_social VARCHAR DEFAULT NULL")
+            conn.commit()
+            print("[OK] Columna 'razon_social' agregada")
+        else:
+            print("[OK] Columna 'razon_social' ya existe")
+
+        if "direccion" not in columns_clientes:
+            print("Agregando columna 'direccion' a clientes...")
+            cursor.execute("ALTER TABLE clientes ADD COLUMN direccion VARCHAR DEFAULT NULL")
+            conn.commit()
+            print("[OK] Columna 'direccion' agregada")
+        else:
+            print("[OK] Columna 'direccion' ya existe")
+
+        if "boleta_correlativo_actual" not in columns_clientes:
+            print("Agregando columna 'boleta_correlativo_actual' a clientes...")
+            cursor.execute("ALTER TABLE clientes ADD COLUMN boleta_correlativo_actual INTEGER DEFAULT 0")
+            conn.commit()
+            print("[OK] Columna 'boleta_correlativo_actual' agregada")
+        else:
+            print("[OK] Columna 'boleta_correlativo_actual' ya existe")
+
+        # La tabla 'facturas' es nueva: en una instalación que arranca por
+        # primera vez con esta versión, create_all() ya la crea completa y
+        # este bloque no tiene nada que hacer (el PRAGMA da lista vacía y
+        # el 'if cursor.fetchone()' de abajo corta antes de tocar nada).
+        # Solo hace falta ALTER TABLE acá para una instalación (como esta
+        # misma máquina de desarrollo) que ya había creado 'facturas' con
+        # una versión anterior del modelo, sin estas columnas.
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='facturas'")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(facturas)")
+            columns_facturas = [row[1] for row in cursor.fetchall()]
+
+            for columna, ddl in (
+                ("archivo_local", "VARCHAR DEFAULT NULL"),
+                ("fecha_emision_local", "VARCHAR DEFAULT NULL"),
+                ("hora_emision_local", "VARCHAR DEFAULT NULL"),
+            ):
+                if columna not in columns_facturas:
+                    print(f"Agregando columna '{columna}' a facturas...")
+                    cursor.execute(f"ALTER TABLE facturas ADD COLUMN {columna} {ddl}")
+                    conn.commit()
+                    print(f"[OK] Columna '{columna}' agregada")
+                else:
+                    print(f"[OK] Columna '{columna}' ya existe")
+
         print("[OK] Migración completada")
     except Exception as e:
         print(f"[ERROR] Error en migración: {e}")

@@ -27,7 +27,6 @@ from backend.schemas import (
     UsuarioUpdate,
     UsuarioUpdateMeRequest,
     StaffCreateRequest,
-    StaffUpdateRequest,
 )
 from backend.utils.auditoria import registrar_evento
 from backend.utils.security import validar_admin

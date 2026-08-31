@@ -769,3 +769,90 @@ async function cambiarMiCuenta() {
         showToast(err.message || 'Error al cambiar la contraseña', 'error');
     }
 }
+
+// ============ BOLETAS PENDIENTES ============
+//
+// Punto de recuperación cuando una boleta no llegó a emitirse. Dos casos,
+// con arreglos distintos (ver GET /api/facturas/pendientes en el backend):
+//   - facturas_con_error: la Factura existe y su correlativo ya está
+//     reservado -> se reintenta, conservando ese mismo número.
+//   - ventas_sin_boleta: nunca se creó la Factura -> se emite de cero.
+
+async function refreshBoletasPendientes() {
+    const container = document.getElementById('admin-boletas-list');
+    if (!container) return;
+
+    try {
+        const data = await api.get('/facturas/pendientes');
+        renderBoletasPendientes(data);
+    } catch (err) {
+        container.innerHTML = `<p class="empty-hint">No se pudo cargar: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
+function renderBoletasPendientes({ facturas_con_error, ventas_sin_boleta }) {
+    const container = document.getElementById('admin-boletas-list');
+
+    if (facturas_con_error.length === 0 && ventas_sin_boleta.length === 0) {
+        container.innerHTML = '<p class="empty-hint">Todas las ventas cobradas tienen su boleta emitida.</p>';
+        return;
+    }
+
+    const bloqueErrores = facturas_con_error.map(f => `
+        <div class="admin-item">
+            <div class="admin-item-info">
+                <h4>${escapeHtml(f.numero_boleta)}</h4>
+                <p>Mesa ${f.numero_mesa} · ${formatCurrency(f.total)} · ${formatDate(f.creado_en)}</p>
+                <p>${escapeHtml(f.error_mensaje || 'Sin detalle del error')}</p>
+            </div>
+            <div class="admin-item-actions">
+                <button class="btn btn-secondary" onclick="reintentarBoleta(${f.id})">Reintentar</button>
+            </div>
+        </div>
+    `).join('');
+
+    const bloqueSinBoleta = ventas_sin_boleta.map(v => `
+        <div class="admin-item">
+            <div class="admin-item-info">
+                <h4>Mesa ${v.numero_mesa}</h4>
+                <p>${formatCurrency(v.total)} · ${formatDate(v.creado_en)}</p>
+                <p>Cobrada, nunca se emitió boleta</p>
+            </div>
+            <div class="admin-item-actions">
+                <button class="btn btn-secondary" onclick="emitirBoletaPendiente([${v.comanda_ids.join(',')}])">Emitir</button>
+            </div>
+        </div>
+    `).join('');
+
+    container.innerHTML = `
+        ${facturas_con_error.length ? `<h3 class="section-title">Boletas con error (${facturas_con_error.length})</h3>${bloqueErrores}` : ''}
+        ${ventas_sin_boleta.length ? `<h3 class="section-title">Ventas sin boleta (${ventas_sin_boleta.length})</h3>${bloqueSinBoleta}` : ''}
+    `;
+}
+
+async function reintentarBoleta(facturaId) {
+    try {
+        const factura = await api.post(`/facturas/${facturaId}/reintentar`);
+        showToast(`Boleta ${factura.numero_boleta} emitida`, 'success');
+        if (typeof imprimirBoletaVenta === 'function') imprimirBoletaVenta(factura);
+        await refreshBoletasPendientes();
+    } catch (err) {
+        showToast(err.message || 'No se pudo emitir la boleta', 'error');
+        await refreshBoletasPendientes();
+    }
+}
+
+async function emitirBoletaPendiente(comandaIds) {
+    try {
+        // Sin documento del comprador: se emite como Público General. Quien
+        // pidió boleta con su DNI/RUC ya se fue — inventarle un documento
+        // sería peor que emitirla a nombre de "CLIENTES VARIOS".
+        const factura = await api.post('/facturas/generar', { comanda_ids: comandaIds });
+        showToast(`Boleta ${factura.numero_boleta} emitida`, 'success');
+        if (typeof imprimirBoletaVenta === 'function') imprimirBoletaVenta(factura);
+        await refreshBoletasPendientes();
+    } catch (err) {
+        showToast(err.message || 'No se pudo emitir la boleta', 'error');
+        await refreshBoletasPendientes();
+    }
+}

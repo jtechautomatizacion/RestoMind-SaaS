@@ -1,7 +1,7 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
-**Versión MVP:** 2.3 — Login Dual + Hardening de Producción + Rediseño UI
-**Implementado y probado:** ✅ 100% Autenticación + Seguridad + Compresión de Imágenes + UI 3D
+**Versión MVP:** 2.4 — Facturación Local SFS + Validación RUC + Boletas Pendientes
+**Implementado y probado:** ✅ 100% Autenticación + Seguridad + Facturación SUNAT SFS + Admin Boletas Pendientes
 **Última actualización:** 2026-08-30
 
 > Este documento describe el diseño original (MVPv1). El estado real de la
@@ -16,13 +16,18 @@
 > - ✅ **Rol desde JWT** — el rol viene del token, no de un click en el header
 > - ✅ **Redirección inteligente** — superadmin → panel general, staff/admin → panel restaurante
 > - ✅ **Logs de autenticación** — debugging detallado sin exponer datos sensibles
-> - ✅ 93 tests automáticos (cobertura de seguridad, rate limit, auditoría)
+> - ✅ 121 tests automáticos (cobertura de seguridad, rate limit, auditoría, facturación, edición de restaurante)
 > - ✅ **[NUEVA] Hardening de producción:** SECRET_KEY obligatorio, rate limiting, CSP, headers de seguridad
 > - ✅ **[NUEVA] Compresión de imágenes:** Pillow server-side (800px máx, JPEG 82%), preview con blob: URLs
 > - ✅ **[NUEVA] Filtro de categorías:** Admin > Carta agrupa platos con chips por categoría
 > - ✅ **[NUEVA] Tabla de auditoría:** Registro persistente de logins y cambios administrativos
 > - ✅ **[NUEVA] Cascade delete:** Eliminar cliente limpia todas sus categorías (antes quedaban huérfanas)
 > - ✅ **[NUEVA] Rediseño UI 3D:** ícono de mesa con relieve (gradientes + sombra), cajitas de texto con glow al enfocar, nav inferior con píldora animada — pensado para PWA, sin costo extra de rendimiento (ver sección "Rediseño Visual" más abajo)
+> - ✅ **[NUEVA] Facturación SUNAT (SFS v1.3.2):** Exportador local de boletas (.cab/.det) para Facturador SUNAT
+> - ✅ **[NUEVA] Validación de RUC:** Prefijo 10 o 20 requerido; rechaza tipeos antes de cobrar (frontend) y después (backend)
+> - ✅ **[NUEVA] Admin > Boletas:** Pantalla de recuperación de boletas con error o nunca emitidas; reintento/emisión de cero
+> - ✅ **[BUG FIX] Edición de restaurante:** PATCH /superadmin/clientes/{id} fallaba 100% de las veces sin cambiar contraseña (schema contradictorio); separado ClienteUpdateRequest
+> - ✅ **[MEJORA] Orden de operaciones:** Commit de correlativo ANTES de escribir .cab/.det para evitar race conditions bajo concurrencia
 >
 > **Pendiente (a futuro, no bloquea el flujo actual):**
 > - ⏳ **Comandas en PDF** — generación/impresión de comanda y cuenta en PDF, por configurar

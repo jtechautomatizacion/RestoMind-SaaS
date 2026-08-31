@@ -64,6 +64,13 @@ function extraerMensajeError(body, statusFallback) {
         const msg = body.detail[0].msg || statusFallback;
         return msg.replace(/^Value error,\s*/, '');
     }
+    // POST /facturas/generar (y /reintentar) mandan detail como objeto
+    // {"mensaje": "...", "factura": {...}} en vez de texto plano, para que
+    // el cliente pueda leer también el estado de la Factura ya guardada
+    // (ver backend/routes/facturas.py) — no perder ese 'mensaje' acá.
+    if (typeof body.detail === 'object' && body.detail.mensaje) {
+        return body.detail.mensaje;
+    }
     return statusFallback;
 }
 
@@ -286,6 +293,13 @@ function cambiarAdminTab(tabName) {
     document.querySelectorAll('.admin-section').forEach(sec => {
         sec.classList.toggle('active', sec.id === `admin-${tabName}`);
     });
+
+    // Boletas se carga al entrar, no al arrancar la app: es la única
+    // pestaña cuyo contenido cambia solo por fallas (no por lo que el admin
+    // hace ahí), así que mostrarla desactualizada sería engañoso.
+    if (tabName === 'boletas' && typeof refreshBoletasPendientes === 'function') {
+        refreshBoletasPendientes();
+    }
 }
 
 // ============ MODALES ============

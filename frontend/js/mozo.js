@@ -281,6 +281,7 @@ function construirComandaLocal(data, carritoSnapshot) {
         platos: carritoSnapshot.map(item => ({
             cantidad: item.cantidad,
             nombre: item.nombre,
+            precio_unitario: item.precio,
             subtotal: item.precio * item.cantidad,
         })),
         total_cuenta: carritoSnapshot.reduce((sum, item) => sum + item.precio * item.cantidad, 0),
@@ -304,6 +305,9 @@ async function abrirCuentaMesa(mesa) {
     document.getElementById('modal-cuenta-title').textContent = `Mesa ${mesa.numero}`;
     // El cajero cobra, no toma pedidos adicionales.
     document.getElementById('btn-agregar-pedido').classList.toggle('hidden', estado.rol === 'cajero');
+    // Sin esto, el DNI/RUC tipeado para la mesa anterior quedaría precargado
+    // acá y terminaría en la boleta de un cliente distinto.
+    document.getElementById('cuenta-documento').value = '';
 
     try {
         const comandas = await api.get(`/comandas?numero_mesa=${mesa.numero}`);
@@ -377,17 +381,95 @@ function agregarPedidoAMesa() {
     abrirNuevoPedido(mesaActual);
 }
 
+/**
+ * Misma regla que valida el backend (schemas.py:validar_documento_comprador):
+ * vacío, 8 dígitos (DNI), u 11 empezando en 10/20 (RUC). Se repite acá a
+ * propósito, y NO para reemplazar la del servidor —que sigue siendo la que
+ * manda— sino por CUÁNDO corre: la boleta se emite después de cobrar, así
+ * que sin este chequeo previo un tipeo dejaba la venta ya cobrada con la
+ * boleta rechazada, y la recuperación desde Admin la emite como Público
+ * General (pierde el documento que el cliente sí había pedido).
+ *
+ * Devuelve null si está bien, o el motivo del rechazo.
+ */
+function validarDocumentoComprador(documento) {
+    if (!documento) return null;  // vacío = Público General, válido
+    if (!/^\d+$/.test(documento)) return 'El documento debe tener solo números';
+    if (documento.length === 8) return null;
+    if (documento.length === 11) {
+        return /^(10|20)/.test(documento)
+            ? null
+            : 'Un RUC de 11 dígitos debe empezar en 10 o 20';
+    }
+    return 'El documento debe tener 8 dígitos (DNI) u 11 dígitos (RUC)';
+}
+
 async function cobrarMesaActual() {
     if (!mesaActual) return;
 
+    // Se captura ACÁ, antes de cualquier await — cerrarModalCuenta() no
+    // vacía este input, pero abrirCuentaMesa() sí lo hace apenas se toca
+    // otra mesa; leerlo ahora (no dentro de generarBoletaTrasCobro, que
+    // corre en paralelo) evita depender de que nadie más toque el modal
+    // mientras esa llamada sigue en vuelo.
+    const documento = document.getElementById('cuenta-documento').value.trim();
+
+    // Antes de cobrar, no después: corregir un tipeo con la mesa todavía
+    // abierta es trivial; con la venta ya cobrada, no.
+    const errorDocumento = validarDocumentoComprador(documento);
+    if (errorDocumento) {
+        showToast(errorDocumento, 'error');
+        return;
+    }
+
+    let resultado;
     try {
-        const resultado = await api.post(`/mesas/${mesaActual.id}/cobrar`);
-        showToast(`Cobrado ${formatCurrency(resultado.total_cobrado)} · Mesa ${resultado.mesa_numero} libre`, 'success');
-        cerrarModalCuenta();
-        await refreshMozo();
-        if (typeof refreshDashboard === 'function') refreshDashboard();
+        resultado = await api.post(`/mesas/${mesaActual.id}/cobrar`);
     } catch (err) {
         showToast(err.message || 'No se pudo cobrar la mesa', 'error');
+        return;
+    }
+
+    // A partir de acá el dinero YA se cobró y la mesa YA se liberó — nada
+    // de lo que pase con la boleta debe deshacer eso ni bloquear al mozo.
+    showToast(`Cobrado ${formatCurrency(resultado.total_cobrado)} · Mesa ${resultado.mesa_numero} libre`, 'success');
+    cerrarModalCuenta();
+    await refreshMozo();
+    if (typeof refreshDashboard === 'function') refreshDashboard();
+
+    // Sin await a propósito: la boleta se genera en paralelo, de fondo,
+    // exactamente igual que el ticket de cocina en print.js no bloquea la
+    // comanda. generarBoletaTrasCobro nunca deja escapar una excepción
+    // (su propio try/catch resuelve todos los casos con un toast), así que
+    // no dejar de esperarla acá no genera una promesa rechazada sin manejar.
+    generarBoletaTrasCobro(resultado, documento);
+}
+
+// Best-effort: si el Facturador local no está configurado, la carpeta no
+// existe, o Facturación.pe está caído, la venta YA quedó cobrada igual —
+// solo se avisa que la boleta quedó pendiente/con error, reintentable
+// después desde /api/facturas/{id}/reintentar (ver backend/routes/facturas.py).
+async function generarBoletaTrasCobro(resultadoCobro, documento) {
+    try {
+        const factura = await api.post('/facturas/generar', {
+            comanda_ids: resultadoCobro.comanda_ids,
+            documento_comprador: documento || null,
+        });
+        showToast(`Boleta ${factura.numero_boleta} generada`, 'success');
+        // Recién acá existe un numero_boleta real (se reserva adentro del
+        // endpoint) — no se puede imprimir antes sin arriesgarse a mostrar
+        // un número que nunca se generó. No se espera el resultado: un
+        // fallo de impresión no debe generar una segunda vuelta de nada.
+        if (typeof imprimirBoletaVenta === 'function') imprimirBoletaVenta(factura);
+    } catch (err) {
+        // No se promete reintento automático: la cola offline
+        // (frontend/js/offline.js) cubre SOLO comandas nuevas, no facturas.
+        // Decir "se genera sola al volver la señal" sería mentirle al cajero
+        // sobre una boleta que nadie va a emitir.
+        const detalle = err instanceof NetworkError
+            ? 'se cortó la conexión'
+            : err.message;
+        showToast(`Cobro OK, pero la boleta NO se emitió (${detalle}). Emítela desde Admin.`, 'error');
     }
 }
 

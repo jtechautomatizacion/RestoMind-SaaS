@@ -7,7 +7,7 @@
  * la versión vieja hasta cerrar todas las pestañas).
  */
 
-const CACHE_NAME = 'restomind-v17';
+const CACHE_NAME = 'restomind-v19';
 const STATIC_ASSETS = [
     '/static/index.html',
     '/static/css/style.css',
@@ -57,12 +57,24 @@ self.addEventListener('fetch', event => {
         return;
     }
 
+    // La extensión de DevTools/otras extensiones del navegador inyectan
+    // requests con esquema chrome-extension:// que pasan por acá — la
+    // Cache API los rechaza siempre ("Request scheme ... is unsupported").
+    // Sin este filtro, cache.put() los intenta igual y explota en cada
+    // fetch como promesa sin capturar (el error que se ve en consola).
+    // Cache API tampoco acepta requests que no sean GET.
+    const cacheable = request.method === 'GET' && request.url.startsWith(self.location.origin);
+
     // Estáticos: red primero, cache como respaldo offline
     event.respondWith(
         fetch(request)
             .then(response => {
-                const clone = response.clone();
-                caches.open(CACHE_NAME).then(cache => cache.put(request, clone));
+                if (cacheable) {
+                    const clone = response.clone();
+                    caches.open(CACHE_NAME)
+                        .then(cache => cache.put(request, clone))
+                        .catch(() => { /* request no cacheable (extensión, esquema raro, etc.) — no es un error real */ });
+                }
                 return response;
             })
             .catch(() => caches.match(request).then(cached => cached || Response.error()))

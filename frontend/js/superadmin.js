@@ -200,6 +200,7 @@ function renderClientes() {
                 </div>
                 <span class="cliente-estado-badge ${c.estado}">${c.estado}</span>
             </div>
+            ${!c.ruc ? `<div class="cliente-card-aviso">⚠️ Sin RUC configurado — no puede emitir boletas SUNAT</div>` : ''}
             <div class="cliente-stats-row">
                 <div class="cliente-stat"><div class="num">${c.num_usuarios}</div><div class="label">Usuarios</div></div>
                 <div class="cliente-stat"><div class="num">${c.num_platos}</div><div class="label">Platos</div></div>
@@ -253,6 +254,9 @@ async function guardarNuevoCliente(event) {
         nombre: document.getElementById('nc-nombre').value.trim(),
         email: document.getElementById('nc-email').value.trim(),
         telefono: document.getElementById('nc-telefono').value.trim() || null,
+        ruc: document.getElementById('nc-ruc').value.trim() || null,
+        razon_social: document.getElementById('nc-razon-social').value.trim() || null,
+        direccion: document.getElementById('nc-direccion').value.trim() || null,
         num_mesas: parseInt(document.getElementById('nc-mesas').value, 10),
         admin_nombre: document.getElementById('nc-admin-nombre').value.trim(),
         admin_email: document.getElementById('nc-admin-email').value.trim(),
@@ -370,67 +374,6 @@ async function cambiarMiPassword() {
     }
 }
 
-async function abrirModalEditarCliente(clienteId) {
-    const cliente = clientesCache.find(c => c.id === clienteId);
-    if (!cliente) return;
-
-    clienteEnEdicion = clienteId;
-    document.getElementById('ec-nombre').value = cliente.nombre;
-    document.getElementById('ec-email').value = cliente.email;
-    document.getElementById('ec-telefono').value = cliente.telefono || '';
-    document.getElementById('ec-admin-nombre').value = cliente.nombre;
-    document.getElementById('ec-admin-email').value = cliente.email;
-    document.getElementById('ec-admin-password').value = '';
-    abrirModal('modal-editar-cliente');
-}
-
-function cerrarModalEditarCliente() {
-    document.getElementById('modal-editar-cliente').classList.add('hidden');
-    clienteEnEdicion = null;
-}
-
-async function guardarEditarCliente(event) {
-    event.preventDefault();
-
-    if (!clienteEnEdicion) return;
-
-    const payload = {
-        nombre: document.getElementById('ec-nombre').value.trim(),
-        email: document.getElementById('ec-email').value.trim(),
-        telefono: document.getElementById('ec-telefono').value.trim() || null,
-        num_mesas: 0,
-        admin_nombre: document.getElementById('ec-admin-nombre').value.trim(),
-        admin_email: document.getElementById('ec-admin-email').value.trim(),
-        admin_password: document.getElementById('ec-admin-password').value,
-        pais: 'Perú',
-        moneda: 'PEN',
-    };
-
-    try {
-        await saFetch(`/superadmin/clientes/${clienteEnEdicion}`, {
-            method: 'PATCH',
-            body: JSON.stringify(payload),
-        });
-        cerrarModalEditarCliente();
-        await refreshClientes();
-        showToast('Restaurante actualizado. Si cambió el email del admin, se le envió un email con las nuevas credenciales.', 'success');
-    } catch (err) {
-        showToast(err.message || 'Error al guardar cambios', 'error');
-    }
-}
-
-async function eliminarCliente(clienteId, nombreCliente) {
-    if (!confirm(`¿Estás seguro de que quieres ELIMINAR "${nombreCliente}"? Esta acción no se puede deshacer.`)) return;
-
-    try {
-        await saFetch(`/superadmin/clientes/${clienteId}`, { method: 'DELETE' });
-        await refreshClientes();
-        showToast(`Restaurante "${nombreCliente}" eliminado`, 'success');
-    } catch (err) {
-        showToast(err.message || 'Error al eliminar el restaurante', 'error');
-    }
-}
-
 // ============ EDITAR CLIENTE ============
 
 async function abrirModalEditarCliente(clienteId) {
@@ -441,6 +384,9 @@ async function abrirModalEditarCliente(clienteId) {
     document.getElementById('ec-nombre').value = cliente.nombre;
     document.getElementById('ec-email').value = cliente.email;
     document.getElementById('ec-telefono').value = cliente.telefono || '';
+    document.getElementById('ec-ruc').value = cliente.ruc || '';
+    document.getElementById('ec-razon-social').value = cliente.razon_social || '';
+    document.getElementById('ec-direccion').value = cliente.direccion || '';
 
     // Obtener datos del admin
     try {
@@ -470,6 +416,9 @@ async function guardarEditarCliente(event) {
         nombre: document.getElementById('ec-nombre').value.trim(),
         email: document.getElementById('ec-email').value.trim(),
         telefono: document.getElementById('ec-telefono').value.trim() || null,
+        ruc: document.getElementById('ec-ruc').value.trim() || null,
+        razon_social: document.getElementById('ec-razon-social').value.trim() || null,
+        direccion: document.getElementById('ec-direccion').value.trim() || null,
         num_mesas: 0,  // no se puede cambiar desde aquí
         admin_nombre: document.getElementById('ec-admin-nombre').value.trim(),
         admin_email: document.getElementById('ec-admin-email').value.trim(),

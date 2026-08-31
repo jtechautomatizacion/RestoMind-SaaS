@@ -17,6 +17,17 @@ def _validar_celular_peru(valor: str) -> str:
     return limpio
 
 
+def _validar_ruc_peru(valor: str) -> str:
+    """RUC peruano: exactamente 11 dígitos, empieza con 10 (persona natural
+    con negocio) o 20 (persona jurídica) — los únicos dos prefijos que
+    SUNAT usa para contribuyentes que emiten boletas de venta.
+    """
+    limpio = re.sub(r"[\s-]", "", valor)
+    if not re.fullmatch(r"(10|20)\d{9}", limpio):
+        raise ValueError("El RUC debe tener 11 dígitos y empezar con 10 o 20 (ej: 10200812234)")
+    return limpio
+
+
 # ============ AUTENTICACIÓN ============
 
 class LoginRequest(BaseModel):
@@ -30,6 +41,13 @@ class UsuarioMe(BaseModel):
     rol: str
     cliente_id: str
     cliente_nombre: str
+    # Datos del negocio para imprimir tickets/pre-cuentas sin una llamada
+    # aparte (ver frontend/js/print.js) — el mozo los tiene disponibles
+    # desde que abre sesión, igual que cliente_nombre ya funcionaba.
+    cliente_ruc: Optional[str] = None
+    cliente_razon_social: Optional[str] = None
+    cliente_direccion: Optional[str] = None
+    cliente_email: Optional[str] = None
 
 
 class LoginResponse(BaseModel):
@@ -76,6 +94,9 @@ class ClienteConStats(BaseModel):
     nombre: str
     email: str
     telefono: Optional[str] = None
+    ruc: Optional[str] = None
+    razon_social: Optional[str] = None
+    direccion: Optional[str] = None
     pais: str
     estado: str
     creado_en: datetime
@@ -90,6 +111,9 @@ class ClienteCreateRequest(BaseModel):
     cliente_id: Optional[str] = Field(default=None, max_length=50)
     email: str = Field(..., min_length=1, max_length=150)
     telefono: Optional[str] = Field(default=None, max_length=30)
+    ruc: Optional[str] = Field(default=None, max_length=15)
+    razon_social: Optional[str] = Field(default=None, max_length=150)
+    direccion: Optional[str] = Field(default=None, max_length=200)
     pais: str = Field(default="Perú", max_length=50)
     moneda: str = Field(default="PEN", max_length=10)
     num_mesas: int = Field(default=8, ge=0, le=200)
@@ -104,6 +128,70 @@ class ClienteCreateRequest(BaseModel):
         if not v:
             return v
         return _validar_celular_peru(v)
+
+    @field_validator("ruc")
+    @classmethod
+    def validar_ruc(cls, v: Optional[str]) -> Optional[str]:
+        # Opcional a propósito: un restaurante puede darse de alta y
+        # configurar SUNAT después. Sin RUC, /api/facturas/generar rechaza
+        # con un 400 claro en vez de fallar a mitad de una emisión.
+        if not v:
+            return v
+        return _validar_ruc_peru(v)
+
+
+class ClienteUpdateRequest(BaseModel):
+    """
+    Igual que ClienteCreateRequest, salvo admin_password: ahí SIEMPRE hace
+    falta una contraseña inicial, acá NO — el formulario de edición invita
+    a "dejar en blanco si no deseas cambiar", y backend/routes/superadmin.py
+    ya está escrito para tratarla como opcional (`if payload.admin_password`).
+
+    Antes de que existiera este schema, editar_cliente() usaba
+    ClienteCreateRequest para las dos cosas: el campo vacío que mandaba el
+    frontend (comportamiento esperado del formulario) chocaba con
+    min_length=6 de ese schema, y la edición fallaba con 422 el 100% de las
+    veces que no se tocaba la contraseña — justo el caso más común.
+    """
+    nombre: str = Field(..., min_length=1, max_length=100)
+    email: str = Field(..., min_length=1, max_length=150)
+    telefono: Optional[str] = Field(default=None, max_length=30)
+    ruc: Optional[str] = Field(default=None, max_length=15)
+    razon_social: Optional[str] = Field(default=None, max_length=150)
+    direccion: Optional[str] = Field(default=None, max_length=200)
+    pais: str = Field(default="Perú", max_length=50)
+    moneda: str = Field(default="PEN", max_length=10)
+    admin_nombre: str = Field(..., min_length=1, max_length=100)
+    admin_email: str = Field(..., min_length=1, max_length=150)
+    admin_password: Optional[str] = Field(default=None, max_length=200)
+
+    @field_validator("telefono")
+    @classmethod
+    def validar_telefono(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return v
+        return _validar_celular_peru(v)
+
+    @field_validator("ruc")
+    @classmethod
+    def validar_ruc(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return v
+        return _validar_ruc_peru(v)
+
+    @field_validator("admin_password")
+    @classmethod
+    def validar_admin_password(cls, v: Optional[str]) -> Optional[str]:
+        # "" (input vacío del form) se normaliza a None ANTES de que el
+        # handler pregunte `if payload.admin_password` — así una cadena vacía
+        # y "no mandar el campo" terminan significando exactamente lo mismo:
+        # no cambiar la contraseña. Si SÍ viene algo, tiene que cumplir el
+        # mismo mínimo que al crear la cuenta, no una contraseña de 1 char.
+        if not v:
+            return None
+        if len(v) < 6:
+            raise ValueError("La nueva contraseña debe tener al menos 6 caracteres")
+        return v
 
 
 class ResetPasswordRequest(BaseModel):
@@ -271,6 +359,7 @@ class CobroResponse(BaseModel):
     mesa_numero: int
     total_cobrado: float
     comandas_cerradas: int
+    comanda_ids: List[int] = Field(default_factory=list)
 
 
 # ============ COMANDAS ============
@@ -395,3 +484,119 @@ class DashboardResumen(BaseModel):
     totales: DashboardTotales
     top_platos: List[TopPlatoItem]
     top_gastos: List[TopGastoItem]
+
+
+# ============ FACTURACIÓN SUNAT ============
+
+class FacturaGenerarRequest(BaseModel):
+    """
+    Genera una boleta a partir de comandas YA cobradas (no de una lista de
+    platos que mande el frontend). El detalle de la boleta se arma en el
+    servidor leyendo ComandaPlato de esas comandas — así nadie puede pedir
+    una boleta por algo distinto de lo que el sistema registró como vendido.
+    """
+    comanda_ids: List[int] = Field(..., min_length=1)
+
+    # Un solo campo crudo, tal como lo tipea el cajero — el backend decide
+    # tipo de documento/nombre a partir de su longitud (ver
+    # routes/facturas.py:_resolver_comprador). Deliberadamente NO se le pide
+    # al frontend que mande tipo_documento ya resuelto: esa regla vive en un
+    # solo lugar (el servidor), para que nunca pueda divergir entre lo que
+    # decide el JS y lo que termina en el archivo SUNAT.
+    documento_comprador: Optional[str] = Field(default=None, max_length=15)
+
+    @field_validator("documento_comprador")
+    @classmethod
+    def validar_documento_comprador(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        limpio = re.sub(r"[\s-]", "", v)
+        if not limpio:
+            return None
+        if len(limpio) == 8 and limpio.isdigit():
+            return limpio
+        if len(limpio) == 11:
+            # Mismo criterio que el RUC del emisor (_validar_ruc_peru): 11
+            # dígitos empezando en 10 o 20. Antes bastaba con "11 dígitos",
+            # así que un tipeo como 11111111111 pasaba como RUC válido y
+            # SUNAT recién lo rechazaba con el comprobante ya emitido.
+            return _validar_ruc_peru(limpio)
+        raise ValueError(
+            "El documento del cliente debe estar vacío, tener 8 dígitos (DNI) "
+            "u 11 dígitos empezando en 10 o 20 (RUC)"
+        )
+
+
+class FacturaDetalleItem(BaseModel):
+    descripcion: str
+    cantidad: int
+    precio_unitario: float
+    subtotal: float
+
+
+class FacturaResponse(BaseModel):
+    id: int
+    numero_mesa: int
+    serie: str
+    numero_correlativo: int
+    numero_boleta: str  # "B001-00000001", calculado, no columna de BD
+    subtotal: float
+    igv: float
+    total: float
+    pdf_url: Optional[str] = None
+    qr_code: Optional[str] = None
+    archivo_local: Optional[str] = None
+    estado: str
+    error_mensaje: Optional[str] = None
+    creado_en: datetime
+    fecha_emision_local: Optional[str] = None
+    hora_emision_local: Optional[str] = None
+
+    # Datos que el frontend necesita para IMPRIMIR el ticket sin pedirlos
+    # aparte (ver frontend/js/print.js) — el emisor sale de Cliente, no de
+    # la propia Factura, así que se completan al armar la respuesta.
+    ruc_emisor: str
+    razon_social_emisor: str
+    nombre_emisor: str
+    direccion_emisor: Optional[str] = None
+    email_emisor: Optional[str] = None
+    tipo_documento_comprador: str
+    numero_documento_comprador: str
+    nombre_comprador: str
+    detalles: List["FacturaDetalleItem"] = Field(default_factory=list)
+
+
+class FacturaListItem(BaseModel):
+    id: int
+    numero_mesa: int
+    numero_boleta: str
+    total: float
+    estado: str
+    creado_en: datetime
+
+
+class FacturaPendienteItem(BaseModel):
+    """Factura que ya reservó su correlativo pero no llegó a emitirse.
+    Se arregla reintentando (POST /facturas/{id}/reintentar)."""
+    id: int
+    numero_boleta: str
+    numero_mesa: int
+    total: float
+    estado: str
+    error_mensaje: Optional[str] = None
+    creado_en: datetime
+
+
+class VentaSinBoletaItem(BaseModel):
+    """Comandas cobradas que nunca llegaron a tener Factura (la petición no
+    alcanzó el servidor). Se arregla emitiendo de cero con
+    POST /facturas/generar sobre esos comanda_ids."""
+    numero_mesa: int
+    comanda_ids: List[int]
+    total: float
+    creado_en: datetime
+
+
+class FacturasPendientesResponse(BaseModel):
+    facturas_con_error: List[FacturaPendienteItem]
+    ventas_sin_boleta: List[VentaSinBoletaItem]

@@ -5,7 +5,6 @@ Envío de emails via SMTP (Gmail).
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Optional
 
 from backend.config import settings
 

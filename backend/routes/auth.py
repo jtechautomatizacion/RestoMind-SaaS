@@ -91,6 +91,10 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
             rol=usuario.rol,
             cliente_id=usuario.cliente_id,
             cliente_nombre=cliente.nombre,
+            cliente_ruc=cliente.ruc,
+            cliente_razon_social=cliente.razon_social,
+            cliente_direccion=cliente.direccion,
+            cliente_email=cliente.email,
         ),
     )
 
@@ -128,6 +132,10 @@ def login_staff(payload: LoginStaffRequest, request: Request, db: Session = Depe
             rol=usuario.rol,
             cliente_id=usuario.cliente_id,
             cliente_nombre=cliente.nombre,
+            cliente_ruc=cliente.ruc,
+            cliente_razon_social=cliente.razon_social,
+            cliente_direccion=cliente.direccion,
+            cliente_email=cliente.email,
         ),
     )
 
@@ -154,4 +162,8 @@ def me(
         rol=usuario.rol,
         cliente_id=usuario.cliente_id,
         cliente_nombre=cliente.nombre if cliente else "",
+        cliente_ruc=cliente.ruc if cliente else None,
+        cliente_razon_social=cliente.razon_social if cliente else None,
+        cliente_direccion=cliente.direccion if cliente else None,
+        cliente_email=cliente.email if cliente else None,
     )

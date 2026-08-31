@@ -54,6 +54,16 @@ def main() -> None:
         pais = input("País [Perú]: ").strip() or "Perú"
         moneda = input("Moneda [PEN]: ").strip() or "PEN"
 
+        print("\n-- Datos tributarios (opcionales acá, se pueden cargar después desde")
+        print("   el Panel General — pero sin RUC el restaurante no puede emitir")
+        print("   boletas SUNAT) --")
+        ruc = input("RUC (11 dígitos, empieza con 10 o 20; opcional): ").strip() or None
+        if ruc and not re.fullmatch(r"(10|20)\d{9}", ruc):
+            print("RUC con formato inválido (debe tener 11 dígitos y empezar con 10 o 20). Se deja vacío.")
+            ruc = None
+        razon_social = input("Razón social (el titular del RUC, no el nombre comercial; opcional): ").strip() or None
+        direccion = input("Dirección fiscal (opcional): ").strip() or None
+
         print("\n-- Cuenta del administrador (con la que el dueño entra al sistema) --")
         nombre_admin = input("Nombre del administrador: ").strip()
         email_admin = input("Email de login del administrador: ").strip().lower()
@@ -74,6 +84,9 @@ def main() -> None:
             nombre=nombre_restaurante,
             email=email_negocio,
             telefono=telefono,
+            ruc=ruc,
+            razon_social=razon_social,
+            direccion=direccion,
             pais=pais,
             moneda=moneda,
         )
@@ -94,6 +107,9 @@ def main() -> None:
         db.commit()
 
         print(f"\n✅ Listo. '{nombre_restaurante}' está dado de alta con {num_mesas} mesas.")
+        if not ruc:
+            print(f"   ⚠️  Sin RUC configurado — no podrá emitir boletas SUNAT hasta que")
+            print(f"       se cargue desde el Panel General.")
         print(f"   Pásale al dueño estas credenciales de acceso:")
         print(f"   Email:      {email_admin}")
         print(f"   Contraseña: (la que acabas de escribir)")

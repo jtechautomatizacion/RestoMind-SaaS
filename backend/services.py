@@ -103,4 +103,8 @@ def cobrar_mesa(db: Session, cliente_id: str, mesa: Mesa) -> dict:
         "mesa_numero": mesa.numero,
         "total_cobrado": round(total, 2),
         "comandas_cerradas": len(activas),
+        # IDs de las comandas que se acaban de cerrar — el frontend los usa
+        # para pedir la boleta SUNAT de exactamente lo que se cobró acá
+        # (ver POST /api/facturas/generar), sin tener que re-declarar platos.
+        "comanda_ids": [c.id for c in activas],
     }

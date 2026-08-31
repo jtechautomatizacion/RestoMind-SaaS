@@ -55,6 +55,103 @@ function _ticketHTML(titulo, comanda, { conPrecios }) {
 </html>`;
 }
 
+/**
+ * Pre-cuenta ("copia mozo") — formato calcado del ticket de referencia:
+ * datos del negocio, PRE-CUENTA/NO FISCAL, mesa/mozo/cliente, detalle con
+ * precio unitario, y al final RUC/RAZÓN SOCIAL/DIRECCIÓN en blanco para
+ * que el cliente los complete a mano si va a pedir la boleta con sus
+ * datos. Sin palotes — es HTML plano, la contraparte de _ticketBoletaHTML
+ * (que se imprime recién al cobrar, con el número de boleta ya emitido).
+ *
+ * `negocio` sale de estado.usuario (ver frontend/js/auth.js), completado
+ * en el login desde Cliente — no pide nada al backend en el momento de
+ * imprimir.
+ */
+function _ticketPrecuentaHTML(comanda, negocio, mozoNombre) {
+    const fecha = new Date(comanda.creado_en);
+    const fechaHoraStr = fecha.toLocaleString('es-PE', {
+        day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+
+    const filas = comanda.platos.map(p => `
+        <tr>
+            <td class="nombre">${escapeHtml(p.nombre)}</td>
+            <td class="cant">${p.cantidad}</td>
+            <td class="precio">${p.precio_unitario.toFixed(2)}</td>
+            <td class="precio">${p.subtotal.toFixed(2)}</td>
+        </tr>
+    `).join('');
+
+    // razon_social/direccion son opcionales (el dueño del sistema todavía
+    // puede no haberlos cargado) — se omite la línea entera en vez de
+    // imprimir "null" o un renglón vacío feo.
+    const lineaTitular = negocio.razon_social ? `<div>${escapeHtml(negocio.razon_social)}</div>` : '';
+    const lineaDireccion = negocio.direccion ? `<div>${escapeHtml(negocio.direccion)}</div>` : '';
+    const lineaRuc = negocio.ruc ? `<div>RUC: ${escapeHtml(negocio.ruc)}</div>` : '';
+    const lineaEmail = negocio.email ? `<div>Email: ${escapeHtml(negocio.email)}</div>` : '';
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+    @page { size: 80mm auto; margin: 4mm; }
+    * { box-sizing: border-box; }
+    body { font-family: 'Courier New', Courier, monospace; margin: 0; padding: 0; color: #000; font-size: 12px; }
+    .centro { text-align: center; }
+    .linea { border-top: 1px dashed #000; margin: 6px 0; }
+    .datos-negocio div { margin: 1px 0; }
+    .datos-negocio .comercial { font-weight: 700; }
+    .campos div { margin: 1px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 4px; }
+    th { text-align: left; font-size: 10.5px; border-bottom: 1px solid #000; padding-bottom: 3px; }
+    th.num, td.cant, td.precio { text-align: right; }
+    td { padding: 3px 0; vertical-align: top; }
+    .totales { margin-top: 4px; }
+    .totales div { display: flex; justify-content: space-between; }
+    .llenar { margin-top: 14px; font-size: 11px; }
+    .llenar div { margin: 10px 0 0; border-bottom: 1px dotted #000; padding-bottom: 1px; }
+    .gracias { margin-top: 14px; }
+</style>
+</head>
+<body>
+    <div class="centro datos-negocio">
+        ${lineaTitular}
+        <div class="comercial">${escapeHtml(negocio.nombre)}</div>
+        ${lineaDireccion}
+        ${lineaRuc}
+        ${lineaEmail}
+        <div>Comanda Nº ${comanda.id ?? 'pendiente'}</div>
+        <div><strong>PRE-CUENTA</strong></div>
+        <div>NO FISCAL / NO FISCAL</div>
+    </div>
+    <div class="campos">
+        <div>MOZO: ${escapeHtml(mozoNombre || '-')}</div>
+        <div>MESA: ${comanda.numero_mesa}</div>
+        <div>CLIENTE: Publico General</div>
+        <div>DOC: -</div>
+    </div>
+    <div class="linea"></div>
+    <div class="centro">${fechaHoraStr}</div>
+    <div class="linea"></div>
+    <table>
+        <thead><tr><th>Articulo</th><th class="num">Cant</th><th class="num">P.U.</th><th class="num">Importe</th></tr></thead>
+        <tbody>${filas}</tbody>
+    </table>
+    <div class="totales">
+        <div><span>Total Consumo:</span><span>S/ ${comanda.total_cuenta.toFixed(2)}</span></div>
+        <div><span>Total a pagar:</span><span>S/ ${comanda.total_cuenta.toFixed(2)}</span></div>
+    </div>
+    <div class="llenar">
+        <div>RUC:</div>
+        <div>RAZON SOCIAL:</div>
+        <div>DIRECCION:</div>
+    </div>
+    <div class="centro gracias">GRACIAS</div>
+</body>
+</html>`;
+}
+
 function _imprimirHTML(html) {
     return new Promise(resolve => {
         const iframe = document.createElement('iframe');
@@ -86,10 +183,137 @@ function _imprimirHTML(html) {
     });
 }
 
+/**
+ * Boleta de venta (al cobrar) — texto plano/HTML legible para el cliente,
+ * SIN palotes. Los palotes (|) son un formato interno aparte, solo para
+ * los archivos .cab/.det que lee el Facturador SUNAT en disco (ver
+ * backend/utils/sfs_export.py) — nunca llegan a este archivo ni a papel.
+ *
+ * Usa exactamente los mismos fecha_emision_local/hora_emision_local que
+ * quedaron escritos en el .cab, no `new Date()` — así el papel que recibe
+ * el cliente coincide con el archivo que procesa el Facturador.
+ *
+ * Campos que el modelo de referencia trae y que a propósito NO están acá:
+ *  - Nombre real del cliente por DNI/RUC: implicaría consultar RENIEC/SUNAT
+ *    en el momento, justo lo que la regla de negocio evita (ver
+ *    backend/routes/facturas.py:_resolver_comprador) — se imprime "-".
+ *  - "Son: ... con 00/100 Soles" (monto en letras): conversor número→texto
+ *    en español no implementado todavía.
+ *  - Link de verificación del comprobante: pertenece a otro proveedor;
+ *    no hay uno propio para inventar acá.
+ */
+function _ticketBoletaHTML(factura, cajeroNombre) {
+    const filas = factura.detalles.map(item => `
+        <tr>
+            <td class="nombre">${escapeHtml(item.descripcion)}</td>
+            <td class="cant">${item.cantidad}</td>
+            <td class="precio">${item.precio_unitario.toFixed(2)}</td>
+            <td class="precio">${item.subtotal.toFixed(2)}</td>
+        </tr>
+    `).join('');
+
+    const tieneDocumento = factura.tipo_documento_comprador !== '0';
+    const etiquetaDoc = factura.tipo_documento_comprador === '6' ? 'RUC' : 'DNI';
+    // Sin nombre real (ver nota arriba): "-" cuando hay documento, igual que
+    // queda escrito en el .cab (Factura.nombre_comprador).
+    const lineaCliente = tieneDocumento
+        ? `<div>CLIENTE: -</div><div>${etiquetaDoc}: ${escapeHtml(factura.numero_documento_comprador)}</div>`
+        : `<div>CLIENTE: Publico General</div>`;
+
+    // Mismo encabezado que la pre-cuenta (titular / comercial / dirección) —
+    // acá sale del backend (Factura sabe leer Cliente en el momento exacto
+    // en que se armó el .cab), no de estado.usuario cacheado en el login.
+    const lineaTitular = factura.razon_social_emisor && factura.razon_social_emisor !== factura.nombre_emisor
+        ? `<div>${escapeHtml(factura.razon_social_emisor)}</div>`
+        : '';
+    const lineaDireccionEmisor = factura.direccion_emisor ? `<div>${escapeHtml(factura.direccion_emisor)}</div>` : '';
+    const lineaEmailEmisor = factura.email_emisor ? `<div>Email: ${escapeHtml(factura.email_emisor)}</div>` : '';
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+    @page { size: 80mm auto; margin: 4mm; }
+    * { box-sizing: border-box; }
+    body { font-family: 'Courier New', Courier, monospace; margin: 0; padding: 0; color: #000; font-size: 12px; }
+    .centro { text-align: center; }
+    .linea { border-top: 1px dashed #000; margin: 6px 0; }
+    .datos-negocio div { margin: 1px 0; }
+    .datos-negocio .comercial { font-weight: 700; }
+    .campos div { margin: 1px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 4px; }
+    th { text-align: left; font-size: 10.5px; border-bottom: 1px solid #000; padding-bottom: 3px; }
+    th.num, td.cant, td.precio { text-align: right; }
+    td { padding: 3px 0; vertical-align: top; }
+    .totales { margin-top: 4px; }
+    .totales div { display: flex; justify-content: space-between; }
+    .totales .total { font-weight: 900; }
+    .footer { margin-top: 14px; font-size: 10.5px; text-align: center; }
+    .footer div { margin: 2px 0; }
+</style>
+</head>
+<body>
+    <div class="centro datos-negocio">
+        ${lineaTitular}
+        <div class="comercial">${escapeHtml(factura.nombre_emisor)}</div>
+        ${lineaDireccionEmisor}
+        <div>RUC: ${escapeHtml(factura.ruc_emisor)}</div>
+        ${lineaEmailEmisor}
+        <div><strong>BOLETA DE VENTA ELECTRONICA</strong></div>
+        <div>Numero: ${factura.numero_boleta}</div>
+    </div>
+    <div class="campos">
+        <div>CAJERO: ${escapeHtml(cajeroNombre || '-')}</div>
+        <div>MESA: ${factura.numero_mesa}</div>
+        ${lineaCliente}
+    </div>
+    <div class="linea"></div>
+    <div class="centro">${factura.fecha_emision_local} ${factura.hora_emision_local}</div>
+    <div class="linea"></div>
+    <table>
+        <thead><tr><th>Articulo</th><th class="num">Cant</th><th class="num">P.U.</th><th class="num">Importe</th></tr></thead>
+        <tbody>${filas}</tbody>
+    </table>
+    <div class="totales">
+        <div><span>Sub-Total:</span><span>S/ ${factura.subtotal.toFixed(2)}</span></div>
+        <div><span>IGV (18%):</span><span>S/ ${factura.igv.toFixed(2)}</span></div>
+        <div class="total"><span>Total Venta:</span><span>S/ ${factura.total.toFixed(2)}</span></div>
+    </div>
+    <div class="footer">
+        <div>Representación impresa de la boleta de venta electrónica</div>
+        <div>GRACIAS POR SU COMPRA Y PREFERENCIA</div>
+        <div>NO SE ACEPTAN CAMBIOS NI DEVOLUCIONES</div>
+    </div>
+</body>
+</html>`;
+}
+
+async function imprimirBoletaVenta(factura) {
+    try {
+        // Quien cobra, no quien tomó el pedido — ya se identificó a ese
+        // último en la pre-cuenta (MOZO) impresa al enviar la comanda.
+        await _imprimirHTML(_ticketBoletaHTML(factura, estado.usuario?.nombre));
+    } catch (err) {
+        // La venta y la boleta YA se generaron en el backend — un fallo acá
+        // es solo de impresión, no de la operación en sí.
+        console.error('Error al imprimir boleta:', err);
+        showToast('Boleta generada, pero no se pudo imprimir', 'warning');
+    }
+}
+
 async function imprimirComandaCocinaYMozo(comanda) {
     try {
+        const negocio = {
+            nombre: estado.usuario?.cliente_nombre || 'RestoMind',
+            razon_social: estado.usuario?.cliente_razon_social || null,
+            direccion: estado.usuario?.cliente_direccion || null,
+            ruc: estado.usuario?.cliente_ruc || null,
+            email: estado.usuario?.cliente_email || null,
+        };
+
         const ticketCocina = _ticketHTML('COCINA', comanda, { conPrecios: false });
-        const ticketMozo = _ticketHTML('COMANDA · COPIA MOZO', comanda, { conPrecios: true });
+        const ticketMozo = _ticketPrecuentaHTML(comanda, negocio, estado.usuario?.nombre);
 
         // Secuencial: dos print() al mismo tiempo se pisan entre sí, y en la
         // práctica cada uno necesita que el mozo elija una impresora distinta.

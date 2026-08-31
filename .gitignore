@@ -2,8 +2,13 @@ venv/
 __pycache__/
 *.pyc
 .env
+# Backups/variantes del .env: mismos secretos, mismo riesgo. El patrón
+# ".env" solo, sin esto, no cubre ".env.bak", ".env.local", etc.
+.env.*
+!.env.example
 instance/
 restomind.db
+restomind.db.backup-*
 server.log
 
 # Fotos subidas por el usuario: son datos de instancia, no del repo.

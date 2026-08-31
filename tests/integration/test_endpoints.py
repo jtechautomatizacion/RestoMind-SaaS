@@ -722,6 +722,82 @@ def test_superadmin_crea_restaurante_nuevo(test_client_real_auth, test_superadmi
     assert login.json()["usuario"]["cliente_id"] == "polleria-el-buen-sabor"
 
 
+def test_superadmin_edita_restaurante_sin_tocar_password(test_client_real_auth, test_superadmin, test_cliente):
+    """El bug real que se dio en producción: PATCH /superadmin/clientes/{id}
+    usaba el mismo schema que crear (ClienteCreateRequest), que exige
+    admin_password con mínimo 6 caracteres. El formulario de edición invita
+    a "dejar en blanco si no deseas cambiar" -> mandaba "", Pydantic lo
+    rechazaba con 422 ANTES de que el handler (que sí trata la contraseña
+    como opcional) llegara a ejecutarse. Editar un restaurante sin cambiar
+    la contraseña del admin fallaba el 100% de las veces."""
+    from tests.conftest import TEST_USUARIO_EMAIL, TEST_USUARIO_PASSWORD
+    token = _login_superadmin(test_client_real_auth)
+
+    resp = test_client_real_auth.patch(
+        f'/api/superadmin/clientes/{test_cliente.id}',
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "nombre": "Test Restaurant",
+            "email": "test@restaurant.com",
+            "ruc": "10200812234",
+            "razon_social": "Consuelo Susy Balbin Leiva",
+            "direccion": "Jr. Andrea Arauco # 538",
+            "admin_nombre": "Admin",
+            "admin_email": TEST_USUARIO_EMAIL,
+            "admin_password": "",  # exactamente lo que manda el form al dejarlo en blanco
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ruc"] == "10200812234"
+    assert resp.json()["direccion"] == "Jr. Andrea Arauco # 538"
+
+    # La contraseña original sigue funcionando: no se sobreescribió con "".
+    login = test_client_real_auth.post('/api/auth/login', json={
+        "email": TEST_USUARIO_EMAIL, "password": TEST_USUARIO_PASSWORD,
+    })
+    assert login.status_code == 200
+
+
+def test_superadmin_edita_restaurante_cambiando_password(test_client_real_auth, test_superadmin, test_cliente):
+    """Cuando SÍ se manda una contraseña nueva, debe aplicarse (y seguir
+    exigiendo el mínimo de 6 caracteres — el schema separado para edición
+    no debe volverse un agujero de validación)."""
+    from tests.conftest import TEST_USUARIO_EMAIL
+    token = _login_superadmin(test_client_real_auth)
+
+    resp = test_client_real_auth.patch(
+        f'/api/superadmin/clientes/{test_cliente.id}',
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "nombre": "Test Restaurant", "email": "test@restaurant.com",
+            "admin_nombre": "Admin", "admin_email": TEST_USUARIO_EMAIL,
+            "admin_password": "nuevaclave123",
+        },
+    )
+    assert resp.status_code == 200
+
+    login = test_client_real_auth.post('/api/auth/login', json={
+        "email": TEST_USUARIO_EMAIL, "password": "nuevaclave123",
+    })
+    assert login.status_code == 200
+
+
+def test_superadmin_edita_restaurante_password_corta_se_rechaza(test_client_real_auth, test_superadmin, test_cliente):
+    from tests.conftest import TEST_USUARIO_EMAIL
+    token = _login_superadmin(test_client_real_auth)
+
+    resp = test_client_real_auth.patch(
+        f'/api/superadmin/clientes/{test_cliente.id}',
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "nombre": "Test Restaurant", "email": "test@restaurant.com",
+            "admin_nombre": "Admin", "admin_email": TEST_USUARIO_EMAIL,
+            "admin_password": "abc",  # 3 caracteres, menos del mínimo
+        },
+    )
+    assert resp.status_code == 422
+
+
 def test_superadmin_suspender_cliente_bloquea_su_login(test_client_real_auth, test_superadmin, test_cliente):
     from tests.conftest import TEST_USUARIO_EMAIL, TEST_USUARIO_PASSWORD
     token = _login_superadmin(test_client_real_auth)

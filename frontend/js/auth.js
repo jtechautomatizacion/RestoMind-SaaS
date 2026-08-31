@@ -32,10 +32,15 @@ function limpiarSesion() {
     localStorage.removeItem(USUARIO_KEY);
 }
 
+/**
+ * Reset total (sesión + Service Worker + Cache Storage). La limpieza real
+ * vive inline en index.html bajo el flag ?reset — acá solo se navega hasta
+ * ahí. Es a propósito: esa versión corre antes que cualquier .js, así que
+ * funciona incluso cuando el problema ES el JS cacheado, y tener una sola
+ * implementación evita que se desincronicen (ya pasó una vez).
+ */
 function limpiarYRecargar() {
-    localStorage.clear();
-    sessionStorage.clear();
-    window.location.href = '/static/index.html';
+    window.location.href = '/static/index.html?reset';
 }
 
 function mostrarLogin(mensaje) {

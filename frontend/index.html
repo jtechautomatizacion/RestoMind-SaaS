@@ -7,16 +7,43 @@
     <meta name="description" content="RestoMind - Sistema inteligente de comandas">
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' rx='36' fill='%23FF5A3C'/><text x='90' y='90' font-size='72' fill='%23fff' text-anchor='middle' dy='.32em' font-family='sans-serif' font-weight='800'>R</text></svg>">
+    <!-- Sin esto el navegador pide /favicon.ico por su cuenta y come un 404
+         en cada carga (ruido en consola que tapa errores de verdad). -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23FF5A3C'/><text x='16' y='16' font-size='19' fill='%23fff' text-anchor='middle' dy='.34em' font-family='sans-serif' font-weight='800'>R</text></svg>">
     <title>RestoMind</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-    <!-- Limpieza automática de sesión corrupta -->
+    <!-- Reset total + limpieza automática de sesión corrupta.
+         Vive inline y ANTES de cargar cualquier .js a propósito: es la vía
+         de escape cuando la app quedó rota (JS viejo cacheado, sesión
+         corrupta), y depender de app.js/auth.js justo ahí sería depender de
+         lo que puede estar fallando. Es la ÚNICA implementación del reset:
+         limpiarYRecargar() (auth.js) solo redirige acá, para no mantener
+         dos limpiezas que se desincronizan (pasó: la de acá no borraba el
+         Service Worker y por eso el botón "no reconocía" cambios nuevos). -->
     <script>
         if (new URLSearchParams(window.location.search).has('reset')) {
-            localStorage.clear();
-            sessionStorage.clear();
-            window.location.href = '/static/index.html';
+            (async () => {
+                localStorage.clear();
+                sessionStorage.clear();
+                try {
+                    if ('serviceWorker' in navigator) {
+                        const regs = await navigator.serviceWorker.getRegistrations();
+                        await Promise.all(regs.map(r => r.unregister()));
+                    }
+                    if ('caches' in window) {
+                        const nombres = await caches.keys();
+                        await Promise.all(nombres.map(n => caches.delete(n)));
+                    }
+                } catch (e) {
+                    // Limpiar la sesión ya es la mitad del trabajo: seguir igual.
+                    console.error('No se pudo limpiar Service Worker/caché:', e);
+                }
+                // replace() y no href: que el ?reset no quede en el historial
+                // (volver atrás no debería re-disparar un reset).
+                window.location.replace('/static/index.html');
+            })();
         }
         try {
             const stored = localStorage.getItem('restomind_usuario');
@@ -123,6 +150,12 @@
                 <button class="icon-btn" title="Cerrar sesión" onclick="cerrarSesion()">
                     <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                 </button>
+                <!-- El otro botón de reset vive en la pantalla de login, que
+                     está oculta mientras hay sesión — justo cuando más falta
+                     hace (probando cambios de código con la app abierta). -->
+                <button class="icon-btn" title="Limpiar caché y recargar" onclick="limpiarYRecargar()">
+                    <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                </button>
             </div>
         </header>
 
@@ -173,6 +206,11 @@
                             <div class="cuenta-total-global">
                                 <span class="label">Total a cobrar</span>
                                 <span class="value" id="cuenta-total">S/ 0.00</span>
+                            </div>
+                            <div class="form-group" style="margin-bottom:8px;">
+                                <label for="cuenta-documento">DNI (8 dígitos) o RUC (11, empieza en 10/20) — opcional</label>
+                                <input type="text" id="cuenta-documento" inputmode="numeric" maxlength="11"
+                                       oninput="soloDigitos(event)" placeholder="Vacío = Público General">
                             </div>
                             <button id="btn-agregar-pedido" class="btn btn-secondary btn-large" style="margin-bottom:8px;" onclick="agregarPedidoAMesa()">
                                 + Agregar pedido
@@ -341,6 +379,7 @@
                     <button class="admin-tab-btn active" data-admin-tab="platos">Carta</button>
                     <button class="admin-tab-btn" data-admin-tab="compras">Gastos</button>
                     <button class="admin-tab-btn" data-admin-tab="personal">Personal</button>
+                    <button class="admin-tab-btn" data-admin-tab="boletas">Boletas</button>
                 </div>
 
                 <!-- Platos Section: CU-01 -->
@@ -498,6 +537,21 @@
                 </div>
 
                 <!-- Personal: mozos, cajeros, cocineros -->
+                <!-- Boletas pendientes: recuperación de ventas cobradas cuya
+                     boleta no llegó a emitirse (Facturador apagado, carpeta
+                     mal configurada, se cortó la red). Sin esta pantalla ese
+                     cobro queda sin comprobante y sin forma de arreglarlo
+                     desde la app. -->
+                <div id="admin-boletas" class="admin-section">
+                    <div class="admin-actions-row">
+                        <button class="btn btn-secondary btn-fab" onclick="refreshBoletasPendientes()">
+                            <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                            Actualizar
+                        </button>
+                    </div>
+                    <div id="admin-boletas-list"></div>
+                </div>
+
                 <div id="admin-personal" class="admin-section">
                     <button class="btn btn-primary btn-fab" onclick="abrirModalNuevoUsuario()">
                         <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -642,7 +696,14 @@
     <script src="/static/js/admin.js"></script>
 
     <script>
-        if ('serviceWorker' in navigator) {
+        // En una carga con ?reset NO se registra: el bloque inline del <head>
+        // está justo desregistrando el Service Worker y borrando cachés de
+        // forma asíncrona, y registrarlo acá lo devolvía a la vida antes de
+        // que terminara — el reset se anulaba a sí mismo (por eso "limpiar
+        // caché" no surtía efecto). Esta carga se descarta igual: el bloque
+        // del <head> redirige apenas termina.
+        const enReset = new URLSearchParams(window.location.search).has('reset');
+        if ('serviceWorker' in navigator && !enReset) {
             navigator.serviceWorker.register('/static/sw.js').catch(() => {});
         }
         document.addEventListener('DOMContentLoaded', initAuth);

@@ -26,6 +26,7 @@ from backend.schemas import (
     ChangePasswordRequest,
     ClienteConStats,
     ClienteCreateRequest,
+    ClienteUpdateRequest,
     EstadoUpdate,
     ResetPasswordRequest,
     SuperAdminLoginRequest,
@@ -105,6 +106,9 @@ def listar_clientes(
             nombre=cliente.nombre,
             email=cliente.email,
             telefono=cliente.telefono,
+            ruc=cliente.ruc,
+            razon_social=cliente.razon_social,
+            direccion=cliente.direccion,
             pais=cliente.pais,
             estado=cliente.estado,
             creado_en=cliente.creado_en,
@@ -147,6 +151,9 @@ def crear_cliente(
         nombre=payload.nombre,
         email=payload.email,
         telefono=payload.telefono,
+        ruc=payload.ruc,
+        razon_social=payload.razon_social,
+        direccion=payload.direccion,
         pais=payload.pais,
         moneda=payload.moneda,
     )
@@ -182,6 +189,7 @@ def crear_cliente(
 
     return ClienteConStats(
         id=cliente.id, nombre=cliente.nombre, email=cliente.email, telefono=cliente.telefono,
+        ruc=cliente.ruc, razon_social=cliente.razon_social, direccion=cliente.direccion,
         pais=cliente.pais, estado=cliente.estado, creado_en=cliente.creado_en,
         num_usuarios=1, num_platos=0, num_mesas=payload.num_mesas, ventas_mes_actual=0.0,
     )
@@ -220,7 +228,7 @@ def cambiar_estado_cliente(
 @router.patch("/superadmin/clientes/{cliente_id}")
 def editar_cliente(
     cliente_id: str,
-    payload: ClienteCreateRequest,
+    payload: ClienteUpdateRequest,
     db: Session = Depends(get_db),
     superadmin_email: str = Depends(get_superadmin_email),
 ):
@@ -243,6 +251,9 @@ def editar_cliente(
     cliente.nombre = payload.nombre
     cliente.email = payload.email
     cliente.telefono = payload.telefono
+    cliente.ruc = payload.ruc
+    cliente.razon_social = payload.razon_social
+    cliente.direccion = payload.direccion
     cliente.pais = payload.pais or cliente.pais
     cliente.moneda = payload.moneda or cliente.moneda
 
@@ -283,6 +294,7 @@ def editar_cliente(
 
     return ClienteConStats(
         id=cliente.id, nombre=cliente.nombre, email=cliente.email, telefono=cliente.telefono,
+        ruc=cliente.ruc, razon_social=cliente.razon_social, direccion=cliente.direccion,
         pais=cliente.pais, estado=cliente.estado, creado_en=cliente.creado_en,
         num_usuarios=db.query(Usuario).filter(Usuario.cliente_id == cliente.id).count(),
         num_platos=db.query(Plato).filter(Plato.cliente_id == cliente.id).count(),
