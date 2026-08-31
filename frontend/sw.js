@@ -7,7 +7,7 @@
  * la versión vieja hasta cerrar todas las pestañas).
  */
 
-const CACHE_NAME = 'restomind-v22';
+const CACHE_NAME = 'restomind-v23';
 const STATIC_ASSETS = [
     '/static/index.html',
     '/static/css/style.css',
@@ -20,6 +20,8 @@ const STATIC_ASSETS = [
     '/static/js/cocina.js',
     '/static/js/dashboard.js',
     '/static/js/admin.js',
+    '/static/js/caja.js',
+    '/static/js/cierre-caja-print.js',
     '/static/manifest.json'
 ];
 

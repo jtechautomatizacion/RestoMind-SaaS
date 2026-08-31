@@ -1,7 +1,7 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
-**Versión MVP:** 2.5 — Dashboard Financiero Completo + Top 5 Platos + Tabla de Ganancias Diarias
-**Implementado y probado:** ✅ 100% Autenticación + Seguridad + Facturación SUNAT SFS + Dashboard Financiero Operativo
+**Versión MVP:** 2.6 — Validador de Caja (Apertura/Cierre Diario + Reporte Imprimible)
+**Implementado y probado:** ✅ 100% Autenticación + Seguridad + Facturación SUNAT SFS + Dashboard Financiero + Validador de Caja
 **Última actualización:** 2026-08-31
 
 > Este documento describe el diseño original (MVPv1). El estado real de la
@@ -31,6 +31,7 @@
 > - ✅ **[NUEVA] Dashboard Financiero Completo:** Tabla detallada de ganancias diarias, Top 5 platos, colores consistentes (teal ventas/rojo gastos en gráfico + leyenda), etiquetas de barras con montos exactos (sin redondeo falso)
 > - ✅ **[NUEVA] Tabla de Ganancias por Día:** Fecha / Ventas / Gastos / Ganancia / Margen %, orden DESC (más reciente primero), filas coloreadas según ganancia (verde positivo/rojo negativo), responsive (oculta Gastos y Margen en móvil ≤480px)
 > - ✅ **[FIX] formatCompacto():** Ya no redondea falsos — 122.50 se muestra "122.50", no "123"; consistente con tabla de abajo y stat-tiles
+> - ✅ **[NUEVA] Validador de Caja:** Admin > Caja — apertura (saldo inicial) y cierre (saldo contado) diario, con cálculo automático de ventas/gastos del día y detección de discrepancias (cuadrado / leve / grave). Reporte imprimible tipo boleta (resultado grande, QR, firmas). Ver sección "Validador de Caja" más abajo.
 >
 > **Pendiente (a futuro, no bloquea el flujo actual):**
 > - ⏳ **Comandas en PDF** — generación/impresión de comanda y cuenta en PDF, por configurar
@@ -972,6 +973,103 @@ Todo el rediseño usa únicamente `linear-gradient`/`radial-gradient`,
 CSS (compositing por GPU, sin recalcular píxeles como sí exige
 `backdrop-filter` o un blur). Cero librerías nuevas, cero imágenes
 adicionales, cero peso extra en la carga de la PWA.
+
+---
+
+## 💰 VALIDADOR DE CAJA
+
+**Contexto:** el dashboard financiero (CU-05) ya mostraba cuánto "debería"
+haber entrado en ventas, pero nada comparaba eso contra el dinero físico
+real en la caja al cerrar el día — el punto exacto donde aparecen los
+errores de vuelto, los faltantes y (en el peor caso) el fraude interno.
+Este validador cierra ese hueco.
+
+### Flujo (dos pasos separados en el tiempo, no un formulario único)
+
+```
+Mañana: POST /api/caja/abrir   { saldo_inicial }
+   ↓ (el día opera normal: comandas, compras)
+Noche:  POST /api/caja/cerrar  { saldo_contado, retiros_personales, razon_discrepancia? }
+```
+
+El cierre calcula, sin que el admin escriba nada de eso a mano:
+```
+saldo_esperado = saldo_inicial + ventas_cobradas - gastos_efectivo - retiros_personales
+diferencia     = saldo_contado - saldo_esperado
+estado         = cuadrado (|diferencia| < 0.01)
+               | discrepancia_leve (|diferencia| <= 5)
+               | discrepancia_grave (|diferencia| > 5)
+```
+
+`ventas_cobradas`/`gastos_efectivo` se calculan igual que el dashboard
+(`backend/routes/dashboard.py`): comandas con `estado='cobrado'` y compras
+`estado='registrado'` del día, usando el mismo criterio de zona horaria
+LOCAL del restaurante (header `X-TZ-Offset`) para no contar mal una venta
+cobrada cerca de medianoche.
+
+**Simplificación deliberada del MVP:** todo el dinero de `Comanda`/`Compra`
+se asume efectivo — la app aún no distingue método de pago (efectivo/
+tarjeta/Yape). Un restaurante que cobra con tarjeta verá diferencias en su
+cierre que no son fraude, son ventas con tarjeta. Documentado también en
+`CierreCaja` (`backend/models.py`) para que quien implemente método de
+pago sepa que este cálculo necesita filtrar por ahí.
+
+### Solo puede haber UNA caja abierta a la vez
+
+Lo impone `POST /caja/abrir`: si el admin se olvida de cerrar un día,
+`POST /caja/cerrar` sigue apuntando a **esa** caja pendiente aunque ya no
+sea "hoy" (`es_atrasada=true` en `GET /caja/estado` avisa al frontend) —
+nunca se puede abrir una caja nueva encima de una sin cerrar, y nunca se
+cierra por accidente el día equivocado. `UniqueConstraint(cliente_id, fecha)`
+en la tabla es la red de seguridad final contra dos aperturas el mismo día.
+
+### Endpoints (`backend/routes/caja.py`, todos admin-only)
+
+```
+GET  /api/caja/estado     → snapshot en vivo: hay_caja_abierta, caja_abierta
+                             (con ventas/gastos recalculados en cada consulta
+                             mientras sigue abierta), caja_cerrada_hoy si ya
+                             se cerró, es_atrasada si es de un día anterior
+POST /api/caja/abrir      → { saldo_inicial }
+POST /api/caja/cerrar     → { saldo_contado, retiros_personales?, razon_discrepancia? }
+GET  /api/caja/historial  → últimos N cierres (no incluye la caja abierta)
+```
+
+### Frontend: Admin → Caja
+
+Tres estados posibles en pantalla, el backend decide cuál mostrar (el
+frontend nunca infiere el estado localmente, para no desincronizarse si
+hay dos pestañas del admin abiertas a la vez):
+
+1. **Sin caja hoy** → formulario "Abrir caja"
+2. **Caja abierta** → resumen en vivo (ventas/gastos hasta ahora) +
+   formulario "Cerrar caja" (con aviso si es una caja atrasada de otro día)
+3. **Caja de hoy ya cerrada** → resultado + botón para reimprimir el reporte
+
+`frontend/js/caja.js` maneja el flujo; `frontend/js/cierre-caja-print.js`
+genera el reporte imprimible.
+
+### Reporte imprimible (`cierre-caja-print.js`)
+
+Diseñado para que el dueño lo entienda en 2-3 segundos, no en 30 —
+mismo principio que una boleta electrónica: resultado (✅/⚠️/❌) primero y
+GRANDE, números secundarios más chicos, sin obligar a sumar nada mentalmente.
+
+- Banner de resultado con color según estado (verde/amarillo/rojo)
+- Esperado vs Contado lado a lado, Diferencia destacada
+- Detalles (saldo inicial, ventas, gastos, retiros) en texto más chico
+- Razón de discrepancia si el admin la anotó
+- Firmas (cerrado por / revisado por) y QR de verificación
+- Se abre solo en una pestaña nueva al cerrar caja (`window.open` +
+  `document.write`), con botón de imprimir — pensado para PDF o impresora
+  A4, no para la impresora térmica de 80mm de las comandas
+
+### Historial y auditoría
+
+`GET /caja/historial` alimenta la lista de cierres pasados en la misma
+pantalla, cada uno reimprimible. Cada apertura/cierre queda además en
+`audit_log` (`registrar_evento`, acciones `abrir_caja`/`cerrar_caja`) —
+mismo mecanismo que el resto de acciones sensibles de la app.
 
 ---
 

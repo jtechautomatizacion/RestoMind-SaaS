@@ -281,6 +281,66 @@ class Factura(Base):
     )
 
 
+class CierreCaja(Base):
+    """
+    Apertura/cierre de caja física — un registro por día por restaurante.
+
+    Solo el admin abre y cierra (ver validar_admin en routes/caja.py). El
+    flujo tiene DOS pasos separados en el tiempo, no un formulario único:
+    - Apertura (mañana): admin cuenta el dinero que hay para empezar y lo
+      declara. Sin esto no hay punto de partida contra el cual reconciliar.
+    - Cierre (noche): el sistema ya sabe cuánto se vendió/gastó ese día
+      (columnas calculadas, no ingresadas a mano); el admin solo declara
+      cuánto dinero HAY REALMENTE en la caja. La diferencia entre "debería
+      haber" y "hay" es la señal de fraude/error que este validador existe
+      para detectar (ver CLAUDE.md "Validador de Caja").
+
+    Simplificación deliberada del MVP: ventas_cobradas y gastos_efectivo
+    asumen que TODO el dinero registrado en Comanda/Compra es efectivo — la
+    app todavía no distingue método de pago (efectivo/tarjeta/Yape). El día
+    que eso se implemente, este cálculo debe filtrar por método de pago;
+    hasta entonces, un restaurante que cobra con tarjeta verá diferencias
+    en su cierre que NO son fraude, son ventas con tarjeta.
+    """
+    __tablename__ = "cierres_caja"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cliente_id = Column(String, ForeignKey("clientes.id"), nullable=False, index=True)
+    fecha = Column(String, nullable=False)  # YYYY-MM-DD, día LOCAL del restaurante
+
+    # Apertura
+    saldo_inicial = Column(Float, nullable=False)
+    abierto_en = Column(DateTime, default=datetime.utcnow, nullable=False)
+    abierto_por = Column(String, nullable=False)  # email del admin
+
+    # Acumulado del día — se calculan y congelan recién AL CERRAR (no se
+    # recalculan después), para que el reporte impreso nunca cambie con el
+    # tiempo aunque se sigan registrando compras tarde esa noche.
+    ventas_cobradas = Column(Float, nullable=True)
+    gastos_efectivo = Column(Float, nullable=True)
+    retiros_personales = Column(Float, nullable=True)
+
+    # Cierre
+    saldo_esperado = Column(Float, nullable=True)  # inicial + ventas - gastos - retiros
+    saldo_contado = Column(Float, nullable=True)   # lo que el admin contó físicamente
+    diferencia = Column(Float, nullable=True)       # contado - esperado
+    variacion_pct = Column(Float, nullable=True)
+    razon_discrepancia = Column(String, nullable=True)
+
+    cerrado_en = Column(DateTime, nullable=True)
+    cerrado_por = Column(String, nullable=True)
+
+    # abierto: aún no se cerró hoy
+    # cuadrado: cerrado, diferencia despreciable (<0.01)
+    # discrepancia_leve: cerrado, |diferencia| <= 5
+    # discrepancia_grave: cerrado, |diferencia| > 5
+    estado = Column(String, default="abierto", nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("cliente_id", "fecha", name="uq_cliente_fecha_caja"),
+    )
+
+
 class FacturaComanda(Base):
     """
     Asociación N:N entre Factura y Comanda (una boleta puede juntar varias

@@ -1500,11 +1500,16 @@ body {
     background: var(--bg);
     border-radius: 999px;
     padding: 4px;
+    /* Con 5 pestañas (Carta/Gastos/Personal/Boletas/Caja) ya no entran
+       cómodas en flex:1 a 320px — scroll horizontal en vez de apretarlas
+       hasta truncar el texto. */
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .admin-tab-btn {
-    flex: 1;
-    padding: 9px 0;
+    flex: 1 0 auto;
+    padding: 9px 14px;
     background: transparent;
     border: none;
     border-radius: 999px;
@@ -1512,6 +1517,7 @@ body {
     font-size: 13px;
     font-weight: 700;
     color: var(--text-muted);
+    white-space: nowrap;
 }
 
 .admin-tab-btn.active {
@@ -1892,6 +1898,103 @@ body {
 .offline-banner.syncing {
     background: var(--accent);
     color: var(--accent-contrast);
+}
+
+/* ============ CAJA (Validador de Caja) ============ */
+
+.caja-card {
+    padding: 0;
+    overflow: hidden;
+}
+
+.caja-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 18px 16px;
+    background: var(--surface-alt);
+}
+
+.caja-banner-abierta {
+    background: var(--success-bg);
+}
+
+.caja-banner-cuadrada {
+    background: var(--success-bg);
+}
+
+.caja-banner-leve {
+    background: var(--warning-bg);
+}
+
+.caja-banner-grave {
+    background: var(--danger-bg);
+}
+
+.caja-banner-icon {
+    font-size: 30px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.caja-banner-title {
+    font-size: 16px;
+    font-weight: 900;
+}
+
+.caja-banner-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.caja-live-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 16px;
+}
+
+.caja-live-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    text-align: center;
+    padding: 12px;
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+}
+
+.caja-live-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-muted);
+    font-weight: 700;
+}
+
+.caja-live-valor {
+    font-size: 20px;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+}
+
+.caja-live-valor.money {
+    color: var(--money);
+}
+
+.caja-live-valor.expense {
+    color: var(--danger);
+}
+
+.caja-atrasada-aviso {
+    margin: 0 16px 16px;
+    padding: 10px 12px;
+    background: var(--warning-bg);
+    border-left: 3px solid var(--warning);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    line-height: 1.4;
 }
 
 /* ============ UTILS ============ */

@@ -300,6 +300,13 @@ function cambiarAdminTab(tabName) {
     if (tabName === 'boletas' && typeof refreshBoletasPendientes === 'function') {
         refreshBoletasPendientes();
     }
+
+    // Caja también depende de lo que pasó desde la última visita (ventas
+    // cobradas mientras el admin estaba en otra pestaña) — recargar en
+    // vivo al entrar, igual que boletas.
+    if (tabName === 'caja' && typeof refreshCaja === 'function') {
+        refreshCaja();
+    }
 }
 
 // ============ MODALES ============

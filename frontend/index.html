@@ -388,6 +388,7 @@
                     <button class="admin-tab-btn" data-admin-tab="compras">Gastos</button>
                     <button class="admin-tab-btn" data-admin-tab="personal">Personal</button>
                     <button class="admin-tab-btn" data-admin-tab="boletas">Boletas</button>
+                    <button class="admin-tab-btn" data-admin-tab="caja">Caja</button>
                 </div>
 
                 <!-- Platos Section: CU-01 -->
@@ -560,6 +561,111 @@
                     <div id="admin-boletas-list"></div>
                 </div>
 
+                <!-- Caja: apertura/cierre diario (Validador de Caja) -->
+                <div id="admin-caja" class="admin-section">
+                    <div id="caja-contenido">
+                        <p class="empty-hint">Cargando estado de caja...</p>
+                    </div>
+
+                    <!-- Plantilla: caja ABIERTA (operar / cerrar) -->
+                    <template id="tpl-caja-abierta">
+                        <div class="card caja-card">
+                            <div class="caja-banner caja-banner-abierta">
+                                <span class="caja-banner-icon">🟢</span>
+                                <div>
+                                    <div class="caja-banner-title">Caja abierta</div>
+                                    <div class="caja-banner-sub" data-slot="abierta-desde"></div>
+                                </div>
+                            </div>
+                            <div class="caja-live-stats">
+                                <div class="caja-live-stat">
+                                    <span class="caja-live-label">Ventas hasta ahora</span>
+                                    <span class="caja-live-valor money" data-slot="ventas-ahora"></span>
+                                </div>
+                                <div class="caja-live-stat">
+                                    <span class="caja-live-label">Gastos hasta ahora</span>
+                                    <span class="caja-live-valor expense" data-slot="gastos-ahora"></span>
+                                </div>
+                            </div>
+                            <div class="caja-atrasada-aviso hidden" data-slot="aviso-atrasada">
+                                ⚠️ Esta caja quedó abierta de un día anterior. Ciérrala para poder abrir la de hoy.
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-title"><span>Cerrar caja</span></div>
+                            <form id="form-cerrar-caja" onsubmit="return false;">
+                                <div class="form-group">
+                                    <label>Dinero contado en caja ahora (S/)</label>
+                                    <input type="number" id="caja-saldo-contado" step="0.01" min="0" required placeholder="0.00">
+                                </div>
+                                <div class="form-group">
+                                    <label>Retiros personales del día (S/, opcional)</label>
+                                    <input type="number" id="caja-retiros" step="0.01" min="0" value="0">
+                                </div>
+                                <div class="form-group">
+                                    <label>Razón de discrepancia (opcional, si sabes por qué no cuadra)</label>
+                                    <textarea id="caja-razon-discrepancia" maxlength="300" placeholder="Ej: vuelto mal dado en mesa 3"></textarea>
+                                </div>
+                                <button type="button" class="btn btn-primary btn-block" onclick="confirmarCerrarCaja()">
+                                    Validar y cerrar caja
+                                </button>
+                            </form>
+                        </div>
+                    </template>
+
+                    <!-- Plantilla: SIN caja abierta hoy (abrir) -->
+                    <template id="tpl-caja-cerrada">
+                        <div class="card">
+                            <div class="card-title"><span>Abrir caja de hoy</span></div>
+                            <p class="empty-hint" style="margin-bottom:12px;">Ingresa cuánto dinero hay en la caja para empezar el día.</p>
+                            <form id="form-abrir-caja" onsubmit="return false;">
+                                <div class="form-group">
+                                    <label>Saldo inicial (S/)</label>
+                                    <input type="number" id="caja-saldo-inicial" step="0.01" min="0" required placeholder="0.00">
+                                </div>
+                                <button type="button" class="btn btn-primary btn-block" onclick="confirmarAbrirCaja()">
+                                    Abrir caja
+                                </button>
+                            </form>
+                        </div>
+                    </template>
+
+                    <!-- Plantilla: caja de HOY ya cerrada -->
+                    <template id="tpl-caja-ya-cerrada">
+                        <div class="card caja-card">
+                            <div class="caja-banner" data-slot="banner-clase">
+                                <span class="caja-banner-icon" data-slot="banner-icono"></span>
+                                <div>
+                                    <div class="caja-banner-title" data-slot="banner-titulo"></div>
+                                    <div class="caja-banner-sub">Cerrada hoy a las <span data-slot="hora-cierre"></span></div>
+                                </div>
+                            </div>
+                            <div class="caja-live-stats">
+                                <div class="caja-live-stat">
+                                    <span class="caja-live-label">Esperado</span>
+                                    <span class="caja-live-valor" data-slot="esperado"></span>
+                                </div>
+                                <div class="caja-live-stat">
+                                    <span class="caja-live-label">Contado</span>
+                                    <span class="caja-live-valor" data-slot="contado"></span>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-secondary btn-block" style="margin-top:14px;" onclick="reimprimirCierreCaja()">
+                                🖨️ Ver / imprimir reporte
+                            </button>
+                        </div>
+                    </template>
+
+                    <div class="card">
+                        <div class="card-title">
+                            <span>Historial de cierres</span>
+                            <span class="card-title-hint">últimos 30 días</span>
+                        </div>
+                        <div id="caja-historial-list"></div>
+                    </div>
+                </div>
+
                 <div id="admin-personal" class="admin-section">
                     <button class="btn btn-primary btn-fab" onclick="abrirModalNuevoUsuario()">
                         <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -702,6 +808,8 @@
     <script src="/static/js/cocina.js"></script>
     <script src="/static/js/dashboard.js"></script>
     <script src="/static/js/admin.js"></script>
+    <script src="/static/js/cierre-caja-print.js"></script>
+    <script src="/static/js/caja.js"></script>
 
     <script>
         // En una carga con ?reset NO se registra: el bloque inline del <head>

@@ -486,6 +486,69 @@ class DashboardResumen(BaseModel):
     top_gastos: List[TopGastoItem]
 
 
+# ============ CAJA (Apertura/Cierre) ============
+
+class AbrirCajaRequest(BaseModel):
+    saldo_inicial: float = Field(..., ge=0, le=100000)
+
+
+class CerrarCajaRequest(BaseModel):
+    saldo_contado: float = Field(..., ge=0, le=100000)
+    retiros_personales: float = Field(default=0, ge=0, le=100000)
+    razon_discrepancia: Optional[str] = Field(default=None, max_length=300)
+
+    @field_validator("razon_discrepancia")
+    @classmethod
+    def _vacio_a_none(cls, v):
+        v = (v or "").strip()
+        return v or None
+
+
+class CierreCajaResponse(BaseModel):
+    id: int
+    fecha: str
+    saldo_inicial: float
+    abierto_en: datetime
+    abierto_por: str
+
+    ventas_cobradas: Optional[float] = None
+    gastos_efectivo: Optional[float] = None
+    retiros_personales: Optional[float] = None
+
+    saldo_esperado: Optional[float] = None
+    saldo_contado: Optional[float] = None
+    diferencia: Optional[float] = None
+    variacion_pct: Optional[float] = None
+    razon_discrepancia: Optional[str] = None
+
+    cerrado_en: Optional[datetime] = None
+    cerrado_por: Optional[str] = None
+    estado: str
+
+    class Config:
+        from_attributes = True
+
+
+class CajaEstadoResponse(BaseModel):
+    """
+    Snapshot en vivo para pintar la pantalla de Caja sin que el admin tenga
+    que adivinar en qué paso del flujo está. Solo puede haber UNA caja
+    abierta a la vez (lo impone POST /caja/abrir) — por eso `caja_abierta`
+    no necesariamente es la de hoy: si el admin se olvidó de cerrar ayer,
+    sigue siendo la caja abierta hasta que la cierre (`es_atrasada=True`
+    avisa al frontend para mostrar ese caso distinto del flujo normal).
+    ventas_hasta_ahora/gastos_hasta_ahora se recalculan en cada consulta
+    mientras la caja sigue abierta — a diferencia de los mismos campos en
+    `caja_abierta.ventas_cobradas` etc., que se congelan recién al cerrar.
+    """
+    hay_caja_abierta: bool
+    caja_abierta: Optional[CierreCajaResponse] = None
+    es_atrasada: bool = False
+    ventas_hasta_ahora: float = 0
+    gastos_hasta_ahora: float = 0
+    caja_cerrada_hoy: Optional[CierreCajaResponse] = None
+
+
 # ============ FACTURACIÓN SUNAT ============
 
 class FacturaGenerarRequest(BaseModel):
