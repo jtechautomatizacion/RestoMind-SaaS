@@ -10,7 +10,23 @@ Flujo (ver CierreCaja en models.py para el porqué de dos pasos separados):
 Solo puede existir UNA caja abierta a la vez por restaurante (lo impone
 POST /caja/abrir): si el admin se olvida de cerrar un día, POST /caja/cerrar
 sigue apuntando a ESA caja pendiente aunque ya no sea "hoy" — nunca se cierra
-por accidente el día equivocado.
+por accidente el día equivocado. Reabrir SIN cerrar la anterior está
+bloqueado siempre — es obligatorio cerrar primero.
+
+Válvula de seguridad — auto-cierre de caja vencida (_auto_cerrar_si_vencida):
+Mesas y Cocina exigen una caja abierta HOY para operar (GET /caja/gate). Si
+eso se combinara con un bloqueo estricto de "no se puede abrir sin cerrar la
+anterior" y el admin genuinamente se olvidó una noche, el restaurante entero
+quedaría congelado al día siguiente hasta que alguien lo note. Para evitar
+ese bloqueo total, cualquier consulta a /caja/estado, /caja/gate o
+/caja/abrir primero revisa si la caja abierta quedó de un día ANTERIOR al de
+hoy; si es así, se cierra sola con saldo_contado = saldo_esperado (no hay
+conteo físico real que usar) y queda marcada estado='cerrado_automatico'
+—nunca 'cuadrado'— para que quede clarísimo en el historial que ese cierre
+no fue validado por un conteo real y el admin debe revisarlo. Esto NO
+relaja la regla "hay que cerrar para volver a abrir": simplemente el
+sistema hace ese cierre pendiente por vos cuando ya pasó su día, en vez de
+dejarlo trabado para siempre.
 
 Ventas y gastos se calculan con el mismo criterio de zona horaria que el
 dashboard (backend/routes/dashboard.py): los timestamps de la BD son UTC,
@@ -31,6 +47,7 @@ from backend.schemas import (
     CerrarCajaRequest,
     CierreCajaResponse,
     CajaEstadoResponse,
+    CajaGateResponse,
 )
 from backend.utils.auditoria import registrar_evento
 from backend.utils.security import validar_admin
@@ -93,6 +110,80 @@ def _clasificar_estado(diferencia: float) -> str:
     return "discrepancia_grave"
 
 
+def _auto_cerrar_si_vencida(db: Session, cliente_id: str, tz_offset: int) -> None:
+    """Ver docstring del módulo ("Válvula de seguridad"). Se llama al
+    principio de /caja/estado, /caja/gate y /caja/abrir — así el auto-cierre
+    ocurre en el primer request del día sin necesitar un cron aparte."""
+    caja = (
+        db.query(CierreCaja)
+        .filter(CierreCaja.cliente_id == cliente_id, CierreCaja.estado == "abierto")
+        .first()
+    )
+    if not caja:
+        return
+
+    hoy = _hoy_local(tz_offset)
+    fecha_caja = date.fromisoformat(caja.fecha)
+    if fecha_caja >= hoy:
+        return  # sigue siendo la caja de hoy — nada que auto-cerrar
+
+    ventas, gastos = _calcular_ventas_gastos(db, cliente_id, fecha_caja, tz_offset)
+    saldo_esperado = round(caja.saldo_inicial + ventas - gastos, 2)
+
+    caja.ventas_cobradas = ventas
+    caja.gastos_efectivo = gastos
+    caja.retiros_personales = 0.0
+    caja.saldo_esperado = saldo_esperado
+    # Sin conteo físico real disponible: se asume igual al esperado. No es
+    # una prueba de que cuadró, es el mejor dato que hay — por eso el estado
+    # queda marcado aparte (nunca 'cuadrado') para que el admin lo revise.
+    caja.saldo_contado = saldo_esperado
+    caja.diferencia = 0.0
+    caja.variacion_pct = 0.0
+    caja.razon_discrepancia = (
+        "Cierre automático: nadie cerró la caja antes de terminar el día "
+        f"{caja.fecha}. No refleja un conteo físico real — revisar manualmente."
+    )
+    caja.cerrado_en = datetime.utcnow()
+    caja.cerrado_por = "sistema (cierre automático)"
+    caja.estado = "cerrado_automatico"
+
+    db.commit()
+
+    registrar_evento(
+        db, actor="sistema", accion="cerrar_caja_automatico", entidad="cierre_caja",
+        entidad_id=caja.id, cliente_id=cliente_id,
+        detalle=f"fecha: {caja.fecha}, saldo_esperado: {saldo_esperado}",
+    )
+
+
+@router.get("/caja/gate", response_model=CajaGateResponse)
+def verificar_gate_caja(
+    db: Session = Depends(get_db),
+    cliente_id: str = Depends(get_cliente_id),
+    tz_offset: int = Depends(get_tz_offset),
+):
+    """
+    Semáforo para Mesas/Cocina: ¿hay caja abierta HOY? Sin validar_admin a
+    propósito — mozo/cocina también necesitan saber si pueden operar, y a
+    diferencia de /caja/estado esta ruta nunca expone montos (eso es
+    información financiera privada del admin, ver PRODUCTION_READINESS.md).
+    """
+    _auto_cerrar_si_vencida(db, cliente_id, tz_offset)
+
+    hoy = _hoy_local(tz_offset)
+    caja_hoy_abierta = (
+        db.query(CierreCaja)
+        .filter(
+            CierreCaja.cliente_id == cliente_id,
+            CierreCaja.estado == "abierto",
+            CierreCaja.fecha == hoy.isoformat(),
+        )
+        .first()
+    )
+    return CajaGateResponse(hay_caja_abierta=bool(caja_hoy_abierta))
+
+
 @router.get("/caja/estado", response_model=CajaEstadoResponse)
 def obtener_estado_caja(
     db: Session = Depends(get_db),
@@ -101,6 +192,7 @@ def obtener_estado_caja(
     tz_offset: int = Depends(get_tz_offset),
 ):
     validar_admin(db, usuario_actual, cliente_id)
+    _auto_cerrar_si_vencida(db, cliente_id, tz_offset)
 
     hoy = _hoy_local(tz_offset)
 
@@ -151,6 +243,7 @@ def abrir_caja(
     tz_offset: int = Depends(get_tz_offset),
 ):
     validar_admin(db, usuario_actual, cliente_id)
+    _auto_cerrar_si_vencida(db, cliente_id, tz_offset)
 
     ya_abierta = (
         db.query(CierreCaja)

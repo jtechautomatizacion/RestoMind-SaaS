@@ -529,6 +529,13 @@ class CierreCajaResponse(BaseModel):
         from_attributes = True
 
 
+class CajaGateResponse(BaseModel):
+    """Semáforo minimal para Mesas/Cocina — a propósito no lleva montos ni
+    ningún otro dato financiero, porque cualquier rol (mozo, cocina) puede
+    consultarlo sin ser admin (ver GET /caja/gate)."""
+    hay_caja_abierta: bool
+
+
 class CajaEstadoResponse(BaseModel):
     """
     Snapshot en vivo para pintar la pantalla de Caja sin que el admin tenga

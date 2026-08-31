@@ -41,7 +41,8 @@ const estado = {
     rol: getRolGuardado(),
     platos: [],
     mesas: [],
-    currentTab: 'mozo'
+    currentTab: 'mozo',
+    cajaAbierta: null // null = aún no se consultó; ver refreshCajaGate()
 };
 
 // ============ API CLIENT ============
@@ -177,6 +178,14 @@ async function init() {
             console.error(`Error iniciando ${fnName}:`, err);
         }
     });
+
+    // Gate de caja: se revisa al arrancar y cada 20s en segundo plano — así
+    // si el admin abre/cierra caja desde otro dispositivo, un mozo con la
+    // app ya abierta se desbloquea/bloquea solo, sin tener que recargar.
+    if (typeof refreshCajaGate === 'function') {
+        refreshCajaGate();
+        setInterval(refreshCajaGate, 20000);
+    }
 }
 
 const CACHE_PLATOS_KEY = 'restomind_cache_platos';
@@ -236,6 +245,56 @@ function cambiarTab(tabName) {
     if (tabName === 'mozo' && typeof refreshMozo === 'function') refreshMozo();
     if (tabName === 'dashboard' && typeof refreshDashboard === 'function') refreshDashboard();
     if (tabName === 'admin' && typeof refreshAdmin === 'function') refreshAdmin();
+
+    // Mesas/Cocina dependen de si hay caja abierta hoy — al entrar a
+    // cualquiera de las dos se revisa fresco, no se confía en el último
+    // valor cacheado (pudo abrirse/cerrarse desde otro dispositivo).
+    if ((tabName === 'mozo' || tabName === 'cocina') && typeof refreshCajaGate === 'function') {
+        refreshCajaGate();
+    }
+}
+
+// ============ GATE DE CAJA (Mesas/Cocina exigen caja abierta) ============
+
+/**
+ * Semáforo que bloquea Mesas y Cocina sin caja abierta hoy: sin esto, el
+ * dinero que entra por esas pantallas no tiene ancla contra la cual
+ * reconciliar al cerrar (ver "Validador de Caja" en CLAUDE.md) — un mozo
+ * podría cobrar toda una jornada sin que exista un saldo_inicial declarado.
+ * Consulta GET /caja/gate, que NO expone montos (cualquier rol puede
+ * llamarlo, no solo admin) y de paso dispara el auto-cierre de una caja
+ * vencida de un día anterior (ver backend/routes/caja.py).
+ */
+async function refreshCajaGate() {
+    try {
+        const { hay_caja_abierta } = await api.get('/caja/gate');
+        estado.cajaAbierta = hay_caja_abierta;
+    } catch (err) {
+        // Sin señal o error: no se sabe con certeza -> no bloquear por un
+        // problema de red (sería peor que dejar operar sin caja un rato).
+        if (estado.cajaAbierta === null) return;
+    }
+    aplicarGateCaja();
+}
+
+function aplicarGateCaja() {
+    const bloqueado = estado.cajaAbierta === false;
+
+    ['mozo-tab', 'cocina-tab'].forEach(id => {
+        const tab = document.getElementById(id);
+        if (tab) tab.classList.toggle('caja-bloqueada', bloqueado);
+    });
+
+    // El botón "Ir a Caja" solo tiene sentido para quien puede abrirla.
+    ['btn-ir-abrir-caja-mozo', 'btn-ir-abrir-caja-cocina'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.classList.toggle('hidden', estado.rol !== 'admin');
+    });
+}
+
+function irAAbrirCaja() {
+    cambiarTab('admin');
+    if (typeof cambiarAdminTab === 'function') cambiarAdminTab('caja');
 }
 
 // ============ ROLES ============

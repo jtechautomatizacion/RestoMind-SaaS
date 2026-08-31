@@ -7,7 +7,10 @@
  * - Números principales (esperado vs real) en GRANDE
  * - Diferencia muy visible
  * - Detalles secundarios pequeños
- * - QR para verificar la transacción
+ * - ID de transacción como texto (sin QR: dependía de una API externa
+ *   —qrserver.com— que no siempre carga, dejando un ícono roto en el
+ *   reporte impreso; el ID solo ya sirve para buscar el registro en el
+ *   historial si hace falta).
  * - Respirable, no agobiante de números
  */
 
@@ -58,9 +61,7 @@ function generarReporteCierreCaja(cierre, negocio) {
         hour: '2-digit', minute: '2-digit'
     });
 
-    // Generar QR (simulado con datos básicos)
-    const qrData = `RCT|${negocio?.ruc || 'N/A'}|${fecha}|${saldo_esperado}|${saldo_contado}`;
-    const qrEncoded = encodeURIComponent(qrData);
+    const idTransaccion = `CIERRE-${fecha}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 
     return `<!DOCTYPE html>
 <html>
@@ -305,32 +306,16 @@ function generarReporteCierreCaja(cierre, negocio) {
         font-weight: 600;
     }
 
-    /* QR Y VERIFICACIÓN */
+    /* VERIFICACIÓN */
     .verificacion {
         padding: 24px;
         text-align: center;
         background: #f9fafb;
     }
 
-    .qr-codigo {
-        margin: 16px auto;
-        padding: 8px;
-        background: white;
-        border: 2px solid #e5e7eb;
-        border-radius: 8px;
-        display: inline-block;
-    }
-
-    .qr-codigo img {
-        width: 120px;
-        height: 120px;
-        display: block;
-    }
-
     .verificacion-texto {
         font-size: 11px;
         color: #6b7280;
-        margin-top: 8px;
     }
 
     /* FOOTER */
@@ -437,14 +422,10 @@ function generarReporteCierreCaja(cierre, negocio) {
             </div>
         </div>
 
-        <!-- VERIFICACIÓN (QR) -->
+        <!-- VERIFICACIÓN -->
         <div class="verificacion">
-            <div class="qr-codigo">
-                <img src="https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrEncoded}" alt="QR">
-            </div>
             <div class="verificacion-texto">
-                Escanea para verificar<br>
-                Transacción: CIERRE-${fecha}-${Math.random().toString(36).substr(2, 9).toUpperCase()}
+                Transacción: ${idTransaccion}
             </div>
         </div>
 

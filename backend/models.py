@@ -330,10 +330,15 @@ class CierreCaja(Base):
     cerrado_en = Column(DateTime, nullable=True)
     cerrado_por = Column(String, nullable=True)
 
-    # abierto: aún no se cerró hoy
-    # cuadrado: cerrado, diferencia despreciable (<0.01)
-    # discrepancia_leve: cerrado, |diferencia| <= 5
-    # discrepancia_grave: cerrado, |diferencia| > 5
+    # abierto: aún no se cerró
+    # cuadrado: cerrado por el admin, diferencia despreciable (<0.01)
+    # discrepancia_leve: cerrado por el admin, |diferencia| <= 5
+    # discrepancia_grave: cerrado por el admin, |diferencia| > 5
+    # cerrado_automatico: el admin NUNCA la cerró y quedó de un día anterior
+    #   — el sistema la cerró solo como válvula de seguridad para no bloquear
+    #   Mesas/Cocina indefinidamente (ver _auto_cerrar_si_vencida en
+    #   routes/caja.py). saldo_contado = saldo_esperado por falta de conteo
+    #   físico real — NO es una prueba de que cuadró, requiere revisión.
     estado = Column(String, default="abierto", nullable=False)
 
     __table_args__ = (

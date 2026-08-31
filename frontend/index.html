@@ -162,6 +162,12 @@
         <main class="content">
             <!-- MESAS TAB: CU-02 -->
             <section id="mozo-tab" class="tab-content active">
+                <div class="caja-bloqueo-banner">
+                    <div class="caja-bloqueo-icon">🔒</div>
+                    <h3>Caja cerrada</h3>
+                    <p>No se pueden tomar pedidos hasta que el administrador abra la caja del día.</p>
+                    <button type="button" class="btn btn-primary hidden" id="btn-ir-abrir-caja-mozo" onclick="irAAbrirCaja()">Ir a Caja</button>
+                </div>
                 <button id="btn-gestionar-mesas" class="btn btn-secondary btn-fab hidden" onclick="abrirGestionMesas()">
                     <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                     Gestionar mesas
@@ -305,6 +311,12 @@
 
             <!-- COCINA TAB: CU-03 -->
             <section id="cocina-tab" class="tab-content">
+                <div class="caja-bloqueo-banner">
+                    <div class="caja-bloqueo-icon">🔒</div>
+                    <h3>Caja cerrada</h3>
+                    <p>No hay comandas hasta que el administrador abra la caja del día.</p>
+                    <button type="button" class="btn btn-primary hidden" id="btn-ir-abrir-caja-cocina" onclick="irAAbrirCaja()">Ir a Caja</button>
+                </div>
                 <div id="cocina-comandas" class="cocina-grid"></div>
                 <div class="empty-state hidden" id="cocina-empty">
                     <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>

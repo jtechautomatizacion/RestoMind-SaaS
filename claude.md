@@ -1,6 +1,6 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
-**Versión MVP:** 2.6 — Validador de Caja (Apertura/Cierre Diario + Reporte Imprimible)
+**Versión MVP:** 2.7 — Validador de Caja con Gate obligatorio + Auto-cierre de caja vencida
 **Implementado y probado:** ✅ 100% Autenticación + Seguridad + Facturación SUNAT SFS + Dashboard Financiero + Validador de Caja
 **Última actualización:** 2026-08-31
 
@@ -1014,25 +1014,60 @@ cierre que no son fraude, son ventas con tarjeta. Documentado también en
 `CierreCaja` (`backend/models.py`) para que quien implemente método de
 pago sepa que este cálculo necesita filtrar por ahí.
 
-### Solo puede haber UNA caja abierta a la vez
+### Solo puede haber UNA caja abierta a la vez — cerrar es obligatorio para reabrir
 
-Lo impone `POST /caja/abrir`: si el admin se olvida de cerrar un día,
-`POST /caja/cerrar` sigue apuntando a **esa** caja pendiente aunque ya no
-sea "hoy" (`es_atrasada=true` en `GET /caja/estado` avisa al frontend) —
-nunca se puede abrir una caja nueva encima de una sin cerrar, y nunca se
-cierra por accidente el día equivocado. `UniqueConstraint(cliente_id, fecha)`
-en la tabla es la red de seguridad final contra dos aperturas el mismo día.
+Lo impone `POST /caja/abrir`: nunca se puede abrir una caja nueva encima de
+una sin cerrar. Esto es intencional y no se relaja — es la regla de negocio
+central del validador.
 
-### Endpoints (`backend/routes/caja.py`, todos admin-only)
+### Mesas y Cocina exigen caja abierta HOY (gate)
+
+Sin caja abierta, no hay saldo inicial contra el cual reconciliar lo que
+entra por Mesas — así que Mesas y Cocina quedan bloqueadas hasta que el
+admin abra la caja del día. `GET /api/caja/gate` es la ruta que lo decide:
+a diferencia del resto de `/caja/*`, no exige rol admin (mozo y cocina
+también deben poder consultarlo) y **nunca** devuelve montos, solo
+`{ hay_caja_abierta: bool }` — la info financiera sigue siendo privada del
+admin vía `/caja/estado`.
+
+`frontend/js/app.js` (`refreshCajaGate`/`aplicarGateCaja`) consulta el gate
+al arrancar la app, al entrar a Mesas o Cocina, y cada 20s en segundo plano
+(para que un mozo con la app ya abierta se desbloquee solo si el admin abre
+caja desde otro dispositivo). Bloqueado, ambas pestañas muestran un banner
+"🔒 Caja cerrada" en vez de su contenido (`.tab-content.caja-bloqueada` en
+`style.css`, un único selector genérico que oculta todo excepto el banner
+— no depende de la estructura interna de cada pestaña).
+
+### Válvula de seguridad: auto-cierre de caja vencida
+
+El gate de arriba crea un riesgo nuevo: si "cerrar es obligatorio para
+reabrir" se combinara sin más con "Mesas/Cocina exigen caja abierta HOY",
+una noche en que el admin se olvida de cerrar dejaría el restaurante
+**entero** bloqueado al día siguiente hasta que alguien note el problema.
+
+Por eso `_auto_cerrar_si_vencida()` (`backend/routes/caja.py`) corre al
+principio de `/caja/estado`, `/caja/gate` y `/caja/abrir`: si la caja
+abierta quedó de un día **anterior** al de hoy, se cierra sola con
+`saldo_contado = saldo_esperado` (no hay conteo físico real que usar) y
+queda marcada `estado='cerrado_automatico'` — nunca `'cuadrado'`, para que
+el historial deje clarísimo que ese cierre no fue validado por un conteo
+real y el admin debe revisarlo. Esto no afloja la regla de cierre
+obligatorio: el sistema hace ese cierre pendiente por vos cuando ya pasó
+su día, en vez de dejarlo trabado para siempre; para el día de HOY, la
+regla de "cerrar antes de reabrir" sigue exigiéndose sin excepción.
+
+### Endpoints (`backend/routes/caja.py`)
 
 ```
+GET  /api/caja/gate       → { hay_caja_abierta } — CUALQUIER rol, sin montos
 GET  /api/caja/estado     → snapshot en vivo: hay_caja_abierta, caja_abierta
                              (con ventas/gastos recalculados en cada consulta
                              mientras sigue abierta), caja_cerrada_hoy si ya
                              se cerró, es_atrasada si es de un día anterior
-POST /api/caja/abrir      → { saldo_inicial }
-POST /api/caja/cerrar     → { saldo_contado, retiros_personales?, razon_discrepancia? }
-GET  /api/caja/historial  → últimos N cierres (no incluye la caja abierta)
+                             — admin-only
+POST /api/caja/abrir      → { saldo_inicial } — admin-only
+POST /api/caja/cerrar     → { saldo_contado, retiros_personales?, razon_discrepancia? } — admin-only
+GET  /api/caja/historial  → últimos N cierres (no incluye la caja abierta) — admin-only
 ```
 
 ### Frontend: Admin → Caja
@@ -1059,7 +1094,10 @@ GRANDE, números secundarios más chicos, sin obligar a sumar nada mentalmente.
 - Esperado vs Contado lado a lado, Diferencia destacada
 - Detalles (saldo inicial, ventas, gastos, retiros) en texto más chico
 - Razón de discrepancia si el admin la anotó
-- Firmas (cerrado por / revisado por) y QR de verificación
+- Firmas (cerrado por / revisado por) y un ID de transacción como texto
+  (antes había un QR generado vía una API externa —qrserver.com— que no
+  siempre cargaba, dejando un ícono roto en el reporte impreso; se
+  eliminó y quedó solo el ID como texto plano, sin dependencia de red)
 - Se abre solo en una pestaña nueva al cerrar caja (`window.open` +
   `document.write`), con botón de imprimir — pensado para PDF o impresora
   A4, no para la impresora térmica de 80mm de las comandas

@@ -34,6 +34,13 @@ function _resumenEstadoCaja(estadoTexto) {
     if (estadoTexto === 'discrepancia_leve') {
         return { icono: '⚠️', titulo: 'Discrepancia menor', clase: 'caja-banner-leve' };
     }
+    if (estadoTexto === 'cerrado_automatico') {
+        // El admin nunca la cerró; el sistema la cerró solo al día siguiente
+        // para no bloquear Mesas/Cocina indefinidamente (ver CLAUDE.md,
+        // sección Validador de Caja). saldo_contado = saldo_esperado porque
+        // no hubo conteo físico real — hay que revisarla a mano.
+        return { icono: '⏰', titulo: 'Cierre automático (sin conteo real)', clase: 'caja-banner-leve' };
+    }
     return { icono: '❌', titulo: 'Discrepancia grave', clase: 'caja-banner-grave' };
 }
 
@@ -94,6 +101,9 @@ async function confirmarAbrirCaja() {
         await api.post('/caja/abrir', { saldo_inicial: saldo });
         showToast('Caja abierta', 'success');
         await refreshCaja();
+        // Desbloquea Mesas/Cocina de inmediato — sin esto el mozo vería el
+        // banner de "caja cerrada" hasta el siguiente poll (hasta 20s).
+        if (typeof refreshCajaGate === 'function') refreshCajaGate();
     } catch (err) {
         showToast(err.message || 'No se pudo abrir la caja', 'error');
     }
@@ -124,6 +134,7 @@ async function confirmarCerrarCaja() {
         });
         showToast('Caja cerrada', 'success');
         await refreshCaja();
+        if (typeof refreshCajaGate === 'function') refreshCajaGate();
 
         // El dueño quiere ver el reporte apenas cierra, no ir a buscarlo
         // después en el historial.

@@ -1997,6 +1997,51 @@ body {
     line-height: 1.4;
 }
 
+/* ============ BLOQUEO POR CAJA CERRADA (Mesas/Cocina) ============ */
+
+.caja-bloqueo-banner {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 8px;
+    padding: 48px 24px;
+    margin-top: 40px;
+}
+
+.caja-bloqueo-banner h3 {
+    font-size: 18px;
+    font-weight: 900;
+    margin-top: 4px;
+}
+
+.caja-bloqueo-banner p {
+    font-size: 14px;
+    color: var(--text-muted);
+    max-width: 320px;
+    line-height: 1.5;
+}
+
+.caja-bloqueo-banner .btn {
+    margin-top: 12px;
+}
+
+.caja-bloqueo-icon {
+    font-size: 48px;
+}
+
+/* Cuando la pestaña (Mesas/Cocina) queda bloqueada por falta de caja
+   abierta: se muestra SOLO el banner, todo lo demás (grilla, modales,
+   botones) se oculta con un único selector genérico — no depende de la
+   estructura interna de cada pestaña. */
+.tab-content.caja-bloqueada > *:not(.caja-bloqueo-banner) {
+    display: none !important;
+}
+
+.tab-content.caja-bloqueada .caja-bloqueo-banner {
+    display: flex;
+}
+
 /* ============ UTILS ============ */
 
 .hidden {
