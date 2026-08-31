@@ -133,7 +133,7 @@ def resumen_financiero(
         (TopPlatoItem(nombre=n, cantidad=v["cantidad"], ingresos=round(v["revenue"], 2)) for n, v in top_platos_map.items()),
         key=lambda item: item.ingresos,
         reverse=True,
-    )[:3]
+    )[:5]
 
     top_gastos_map: dict = {}
     for compra in compras_periodo:

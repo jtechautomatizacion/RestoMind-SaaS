@@ -1337,6 +1337,85 @@ body {
     flex-shrink: 0;
 }
 
+/* Tabla de ganancias por día (dashboard.js: renderTablaDiaria) */
+.tabla-diaria-wrapper {
+    overflow-x: auto;
+}
+
+.tabla-diaria {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.tabla-diaria th {
+    text-align: right;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-muted);
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+
+.tabla-diaria th.th-fecha {
+    text-align: left;
+}
+
+.tabla-diaria td {
+    padding: 10px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+
+.tabla-diaria tr:last-child td {
+    border-bottom: none;
+}
+
+.tabla-diaria .td-fecha {
+    text-align: left;
+    color: var(--text);
+    font-weight: 600;
+}
+
+.tabla-diaria .td-num {
+    text-align: right;
+    color: var(--text-muted);
+}
+
+.tabla-diaria .td-ganancia {
+    font-weight: 700;
+}
+
+.tabla-diaria .fila-positiva .td-ganancia {
+    color: var(--success);
+}
+
+.tabla-diaria .fila-negativa {
+    background: var(--danger-bg);
+}
+
+.tabla-diaria .fila-negativa .td-ganancia {
+    color: var(--danger);
+}
+
+.tabla-diaria .fila-neutro .td-ganancia {
+    color: var(--text-muted);
+}
+
+/* En móvil, ocultar Gastos y Margen — Fecha/Ventas/Ganancia son las
+   columnas que realmente se necesitan de un vistazo en pantalla chica. */
+@media (max-width: 480px) {
+    .tabla-diaria .th-oculto-movil,
+    .tabla-diaria .td-margen,
+    .tabla-diaria td:nth-child(3) {
+        display: none;
+    }
+}
+
 .top-plato-info {
     flex: 0 0 auto;
     min-width: 0;

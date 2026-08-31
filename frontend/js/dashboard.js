@@ -77,6 +77,7 @@ async function refreshDashboard() {
         actualizarRangoLabel();
         renderStats(data.serie);
         renderBarChart(document.getElementById('chart-ventas-gastos'), data.serie);
+        renderTablaDiaria(document.getElementById('dashboard-tabla-diaria'), data.serie);
         renderTopPlatos(document.getElementById('top-platos-list'), data.top_platos);
         renderTopGastos(document.getElementById('top-gastos-list'), data.top_gastos);
     } catch (err) {
@@ -127,11 +128,16 @@ function buildStatTile(label, valor, valorAnterior, tipo) {
     return div;
 }
 
-// Etiqueta de barra: sin decimales ni símbolo de moneda (no entran a este
-// tamaño de fuente), y en 'k' desde 1000 para no desbordar el ancho de la barra.
+// Etiqueta de barra: sin símbolo de moneda (no entra a este tamaño de
+// fuente), y en 'k' desde 1000 para no desbordar el ancho de la barra.
+// IMPORTANTE: nunca redondear con Math.round() acá — un monto como 122.50
+// se mostraba como "123", una cifra que no coincide con NINGÚN número real
+// (ni el total exacto ni la tabla de abajo, que sí usa 2 decimales). Se
+// muestra el monto exacto, recortando ".00" solo cuando no hay céntimos.
 function formatCompacto(num) {
     if (num >= 1000) return `${(num / 1000).toFixed(1).replace('.0', '')}k`;
-    return String(Math.round(num));
+    const conDecimales = num.toFixed(2);
+    return conDecimales.endsWith('.00') ? conDecimales.slice(0, -3) : conDecimales;
 }
 
 function renderBarChart(container, serie) {
@@ -164,26 +170,90 @@ function renderBarChart(container, serie) {
 
         // Solo el número total de cada barra, sin "S/" ni decimales: a este
         // tamaño de fuente el símbolo de moneda no cabe sin encimarse.
+        // Mismos colores que los stat-tiles de arriba (Ventas=--money,
+        // Gastos=--danger): antes el gráfico usaba naranja/gris propios,
+        // sin relación con el resto del dashboard — dos lenguajes de color
+        // distintos para el mismo dato. var() además se resuelve solo en
+        // dark mode, sin recalcular nada acá.
         const labelVentas = d.ventas > 0 && alturaVentas > 12
-            ? `<text x="${x - 8}" y="${baseY - alturaVentas - 4}" font-size="9" text-anchor="middle" fill="#FF5A3C" font-weight="700">${formatCompacto(d.ventas)}</text>`
+            ? `<text x="${x - 8}" y="${baseY - alturaVentas - 4}" font-size="9" text-anchor="middle" fill="var(--money)" font-weight="700">${formatCompacto(d.ventas)}</text>`
             : '';
         const labelGastos = d.gastos > 0 && alturaGastos > 12
-            ? `<text x="${x + 10}" y="${baseY - alturaGastos - 4}" font-size="9" text-anchor="middle" fill="#94A3B8" font-weight="700">${formatCompacto(d.gastos)}</text>`
+            ? `<text x="${x + 10}" y="${baseY - alturaGastos - 4}" font-size="9" text-anchor="middle" fill="var(--danger)" font-weight="700">${formatCompacto(d.gastos)}</text>`
             : '';
 
         svg += `
             <g>
-                <rect x="${x - 14}" y="${baseY - alturaVentas}" width="12" height="${alturaVentas}" fill="#FF5A3C" rx="2"/>
-                <rect x="${x + 4}" y="${baseY - alturaGastos}" width="12" height="${alturaGastos}" fill="#94A3B8" rx="2"/>
+                <rect x="${x - 14}" y="${baseY - alturaVentas}" width="12" height="${alturaVentas}" fill="var(--money)" rx="2"/>
+                <rect x="${x + 4}" y="${baseY - alturaGastos}" width="12" height="${alturaGastos}" fill="var(--danger)" rx="2"/>
                 ${labelVentas}
                 ${labelGastos}
-                <text x="${x}" y="${alto - 2}" font-size="11" text-anchor="middle" fill="#6B7280" font-weight="600">${diaSemana}</text>
+                <text x="${x}" y="${alto - 2}" font-size="11" text-anchor="middle" fill="var(--text-muted)" font-weight="600">${diaSemana}</text>
             </g>
         `;
     });
 
     svg += '</svg>';
     container.innerHTML = svg;
+}
+
+const MESES_ABREV = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const DIAS_SEMANA_ABREV = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+function formatFechaTabla(fechaStr) {
+    // Interpretar la fecha en zona horaria LOCAL del navegador, no UTC —
+    // mismo criterio que renderBarChart, para no desfasar el día mostrado.
+    const fecha = new Date(fechaStr + 'T00:00:00');
+    const diaSemana = DIAS_SEMANA_ABREV[fecha.getDay()];
+    const dia = fecha.getDate();
+    const mes = MESES_ABREV[fecha.getMonth()];
+    return `${diaSemana} ${dia} ${mes}`;
+}
+
+/**
+ * Tabla de ganancias por día — complementa el gráfico de barras con cifras
+ * exactas (el gráfico da la tendencia visual, esta tabla da el número
+ * preciso para reconciliar contra el POS o la caja física).
+ */
+function renderTablaDiaria(container, serie) {
+    if (!serie || serie.length === 0) {
+        container.innerHTML = '<p class="empty-hint">Sin datos para mostrar.</p>';
+        return;
+    }
+
+    // Más reciente arriba: la serie del backend viene ASC por fecha.
+    const filas = [...serie].reverse().map(d => {
+        const ganancia = d.ventas - d.gastos;
+        const margen = d.ventas > 0 ? (ganancia / d.ventas) * 100 : null;
+        let claseFila = 'fila-neutro';
+        if (ganancia > 0) claseFila = 'fila-positiva';
+        else if (ganancia < 0) claseFila = 'fila-negativa';
+
+        return `
+            <tr class="${claseFila}">
+                <td class="td-fecha">${formatFechaTabla(d.fecha)}</td>
+                <td class="td-num">${formatCurrency(d.ventas)}</td>
+                <td class="td-num">${formatCurrency(d.gastos)}</td>
+                <td class="td-num td-ganancia">${formatCurrency(ganancia)}</td>
+                <td class="td-num td-margen">${margen === null ? '—' : `${margen.toFixed(0)}%`}</td>
+            </tr>
+        `;
+    }).join('');
+
+    container.innerHTML = `
+        <table class="tabla-diaria">
+            <thead>
+                <tr>
+                    <th class="th-fecha">Fecha</th>
+                    <th class="th-num">Ventas</th>
+                    <th class="th-num th-oculto-movil">Gastos</th>
+                    <th class="th-num">Ganancia</th>
+                    <th class="th-num th-oculto-movil">Margen</th>
+                </tr>
+            </thead>
+            <tbody>${filas}</tbody>
+        </table>
+    `;
 }
 
 function renderTopPlatos(container, topPlatos) {
@@ -196,7 +266,7 @@ function renderTopPlatos(container, topPlatos) {
 
     const maxIngresos = topPlatos[0]?.ingresos || 1;
 
-    topPlatos.slice(0, 3).forEach((plato, idx) => {
+    topPlatos.slice(0, 5).forEach((plato, idx) => {
         const porcentaje = (plato.ingresos / maxIngresos) * 100;
         const div = document.createElement('div');
         div.className = 'top-plato-item';

@@ -1,8 +1,8 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
-**Versión MVP:** 2.4 — Facturación Local SFS + Validación RUC + Boletas Pendientes
-**Implementado y probado:** ✅ 100% Autenticación + Seguridad + Facturación SUNAT SFS + Admin Boletas Pendientes
-**Última actualización:** 2026-08-30
+**Versión MVP:** 2.5 — Dashboard Financiero Completo + Top 5 Platos + Tabla de Ganancias Diarias
+**Implementado y probado:** ✅ 100% Autenticación + Seguridad + Facturación SUNAT SFS + Dashboard Financiero Operativo
+**Última actualización:** 2026-08-31
 
 > Este documento describe el diseño original (MVPv1). El estado real de la
 > implementación actual, bugs corregidos, features agregados y decisiones
@@ -28,6 +28,9 @@
 > - ✅ **[NUEVA] Admin > Boletas:** Pantalla de recuperación de boletas con error o nunca emitidas; reintento/emisión de cero
 > - ✅ **[BUG FIX] Edición de restaurante:** PATCH /superadmin/clientes/{id} fallaba 100% de las veces sin cambiar contraseña (schema contradictorio); separado ClienteUpdateRequest
 > - ✅ **[MEJORA] Orden de operaciones:** Commit de correlativo ANTES de escribir .cab/.det para evitar race conditions bajo concurrencia
+> - ✅ **[NUEVA] Dashboard Financiero Completo:** Tabla detallada de ganancias diarias, Top 5 platos, colores consistentes (teal ventas/rojo gastos en gráfico + leyenda), etiquetas de barras con montos exactos (sin redondeo falso)
+> - ✅ **[NUEVA] Tabla de Ganancias por Día:** Fecha / Ventas / Gastos / Ganancia / Margen %, orden DESC (más reciente primero), filas coloreadas según ganancia (verde positivo/rojo negativo), responsive (oculta Gastos y Margen en móvil ≤480px)
+> - ✅ **[FIX] formatCompacto():** Ya no redondea falsos — 122.50 se muestra "122.50", no "123"; consistente con tabla de abajo y stat-tiles
 >
 > **Pendiente (a futuro, no bloquea el flujo actual):**
 > - ⏳ **Comandas en PDF** — generación/impresión de comanda y cuenta en PDF, por configurar
