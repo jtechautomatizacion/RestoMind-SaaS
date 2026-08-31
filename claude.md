@@ -1,6 +1,6 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
-**Versión MVP:** 2.7 — Validador de Caja con Gate obligatorio + Auto-cierre de caja vencida
+**Versión MVP:** 2.8 — Validador de Caja con Turnos Múltiples por Día
 **Implementado y probado:** ✅ 100% Autenticación + Seguridad + Facturación SUNAT SFS + Dashboard Financiero + Validador de Caja
 **Última actualización:** 2026-08-31
 
@@ -1014,11 +1014,28 @@ cierre que no son fraude, son ventas con tarjeta. Documentado también en
 `CierreCaja` (`backend/models.py`) para que quien implemente método de
 pago sepa que este cálculo necesita filtrar por ahí.
 
-### Solo puede haber UNA caja abierta a la vez — cerrar es obligatorio para reabrir
+### Turnos múltiples por día — solo UNA caja abierta a la vez
 
-Lo impone `POST /caja/abrir`: nunca se puede abrir una caja nueva encima de
-una sin cerrar. Esto es intencional y no se relaja — es la regla de negocio
-central del validador.
+Un restaurante puede abrir y cerrar caja varias veces el mismo día (turno
+mañana, turno tarde) — cada apertura/cierre es su propio "turno", con su
+propio reporte. La única regla que `POST /caja/abrir` impone es que no
+puede haber un turno abierto encima de otro: cerrar el turno actual es
+obligatorio antes de abrir el siguiente, pero abrir el siguiente **nunca**
+depende de si ya hubo otro cerrado ese mismo día — eso habría bloqueado
+turnos múltiples, que es justo lo que se quiere permitir.
+
+**Cálculo por turno, no por día completo:** ventas/gastos de un turno se
+calculan sobre la ventana de tiempo exacta en que estuvo abierto
+(`abierto_en` → `cerrado_en`, o "ahora" si sigue abierto) — nunca sobre el
+día calendario completo. Sumar por día completo haría que el segundo turno
+recontara las ventas que ya cerró el primero. Como solo hay un turno
+abierto a la vez, las ventanas de tiempo nunca se solapan, así que cada sol
+se cuenta en un único turno. Gastos usa `Compra.creado_en` (el timestamp
+real de cuándo se registró en el sistema) en vez de `Compra.fecha` (una
+fecha de calendario sin hora, elegida a mano por el admin) — `fecha` no
+tiene resolución suficiente para ubicar un gasto dentro de un turno
+específico. La tabla `cierres_caja` NO tiene `UniqueConstraint(cliente_id,
+fecha)` — varios turnos comparten fecha a propósito.
 
 ### Mesas y Cocina exigen caja abierta HOY (gate)
 
@@ -1062,8 +1079,9 @@ regla de "cerrar antes de reabrir" sigue exigiéndose sin excepción.
 GET  /api/caja/gate       → { hay_caja_abierta } — CUALQUIER rol, sin montos
 GET  /api/caja/estado     → snapshot en vivo: hay_caja_abierta, caja_abierta
                              (con ventas/gastos recalculados en cada consulta
-                             mientras sigue abierta), caja_cerrada_hoy si ya
-                             se cerró, es_atrasada si es de un día anterior
+                             mientras sigue abierta), ultimo_cierre_hoy (el
+                             más reciente si hubo varios), turnos_hoy (cuántos
+                             en total), es_atrasada si es de un día anterior
                              — admin-only
 POST /api/caja/abrir      → { saldo_inicial } — admin-only
 POST /api/caja/cerrar     → { saldo_contado, retiros_personales?, razon_discrepancia? } — admin-only
@@ -1072,14 +1090,20 @@ GET  /api/caja/historial  → últimos N cierres (no incluye la caja abierta) �
 
 ### Frontend: Admin → Caja
 
-Tres estados posibles en pantalla, el backend decide cuál mostrar (el
+Dos estados posibles en pantalla, el backend decide cuál mostrar (el
 frontend nunca infiere el estado localmente, para no desincronizarse si
 hay dos pestañas del admin abiertas a la vez):
 
-1. **Sin caja hoy** → formulario "Abrir caja"
-2. **Caja abierta** → resumen en vivo (ventas/gastos hasta ahora) +
-   formulario "Cerrar caja" (con aviso si es una caja atrasada de otro día)
-3. **Caja de hoy ya cerrada** → resultado + botón para reimprimir el reporte
+1. **Hay un turno abierto** → resumen en vivo (ventas/gastos hasta ahora) +
+   formulario "Cerrar caja" (con aviso si es un turno atrasado de otro día)
+2. **No hay turno abierto** → formulario "Abrir caja", **siempre disponible**
+   sin importar si ya hubo otro turno cerrado hoy. Si lo hubo, su resultado
+   se muestra arriba como confirmación rápida (con "Turno N de hoy" si es
+   el segundo o más) — nunca como excusa para bloquear abrir uno nuevo.
+
+El error "Ya hay un turno de caja abierto. Ciérralo antes de abrir otro."
+solo aparece si de verdad hay uno abierto en ESTE momento — jamás por
+haber cerrado uno antes en el mismo día.
 
 `frontend/js/caja.js` maneja el flujo; `frontend/js/cierre-caja-print.js`
 genera el reporte imprimible.

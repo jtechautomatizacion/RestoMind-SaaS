@@ -1,11 +1,16 @@
 /**
- * Validador de Caja — apertura/cierre diario (solo admin).
+ * Validador de Caja — apertura/cierre por TURNO (solo admin).
  *
- * Tres estados posibles en pantalla (ver backend/routes/caja.py):
- *  1. Sin caja hoy           -> formulario "Abrir caja"
- *  2. Caja abierta           -> resumen en vivo + formulario "Cerrar caja"
+ * Un restaurante puede abrir y cerrar varias veces el mismo día (turno
+ * mañana, turno tarde...) — la única regla es "no se puede abrir un turno
+ * nuevo mientras haya uno abierto". Dos estados posibles en pantalla (ver
+ * backend/routes/caja.py):
+ *
+ *  1. Hay un turno abierto -> resumen en vivo + formulario "Cerrar caja"
  *     (puede ser de un día anterior sin cerrar: es_atrasada=true)
- *  3. Caja de hoy ya cerrada -> resultado + botón para reimprimir
+ *  2. No hay turno abierto -> formulario "Abrir caja", SIEMPRE disponible
+ *     (si hubo un turno cerrado hoy, su resultado se muestra arriba como
+ *     confirmación rápida — nunca como excusa para bloquear abrir otro)
  *
  * El backend es la única fuente de verdad de en qué estado está el flujo
  * (GET /caja/estado) — el frontend nunca infiere el estado localmente,
@@ -66,8 +71,11 @@ function renderCaja(estadoCaja) {
         return;
     }
 
-    if (estadoCaja.caja_cerrada_hoy) {
-        const caja = estadoCaja.caja_cerrada_hoy;
+    // Sin turno abierto: si hubo uno cerrado hoy, se muestra como
+    // confirmación rápida — pero el formulario de abrir uno nuevo SIEMPRE
+    // se agrega debajo, nunca se reemplaza por el resumen.
+    if (estadoCaja.ultimo_cierre_hoy) {
+        const caja = estadoCaja.ultimo_cierre_hoy;
         const tpl = document.getElementById('tpl-caja-ya-cerrada');
         const nodo = tpl.content.cloneNode(true);
 
@@ -79,13 +87,17 @@ function renderCaja(estadoCaja) {
             .toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
         nodo.querySelector('[data-slot="esperado"]').textContent = formatCurrency(caja.saldo_esperado);
         nodo.querySelector('[data-slot="contado"]').textContent = formatCurrency(caja.saldo_contado);
+        if (estadoCaja.turnos_hoy > 1) {
+            nodo.querySelector('[data-slot="turnos-hoy"]').textContent =
+                ` · Turno ${estadoCaja.turnos_hoy} de hoy`;
+            nodo.querySelector('[data-slot="turnos-hoy"]').classList.remove('hidden');
+        }
 
         contenedor.appendChild(nodo);
-        return;
     }
 
-    const tpl = document.getElementById('tpl-caja-cerrada');
-    contenedor.appendChild(tpl.content.cloneNode(true));
+    const tplAbrir = document.getElementById('tpl-caja-cerrada');
+    contenedor.appendChild(tplAbrir.content.cloneNode(true));
 }
 
 async function confirmarAbrirCaja() {
@@ -153,7 +165,7 @@ function _datosNegocioParaReporte() {
 }
 
 function reimprimirCierreCaja() {
-    const caja = cajaEstadoActual && cajaEstadoActual.caja_cerrada_hoy;
+    const caja = cajaEstadoActual && cajaEstadoActual.ultimo_cierre_hoy;
     if (!caja) {
         showToast('No hay un cierre para mostrar', 'warning');
         return;
@@ -184,10 +196,15 @@ function renderHistorialCaja(historial) {
     container.innerHTML = historial.map(c => {
         const { icono, titulo } = _resumenEstadoCaja(c.estado);
         const signo = c.diferencia >= 0 ? '+' : '';
+        // Hora de cierre, no solo fecha: con varios turnos el mismo día,
+        // la fecha sola no alcanza para distinguir cuál es cuál.
+        const hora = c.cerrado_en
+            ? new Date(c.cerrado_en).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })
+            : '';
         return `
             <div class="admin-item">
                 <div class="admin-item-info">
-                    <h4>${icono} ${formatDate(c.fecha)}</h4>
+                    <h4>${icono} ${formatDate(c.fecha)}${hora ? ` · ${hora}` : ''}</h4>
                     <p>${titulo} · Diferencia: ${signo}${formatCurrency(c.diferencia)}</p>
                 </div>
                 <div class="admin-item-actions">

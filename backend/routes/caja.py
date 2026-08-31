@@ -1,40 +1,39 @@
 """
-Validador de Caja — apertura/cierre diario, solo admin.
+Validador de Caja — apertura/cierre por TURNO, solo admin.
 
-Flujo (ver CierreCaja en models.py para el porqué de dos pasos separados):
-  1. POST /caja/abrir   (mañana) — declara saldo_inicial
-  2. ...   el día opera normal (comandas, compras)  ...
-  3. POST /caja/cerrar  (noche)  — declara saldo_contado; el sistema calcula
-     ventas/gastos del día y la diferencia contra lo que "debería haber".
+Un restaurante puede tener varios turnos el mismo día (mañana/tarde) — cada
+uno es su propia apertura/cierre, con su propio reporte. Lo único que la
+app impone es "no se puede abrir un turno nuevo mientras haya uno abierto":
 
-Solo puede existir UNA caja abierta a la vez por restaurante (lo impone
-POST /caja/abrir): si el admin se olvida de cerrar un día, POST /caja/cerrar
-sigue apuntando a ESA caja pendiente aunque ya no sea "hoy" — nunca se cierra
-por accidente el día equivocado. Reabrir SIN cerrar la anterior está
-bloqueado siempre — es obligatorio cerrar primero.
+  1. POST /caja/abrir   — declara saldo_inicial, arranca el turno
+  2. ...   el turno opera normal (comandas, compras)  ...
+  3. POST /caja/cerrar  — declara saldo_contado; el sistema calcula
+     ventas/gastos DE ESE TURNO (no del día completo) y la diferencia
+     contra lo que "debería haber".
+  4. Se puede abrir el siguiente turno de inmediato — no hay que esperar
+     al día siguiente.
 
-Válvula de seguridad — auto-cierre de caja vencida (_auto_cerrar_si_vencida):
-Mesas y Cocina exigen una caja abierta HOY para operar (GET /caja/gate). Si
-eso se combinara con un bloqueo estricto de "no se puede abrir sin cerrar la
-anterior" y el admin genuinamente se olvidó una noche, el restaurante entero
+Ventas y gastos de un turno se calculan por VENTANA DE TIEMPO exacta
+(abierto_en -> cerrado_en, o "ahora" mientras sigue abierto), nunca por
+día calendario completo — con turnos múltiples, sumar por día completo
+haría que el segundo turno del día recontara las ventas que ya cerró el
+primero. Como los turnos nunca se solapan (solo uno "abierto" a la vez),
+ventanas de tiempo disjuntas garantizan que cada sol se cuenta una sola vez.
+
+Válvula de seguridad — auto-cierre de turno vencido (_auto_cerrar_si_vencida):
+Mesas y Cocina exigen un turno abierto HOY para operar (GET /caja/gate). Si
+el admin genuinamente se olvida de cerrar una noche, el restaurante entero
 quedaría congelado al día siguiente hasta que alguien lo note. Para evitar
-ese bloqueo total, cualquier consulta a /caja/estado, /caja/gate o
-/caja/abrir primero revisa si la caja abierta quedó de un día ANTERIOR al de
-hoy; si es así, se cierra sola con saldo_contado = saldo_esperado (no hay
-conteo físico real que usar) y queda marcada estado='cerrado_automatico'
-—nunca 'cuadrado'— para que quede clarísimo en el historial que ese cierre
-no fue validado por un conteo real y el admin debe revisarlo. Esto NO
-relaja la regla "hay que cerrar para volver a abrir": simplemente el
-sistema hace ese cierre pendiente por vos cuando ya pasó su día, en vez de
-dejarlo trabado para siempre.
-
-Ventas y gastos se calculan con el mismo criterio de zona horaria que el
-dashboard (backend/routes/dashboard.py): los timestamps de la BD son UTC,
-pero "el día" es el día LOCAL del restaurante — sin esto, una venta cobrada
-a las 22:33 en Lima se cuenta en el día equivocado.
+ese bloqueo total, /caja/estado, /caja/gate y /caja/abrir primero revisan si
+el turno abierto quedó de un día ANTERIOR al de hoy; si es así, se cierra
+solo con saldo_contado = saldo_esperado (no hay conteo físico real que usar)
+y queda marcado estado='cerrado_automatico' —nunca 'cuadrado'— para que
+quede clarísimo que ese cierre no fue validado por un conteo real. Esto NO
+afloja la regla "hay que cerrar para abrir otro": el sistema solo resuelve
+por vos el turno que quedó pendiente de un día que ya pasó.
 """
 
-from datetime import datetime, timedelta, date, time
+from datetime import datetime, timedelta, date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -65,23 +64,23 @@ def _hoy_local(tz_offset: int) -> date:
     return (datetime.utcnow() - desfase).date()
 
 
-def _rango_dia_local(fecha_local: date, tz_offset: int) -> tuple:
-    desfase = timedelta(minutes=tz_offset)
-    inicio_dt = datetime.combine(fecha_local, time.min) + desfase
-    fin_dt = datetime.combine(fecha_local, time.max) + desfase
-    return inicio_dt, fin_dt
+def _calcular_ventas_gastos_periodo(db: Session, cliente_id: str, desde_dt: datetime, hasta_dt: datetime) -> tuple:
+    """
+    Ventas y gastos DENTRO de la ventana exacta en que el turno estuvo
+    abierto — no del día calendario completo (ver docstring del módulo).
 
-
-def _calcular_ventas_gastos(db: Session, cliente_id: str, fecha_local: date, tz_offset: int) -> tuple:
-    inicio_dt, fin_dt = _rango_dia_local(fecha_local, tz_offset)
-
+    Gastos usa Compra.creado_en (el timestamp real de cuándo se registró en
+    el sistema), NO Compra.fecha (una fecha de calendario sin hora, elegida
+    a mano por el admin al crear el gasto) — fecha no tiene resolución
+    suficiente para ubicar un gasto dentro de un turno específico.
+    """
     ventas = (
         db.query(Comanda)
         .filter(
             Comanda.cliente_id == cliente_id,
             Comanda.estado == "cobrado",
-            Comanda.actualizado_en >= inicio_dt,
-            Comanda.actualizado_en <= fin_dt,
+            Comanda.actualizado_en >= desde_dt,
+            Comanda.actualizado_en <= hasta_dt,
         )
         .all()
     )
@@ -92,7 +91,8 @@ def _calcular_ventas_gastos(db: Session, cliente_id: str, fecha_local: date, tz_
         .filter(
             Compra.cliente_id == cliente_id,
             Compra.estado == "registrado",
-            Compra.fecha == fecha_local.isoformat(),
+            Compra.creado_en >= desde_dt,
+            Compra.creado_en <= hasta_dt,
         )
         .all()
     )
@@ -125,9 +125,10 @@ def _auto_cerrar_si_vencida(db: Session, cliente_id: str, tz_offset: int) -> Non
     hoy = _hoy_local(tz_offset)
     fecha_caja = date.fromisoformat(caja.fecha)
     if fecha_caja >= hoy:
-        return  # sigue siendo la caja de hoy — nada que auto-cerrar
+        return  # sigue siendo un turno de hoy — nada que auto-cerrar
 
-    ventas, gastos = _calcular_ventas_gastos(db, cliente_id, fecha_caja, tz_offset)
+    ahora = datetime.utcnow()
+    ventas, gastos = _calcular_ventas_gastos_periodo(db, cliente_id, caja.abierto_en, ahora)
     saldo_esperado = round(caja.saldo_inicial + ventas - gastos, 2)
 
     caja.ventas_cobradas = ventas
@@ -141,10 +142,10 @@ def _auto_cerrar_si_vencida(db: Session, cliente_id: str, tz_offset: int) -> Non
     caja.diferencia = 0.0
     caja.variacion_pct = 0.0
     caja.razon_discrepancia = (
-        "Cierre automático: nadie cerró la caja antes de terminar el día "
-        f"{caja.fecha}. No refleja un conteo físico real — revisar manualmente."
+        f"Cierre automático: este turno (abierto el {caja.fecha}) quedó sin cerrar "
+        "y ya pasó su día. No refleja un conteo físico real — revisar manualmente."
     )
-    caja.cerrado_en = datetime.utcnow()
+    caja.cerrado_en = ahora
     caja.cerrado_por = "sistema (cierre automático)"
     caja.estado = "cerrado_automatico"
 
@@ -164,15 +165,15 @@ def verificar_gate_caja(
     tz_offset: int = Depends(get_tz_offset),
 ):
     """
-    Semáforo para Mesas/Cocina: ¿hay caja abierta HOY? Sin validar_admin a
-    propósito — mozo/cocina también necesitan saber si pueden operar, y a
+    Semáforo para Mesas/Cocina: ¿hay un turno abierto HOY? Sin validar_admin
+    a propósito — mozo/cocina también necesitan saber si pueden operar, y a
     diferencia de /caja/estado esta ruta nunca expone montos (eso es
-    información financiera privada del admin, ver PRODUCTION_READINESS.md).
+    información financiera privada del admin).
     """
     _auto_cerrar_si_vencida(db, cliente_id, tz_offset)
 
     hoy = _hoy_local(tz_offset)
-    caja_hoy_abierta = (
+    turno_hoy_abierto = (
         db.query(CierreCaja)
         .filter(
             CierreCaja.cliente_id == cliente_id,
@@ -181,7 +182,7 @@ def verificar_gate_caja(
         )
         .first()
     )
-    return CajaGateResponse(hay_caja_abierta=bool(caja_hoy_abierta))
+    return CajaGateResponse(hay_caja_abierta=bool(turno_hoy_abierto))
 
 
 @router.get("/caja/estado", response_model=CajaEstadoResponse)
@@ -196,7 +197,7 @@ def obtener_estado_caja(
 
     hoy = _hoy_local(tz_offset)
 
-    # Como máximo una caja abierta a la vez (ver abrir_caja) — no hace
+    # Como máximo un turno abierto a la vez (ver abrir_caja) — no hace
     # falta filtrar por fecha acá.
     caja_abierta = (
         db.query(CierreCaja)
@@ -204,15 +205,19 @@ def obtener_estado_caja(
         .first()
     )
 
-    caja_cerrada_hoy = None
+    turnos_hoy_query = db.query(CierreCaja).filter(
+        CierreCaja.cliente_id == cliente_id, CierreCaja.fecha == hoy.isoformat()
+    )
+    turnos_hoy = turnos_hoy_query.count()
+
+    # El turno cerrado más reciente de hoy (si hay varios, el último) — solo
+    # como confirmación rápida en pantalla; el historial completo lista todos.
+    ultimo_cierre_hoy = None
     if not caja_abierta:
-        caja_cerrada_hoy = (
-            db.query(CierreCaja)
-            .filter(
-                CierreCaja.cliente_id == cliente_id,
-                CierreCaja.fecha == hoy.isoformat(),
-                CierreCaja.estado != "abierto",
-            )
+        ultimo_cierre_hoy = (
+            turnos_hoy_query
+            .filter(CierreCaja.estado != "abierto")
+            .order_by(CierreCaja.cerrado_en.desc())
             .first()
         )
 
@@ -222,7 +227,9 @@ def obtener_estado_caja(
     if caja_abierta:
         fecha_caja = date.fromisoformat(caja_abierta.fecha)
         es_atrasada = fecha_caja != hoy
-        ventas_hasta_ahora, gastos_hasta_ahora = _calcular_ventas_gastos(db, cliente_id, fecha_caja, tz_offset)
+        ventas_hasta_ahora, gastos_hasta_ahora = _calcular_ventas_gastos_periodo(
+            db, cliente_id, caja_abierta.abierto_en, datetime.utcnow()
+        )
 
     return CajaEstadoResponse(
         hay_caja_abierta=bool(caja_abierta),
@@ -230,7 +237,8 @@ def obtener_estado_caja(
         es_atrasada=es_atrasada,
         ventas_hasta_ahora=ventas_hasta_ahora,
         gastos_hasta_ahora=gastos_hasta_ahora,
-        caja_cerrada_hoy=caja_cerrada_hoy,
+        ultimo_cierre_hoy=ultimo_cierre_hoy,
+        turnos_hoy=turnos_hoy,
     )
 
 
@@ -245,29 +253,19 @@ def abrir_caja(
     validar_admin(db, usuario_actual, cliente_id)
     _auto_cerrar_si_vencida(db, cliente_id, tz_offset)
 
+    # Único requisito para abrir: que no haya YA un turno abierto (de hoy o
+    # de un día anterior — aunque a esta altura _auto_cerrar_si_vencida ya
+    # habrá resuelto cualquiera de un día anterior). Un turno cerrado, sea
+    # de hoy o de ayer, nunca bloquea abrir uno nuevo.
     ya_abierta = (
         db.query(CierreCaja)
         .filter(CierreCaja.cliente_id == cliente_id, CierreCaja.estado == "abierto")
         .first()
     )
     if ya_abierta:
-        hoy = _hoy_local(tz_offset)
-        if ya_abierta.fecha != hoy.isoformat():
-            raise HTTPException(
-                status_code=400,
-                detail=f"Tienes la caja del {ya_abierta.fecha} sin cerrar. Ciérrala antes de abrir una nueva.",
-            )
-        raise HTTPException(status_code=400, detail="Ya hay una caja abierta hoy.")
+        raise HTTPException(status_code=400, detail="Ya hay un turno de caja abierto. Ciérralo antes de abrir otro.")
 
     hoy = _hoy_local(tz_offset)
-    ya_cerrada_hoy = (
-        db.query(CierreCaja)
-        .filter(CierreCaja.cliente_id == cliente_id, CierreCaja.fecha == hoy.isoformat())
-        .first()
-    )
-    if ya_cerrada_hoy:
-        raise HTTPException(status_code=400, detail="La caja de hoy ya se cerró.")
-
     caja = CierreCaja(
         cliente_id=cliente_id,
         fecha=hoy.isoformat(),
@@ -294,23 +292,22 @@ def cerrar_caja(
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
     usuario_actual: str = Depends(get_usuario_actual),
-    tz_offset: int = Depends(get_tz_offset),
 ):
     validar_admin(db, usuario_actual, cliente_id)
 
-    # Cierra la que esté abierta (a lo mucho una), sea de hoy o atrasada —
-    # nunca se filtra por fecha=hoy: si se olvidó cerrar ayer, es esa
-    # caja la que hay que cerrar, no una de hoy que ni siquiera existe.
+    # Cierra el turno que esté abierto (a lo mucho uno), sea de hoy o
+    # atrasado — nunca se filtra por fecha=hoy: si se olvidó cerrar ayer,
+    # es ese turno el que hay que cerrar.
     caja = (
         db.query(CierreCaja)
         .filter(CierreCaja.cliente_id == cliente_id, CierreCaja.estado == "abierto")
         .first()
     )
     if not caja:
-        raise HTTPException(status_code=400, detail="No hay ninguna caja abierta. Ábrela primero.")
+        raise HTTPException(status_code=400, detail="No hay ningún turno de caja abierto. Ábrelo primero.")
 
-    fecha_caja = date.fromisoformat(caja.fecha)
-    ventas, gastos = _calcular_ventas_gastos(db, cliente_id, fecha_caja, tz_offset)
+    ahora = datetime.utcnow()
+    ventas, gastos = _calcular_ventas_gastos_periodo(db, cliente_id, caja.abierto_en, ahora)
 
     saldo_esperado = round(caja.saldo_inicial + ventas - gastos - payload.retiros_personales, 2)
     diferencia = round(payload.saldo_contado - saldo_esperado, 2)
@@ -324,7 +321,7 @@ def cerrar_caja(
     caja.diferencia = diferencia
     caja.variacion_pct = variacion_pct
     caja.razon_discrepancia = payload.razon_discrepancia
-    caja.cerrado_en = datetime.utcnow()
+    caja.cerrado_en = ahora
     caja.cerrado_por = usuario_actual
     caja.estado = _clasificar_estado(diferencia)
 
@@ -352,7 +349,9 @@ def historial_caja(
     return (
         db.query(CierreCaja)
         .filter(CierreCaja.cliente_id == cliente_id, CierreCaja.estado != "abierto")
-        .order_by(CierreCaja.fecha.desc())
+        # Con varios turnos el mismo día, ordenar solo por fecha no alcanza
+        # para dejarlos más-reciente-primero — cerrado_en como desempate.
+        .order_by(CierreCaja.fecha.desc(), CierreCaja.cerrado_en.desc())
         .limit(limit)
         .all()
     )

@@ -283,17 +283,24 @@ class Factura(Base):
 
 class CierreCaja(Base):
     """
-    Apertura/cierre de caja física — un registro por día por restaurante.
+    Apertura/cierre de caja física — un registro por TURNO (no por día: un
+    restaurante puede abrir y cerrar varias veces el mismo día, ej. turno
+    mañana / turno tarde — ver CLAUDE.md "Validador de Caja").
 
     Solo el admin abre y cierra (ver validar_admin en routes/caja.py). El
     flujo tiene DOS pasos separados en el tiempo, no un formulario único:
-    - Apertura (mañana): admin cuenta el dinero que hay para empezar y lo
-      declara. Sin esto no hay punto de partida contra el cual reconciliar.
-    - Cierre (noche): el sistema ya sabe cuánto se vendió/gastó ese día
-      (columnas calculadas, no ingresadas a mano); el admin solo declara
-      cuánto dinero HAY REALMENTE en la caja. La diferencia entre "debería
-      haber" y "hay" es la señal de fraude/error que este validador existe
-      para detectar (ver CLAUDE.md "Validador de Caja").
+    - Apertura: admin cuenta el dinero que hay para empezar y lo declara.
+      Sin esto no hay punto de partida contra el cual reconciliar.
+    - Cierre: el sistema ya sabe cuánto se vendió/gastó DURANTE ESE TURNO
+      (columnas calculadas, no ingresadas a mano — ver ventas_cobradas más
+      abajo); el admin solo declara cuánto dinero HAY REALMENTE en la caja.
+      La diferencia entre "debería haber" y "hay" es la señal de fraude/
+      error que este validador existe para detectar.
+
+    Solo puede haber UNA fila con estado='abierto' por cliente_id a la vez
+    (lo impone POST /caja/abrir, no una constraint de BD) — pero SÍ puede
+    haber varias filas cerradas con la misma `fecha` (varios turnos del
+    mismo día). Por eso `fecha` NO tiene UniqueConstraint.
 
     Simplificación deliberada del MVP: ventas_cobradas y gastos_efectivo
     asumen que TODO el dinero registrado en Comanda/Compra es efectivo — la
@@ -306,16 +313,18 @@ class CierreCaja(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     cliente_id = Column(String, ForeignKey("clientes.id"), nullable=False, index=True)
-    fecha = Column(String, nullable=False)  # YYYY-MM-DD, día LOCAL del restaurante
+    fecha = Column(String, nullable=False)  # YYYY-MM-DD, día LOCAL en que se ABRIÓ este turno
 
     # Apertura
     saldo_inicial = Column(Float, nullable=False)
     abierto_en = Column(DateTime, default=datetime.utcnow, nullable=False)
     abierto_por = Column(String, nullable=False)  # email del admin
 
-    # Acumulado del día — se calculan y congelan recién AL CERRAR (no se
+    # Acumulado del TURNO (ventana abierto_en -> cerrado_en, no el día
+    # calendario completo) — se calculan y congelan recién AL CERRAR (no se
     # recalculan después), para que el reporte impreso nunca cambie con el
-    # tiempo aunque se sigan registrando compras tarde esa noche.
+    # tiempo. Usar el día completo rompería con turnos múltiples: el
+    # segundo turno del día recontaría ventas que ya cerró el primero.
     ventas_cobradas = Column(Float, nullable=True)
     gastos_efectivo = Column(Float, nullable=True)
     retiros_personales = Column(Float, nullable=True)
@@ -341,9 +350,9 @@ class CierreCaja(Base):
     #   físico real — NO es una prueba de que cuadró, requiere revisión.
     estado = Column(String, default="abierto", nullable=False)
 
-    __table_args__ = (
-        UniqueConstraint("cliente_id", "fecha", name="uq_cliente_fecha_caja"),
-    )
+    # Sin UniqueConstraint(cliente_id, fecha) a propósito: varios turnos
+    # pueden compartir la misma fecha. "Solo una abierta a la vez" se
+    # valida en la aplicación (routes/caja.py), no en el esquema.
 
 
 class FacturaComanda(Base):

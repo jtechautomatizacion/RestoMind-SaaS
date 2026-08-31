@@ -135,6 +135,66 @@ def migrate():
                 else:
                     print(f"[OK] Columna '{columna}' ya existe")
 
+        # cierres_caja se creó con UNIQUE(cliente_id, fecha) — bloqueaba
+        # tener más de un turno (mañana/tarde) el mismo día. Se decidió
+        # permitir varios turnos por día (ver CLAUDE.md "Validador de
+        # Caja"), así que ese índice sobra y hay que quitarlo. SQLite no
+        # soporta "DROP CONSTRAINT": hay que recrear la tabla, mismo patrón
+        # que la migración de 'usuarios.email' más arriba.
+        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='cierres_caja'")
+        tabla_cierres_caja = cursor.fetchone()
+        if tabla_cierres_caja:
+            # El UNIQUE inline queda como CONSTRAINT dentro del propio SQL de
+            # creación de la tabla — SQLite le pone un nombre de ÍNDICE
+            # autogenerado (sqlite_autoindex_...) que NO es el nombre que se
+            # le dio al constraint, así que buscarlo por nombre de índice no
+            # sirve: hay que mirar el texto de la definición de la tabla.
+            if "uq_cliente_fecha_caja" in tabla_cierres_caja[0]:
+                print("Quitando UNIQUE(cliente_id, fecha) de cierres_caja (permite varios turnos por día)...")
+                cursor.execute("PRAGMA foreign_keys=off")
+                cursor.execute("""
+                    CREATE TABLE cierres_caja_new (
+                        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                        cliente_id VARCHAR NOT NULL,
+                        fecha VARCHAR NOT NULL,
+                        saldo_inicial FLOAT NOT NULL,
+                        abierto_en DATETIME NOT NULL,
+                        abierto_por VARCHAR NOT NULL,
+                        ventas_cobradas FLOAT,
+                        gastos_efectivo FLOAT,
+                        retiros_personales FLOAT,
+                        saldo_esperado FLOAT,
+                        saldo_contado FLOAT,
+                        diferencia FLOAT,
+                        variacion_pct FLOAT,
+                        razon_discrepancia VARCHAR,
+                        cerrado_en DATETIME,
+                        cerrado_por VARCHAR,
+                        estado VARCHAR NOT NULL,
+                        FOREIGN KEY(cliente_id) REFERENCES clientes (id)
+                    )
+                """)
+                cursor.execute("""
+                    INSERT INTO cierres_caja_new
+                        (id, cliente_id, fecha, saldo_inicial, abierto_en, abierto_por,
+                         ventas_cobradas, gastos_efectivo, retiros_personales,
+                         saldo_esperado, saldo_contado, diferencia, variacion_pct,
+                         razon_discrepancia, cerrado_en, cerrado_por, estado)
+                    SELECT id, cliente_id, fecha, saldo_inicial, abierto_en, abierto_por,
+                           ventas_cobradas, gastos_efectivo, retiros_personales,
+                           saldo_esperado, saldo_contado, diferencia, variacion_pct,
+                           razon_discrepancia, cerrado_en, cerrado_por, estado
+                    FROM cierres_caja
+                """)
+                cursor.execute("DROP TABLE cierres_caja")
+                cursor.execute("ALTER TABLE cierres_caja_new RENAME TO cierres_caja")
+                cursor.execute("CREATE INDEX ix_cierres_caja_cliente_id ON cierres_caja (cliente_id)")
+                cursor.execute("PRAGMA foreign_keys=on")
+                conn.commit()
+                print("[OK] cierres_caja ahora permite varios turnos por día")
+            else:
+                print("[OK] cierres_caja ya permite varios turnos por día")
+
         print("[OK] Migración completada")
     except Exception as e:
         print(f"[ERROR] Error en migración: {e}")

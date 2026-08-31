@@ -539,13 +539,17 @@ class CajaGateResponse(BaseModel):
 class CajaEstadoResponse(BaseModel):
     """
     Snapshot en vivo para pintar la pantalla de Caja sin que el admin tenga
-    que adivinar en qué paso del flujo está. Solo puede haber UNA caja
-    abierta a la vez (lo impone POST /caja/abrir) — por eso `caja_abierta`
-    no necesariamente es la de hoy: si el admin se olvidó de cerrar ayer,
-    sigue siendo la caja abierta hasta que la cierre (`es_atrasada=True`
-    avisa al frontend para mostrar ese caso distinto del flujo normal).
+    que adivinar en qué paso del flujo está. Solo puede haber UN turno
+    abierto a la vez (lo impone POST /caja/abrir) — por eso `caja_abierta`
+    no necesariamente es de hoy: si el admin se olvidó de cerrar ayer, sigue
+    siendo el turno abierto hasta que lo cierre (`es_atrasada=True` avisa al
+    frontend). Un restaurante puede tener varios turnos el mismo día
+    (mañana/tarde) — `turnos_hoy` cuenta cuántos hubo hoy en total, y
+    `ultimo_cierre_hoy` es solo el más reciente cerrado (el historial
+    completo lista todos). Abrir un turno nuevo NUNCA depende de si ya
+    hubo uno cerrado hoy — solo de que no haya uno abierto en este momento.
     ventas_hasta_ahora/gastos_hasta_ahora se recalculan en cada consulta
-    mientras la caja sigue abierta — a diferencia de los mismos campos en
+    mientras el turno sigue abierto — a diferencia de los mismos campos en
     `caja_abierta.ventas_cobradas` etc., que se congelan recién al cerrar.
     """
     hay_caja_abierta: bool
@@ -553,7 +557,8 @@ class CajaEstadoResponse(BaseModel):
     es_atrasada: bool = False
     ventas_hasta_ahora: float = 0
     gastos_hasta_ahora: float = 0
-    caja_cerrada_hoy: Optional[CierreCajaResponse] = None
+    ultimo_cierre_hoy: Optional[CierreCajaResponse] = None
+    turnos_hoy: int = 0
 
 
 # ============ FACTURACIÓN SUNAT ============
