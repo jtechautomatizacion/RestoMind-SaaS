@@ -31,6 +31,17 @@ Estos puntos hacen que la app **directamente no arranque** si falta algo:
 - [x] Cabeceras de seguridad en toda respuesta (`backend/middleware.py`):
   `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`,
   `Content-Security-Policy`, y `Strict-Transport-Security` cuando detecta HTTPS
+- [x] `requirements.txt` verificado contra un venv limpio (no solo el de
+  desarrollo) — corría fastapi/starlette años desactualizados con dos CVEs
+  de denegación de servicio conocidas en `python-multipart`. Ver commit
+  `89c7ef8`. **Repetir esta verificación cada vez que se actualice una
+  dependencia**: `python -m venv /tmp/venv_check && /tmp/venv_check/bin/pip
+  install -r requirements.txt && /tmp/venv_check/bin/pytest -q` — que pasen
+  los tests en el venv de desarrollo no prueba que `requirements.txt` esté
+  al día.
+- [x] La app no siembra el restaurante/admin de prueba (`admin@lamarisqueria.pe`
+  / `admin123`, contraseña pública en `backend/seed.py`) cuando
+  `ENVIRONMENT=production`
 - [x] SQLite en modo WAL (`backend/database.py`) — lectores y escritor no se
   bloquean entre sí; se activa solo, sin configuración
 
