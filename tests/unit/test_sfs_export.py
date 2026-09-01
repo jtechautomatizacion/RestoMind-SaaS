@@ -69,8 +69,9 @@ def _lineas(ruta):
     """
     from pathlib import Path
     crudo = Path(ruta).read_bytes().decode(settings.sfs_export_encoding)
-    # El último token de cada línea es el vacío que deja el pipe final.
-    return [linea.split("|")[:-1] for linea in crudo.rstrip("\r\n").split("\r\n")]
+    # Sin [:-1]: el '|' es separador INTERMEDIO, no hay pipe de cierre que
+    # deje un token vacío sobrante al final.
+    return [linea.split("|") for linea in crudo.rstrip("\r\n").split("\r\n")]
 
 
 # ---------- Cantidad de campos ----------
@@ -162,6 +163,99 @@ def test_leyenda_lleva_el_monto_en_letras(carpeta_sfs):
     campos = _lineas(_exportar(carpeta_sfs).archivo_ley)[0]
     assert campos[0] == "1000"  # Catálogo 52: Monto en Letras
     assert campos[1] == "SON NOVENTA CON 00/100 SOLES"
+
+
+# ---------- Separadores ----------
+
+def _linea_cruda(ruta) -> str:
+    from pathlib import Path
+    return Path(ruta).read_bytes().decode(settings.sfs_export_encoding).split("\r\n")[0]
+
+
+def test_el_pipe_es_separador_intermedio_no_de_cierre(carpeta_sfs):
+    """n campos dejan n-1 pipes. La cabecera de 18 campos sale con 17."""
+    r = _exportar(carpeta_sfs)
+    assert _linea_cruda(r.archivo_cab).count("|") == CAMPOS_CAB - 1 == 17
+    assert _linea_cruda(r.archivo_det).count("|") == CAMPOS_DET - 1 == 35
+    assert _linea_cruda(r.archivo_tri).count("|") == CAMPOS_TRI - 1 == 4
+    assert _linea_cruda(r.archivo_ley).count("|") == CAMPOS_LEY - 1 == 1
+
+
+def test_ninguna_linea_termina_en_pipe_salvo_por_campos_vacios(carpeta_sfs):
+    """La cabecera cierra con "2.0" (campo 18, siempre lleno) así que no
+    termina en pipe. El detalle SÍ termina en pipe, y no es un error: su
+    campo 36 (valor referencial) va vacío, así que el último pipe es el
+    separador que lo precede. Distinguir esos dos casos es justamente lo
+    que evita contar mal los campos."""
+    r = _exportar(carpeta_sfs)
+    assert not _linea_cruda(r.archivo_cab).endswith("|")
+    assert _linea_cruda(r.archivo_det).endswith("|")   # campo 36 vacío
+    assert not _linea_cruda(r.archivo_tri).endswith("|")
+    assert not _linea_cruda(r.archivo_ley).endswith("|")
+
+
+# ---------- Limpieza de texto ----------
+
+@pytest.mark.parametrize("entrada,esperado", [
+    ("Ceviche Clásico", "Ceviche Clasico"),
+    ("Piqueo Marino á é í ó ú", "Piqueo Marino a e i o u"),
+    ("PEÑA", "PENA"),
+    ("Señor Niño", "Senor Nino"),
+    ("Ají de Gallina", "Aji de Gallina"),
+    ("MÜLLER", "MULLER"),
+    ("sin nada raro", "sin nada raro"),
+    ("", ""),
+    (None, ""),
+])
+def test_limpiar_texto(entrada, esperado):
+    assert sfs_export.limpiar_texto(entrada) == esperado
+
+
+def test_limpiar_texto_deja_ascii_puro(carpeta_sfs):
+    """Un símbolo que no se descompone (emoji, €) se descarta: es
+    preferible perder ese carácter a mandarle al Facturador un byte que no
+    sabe interpretar."""
+    assert sfs_export.limpiar_texto("Café ☕ 20€").isascii()
+
+
+def test_el_archivo_entero_sale_en_ascii(carpeta_sfs):
+    """LA razón de ser de limpiar_texto: sin caracteres fuera de ASCII, el
+    archivo sale con los mismos bytes en UTF-8 que en ISO-8859-1, y deja de
+    importar cuál de los dos tenga configurado el Facturador. Una tilde mal
+    interpretada se ve impresa en la boleta que recibe el cliente."""
+    from pathlib import Path
+    r = _exportar(
+        carpeta_sfs,
+        nombre_comprador="MARÍA PEÑA ÑAÑEZ",
+        detalles=[{"plato_id": 1, "descripcion": "Ají de Gallina con Ñoquis",
+                   "cantidad": 1, "precio_unitario": 90.00, "subtotal": 90.00}],
+    )
+    for ruta in (r.archivo_cab, r.archivo_det, r.archivo_tri, r.archivo_ley):
+        crudo = Path(ruta).read_bytes()
+        assert crudo.decode("ascii"), f"{ruta} tiene bytes fuera de ASCII"
+        # La prueba de fondo: mismos bytes en los dos encodings.
+        texto = crudo.decode("ascii")
+        assert texto.encode("utf-8") == texto.encode("latin-1") == crudo
+
+
+def test_los_nombres_y_descripciones_llegan_limpios_al_archivo(carpeta_sfs):
+    r = _exportar(
+        carpeta_sfs,
+        nombre_comprador="MARÍA PEÑA",
+        detalles=[{"plato_id": 1, "descripcion": "Ají de Gallina",
+                   "cantidad": 1, "precio_unitario": 90.00, "subtotal": 90.00}],
+    )
+    assert _lineas(r.archivo_cab)[0][7] == "MARIA PENA"      # 8. rznSocialUsuario
+    assert _lineas(r.archivo_det)[0][4] == "Aji de Gallina"  # 5. desItem
+
+
+def test_el_monto_en_letras_tambien_sale_sin_tildes(carpeta_sfs):
+    """Es el campo con más acentos del comprobante ("VEINTIDÓS", "MILLÓN")
+    y va impreso en la boleta del cliente."""
+    r = _exportar(carpeta_sfs, subtotal=18.64, igv=3.36, total=22.00,
+                  detalles=[{"plato_id": 1, "descripcion": "Menu", "cantidad": 1,
+                             "precio_unitario": 22.00, "subtotal": 22.00}])
+    assert _lineas(r.archivo_ley)[0][1] == "SON VEINTIDOS CON 00/100 SOLES"
 
 
 # ---------- Serialización ----------

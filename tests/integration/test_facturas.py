@@ -123,7 +123,7 @@ def test_generar_factura_cabecera_tiene_los_18_campos_en_el_orden_del_spec(
     assert resp.status_code == 201, resp.text
 
     ruta_cab = sfs_dir / "10200812234-03-B001-00000001.cab"
-    campos = ruta_cab.read_text(encoding="latin-1").strip("\r\n").split("|")[:-1]  # último token: pipe final
+    campos = ruta_cab.read_text(encoding="latin-1").strip("\r\n").split("|")
 
     assert len(campos) == 18
     assert campos[0] == "0101"        # 1.  tipOperacion (venta interna)
@@ -167,13 +167,13 @@ def test_generar_factura_detalle_multiples_platos_cuadra_exacto_con_cabecera(
 
     ruta_cab = sfs_dir / "10200812234-03-B001-00000001.cab"
     ruta_det = sfs_dir / "10200812234-03-B001-00000001.det"
-    campos_cab = ruta_cab.read_text(encoding="latin-1").strip("\r\n").split("|")[:-1]
+    campos_cab = ruta_cab.read_text(encoding="latin-1").strip("\r\n").split("|")
 
     # read_text en modo texto normaliza cualquier fin de línea (\r\n, \r, \n)
     # a \n al leer (universal newlines) — separar por \n acá, no por \r\n,
     # sin importar qué se haya escrito en disco.
     lineas_det = [
-        linea.split("|")[:-1]
+        linea.split("|")
         for linea in ruta_det.read_text(encoding="latin-1").strip("\n").split("\n")
     ]
     assert len(lineas_det) == 2

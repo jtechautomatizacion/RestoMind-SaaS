@@ -38,13 +38,22 @@ los campos 34 y 35 nunca llegarían a su lugar y SUNAT rechazaría el
 comprobante. Por eso los bloques de ISC/Otros/ICBPER se emiten VACÍOS
 (un restaurante no los usa) pero CON sus separadores.
 
-DOS VALORES QUE CONVIENE COTEJAR CONTRA EL MANUAL DEL FACTURADOR
-----------------------------------------------------------------
-El Anexo define los campos pero no todos los detalles de serialización:
-  - el encoding del archivo (se usa settings.sfs_export_encoding,
-    latin-1 por defecto, la convención habitual de los planos de SUNAT)
-  - si cada línea lleva '|' final (se agrega; ver _linea)
-Ambos se cambian en un solo lugar si el Facturador los rechaza.
+SEPARADORES Y ENCODING
+----------------------
+El '|' es un separador INTERMEDIO: n campos dejan n-1 pipes, sin pipe de
+cierre. Una cabecera de 18 campos sale con 17 pipes. Consecuencia natural:
+si los últimos campos van vacíos, la línea igual termina en pipes seguidos
+— ese no es un pipe de cierre, es el separador del campo vacío que sigue,
+y tiene que estar para que la posición se respete.
+
+Todo el texto libre pasa por limpiar_texto(), que lo deja en ASCII puro
+(sin tildes, sin ñ). Eso vuelve IRRELEVANTE la discusión de si el archivo
+va en UTF-8 o en ISO-8859-1: sin caracteres fuera de ASCII, los dos
+encodings producen exactamente los mismos bytes. El default sigue siendo
+ISO-8859-1 (settings.sfs_export_encoding = "latin-1", que es su nombre en
+Python) por ser la convención de los planos de SUNAT, pero ya no hay forma
+de que una tilde salga mal impresa en la boleta del cliente por haber
+elegido el encoding equivocado.
 
 La extensión va en minúsculas. El Anexo la escribe ".CAB", pero ahí todo
 el nombre está en mayúsculas como notación de placeholder
@@ -58,6 +67,7 @@ alcance de este sistema. Por eso el estado resultante es
 'generado_localmente', nunca 'enviada_sunat' (ver backend/routes/facturas.py).
 """
 
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
@@ -116,8 +126,43 @@ def _monto(valor: float) -> str:
     return f"{round(valor, 2):.2f}"
 
 
+def limpiar_texto(valor: Optional[str]) -> str:
+    """Deja el texto en ASCII puro: quita tildes y convierte la ñ en n.
+
+    "Ceviche Clásico" -> "Ceviche Clasico", "PEÑA" -> "PENA".
+
+    Por qué, en un archivo tributario: los formatos planos de SUNAT no
+    declaran su encoding dentro del archivo, así que el Facturador lo
+    interpreta según lo que tenga configurado. Si RestoMind escribe una
+    "á" en UTF-8 (dos bytes) y el Facturador lee ISO-8859-1, esa letra
+    aparece como dos caracteres basura EN LA BOLETA IMPRESA del cliente.
+    Dejando solo ASCII, el archivo sale byte por byte idéntico en ambos
+    encodings y el problema deja de existir.
+
+    Una sola normalización NFKD resuelve las dos cosas: descompone "á" en
+    "a"+tilde y "ñ" en "n"+virgulilla, y después se descartan las marcas
+    combinantes. El paso final a ASCII saca cualquier símbolo que no se
+    descomponga (un "€" o un emoji en el nombre de un plato) — preferible
+    perder ese carácter a que el Facturador reciba un byte que no sabe
+    interpretar.
+    """
+    if not valor:
+        return ""
+    sin_marcas = "".join(
+        c for c in unicodedata.normalize("NFKD", valor)
+        if not unicodedata.combining(c)
+    )
+    return sin_marcas.encode("ascii", "ignore").decode("ascii")
+
+
 def _linea(*campos, esperados: int) -> str:
-    """Une campos con '|' y agrega un '|' final.
+    """Une los campos con '|' COMO SEPARADOR INTERMEDIO: n campos dejan
+    n-1 pipes, sin pipe final. Una cabecera de 18 campos sale con 17.
+
+    Ojo con la consecuencia natural: si los últimos campos van vacíos, la
+    línea igual TERMINA en pipes seguidos (".. |38.14|" para un campo 36
+    vacío). Eso no es un pipe de cierre — es el separador del campo vacío
+    que sigue, y tiene que estar para que la posición se respete.
 
     `esperados` no es decorativo: si un bloque de campos queda corrido (uno
     de más o de menos), todo lo que sigue cae en la posición equivocada y
@@ -129,7 +174,7 @@ def _linea(*campos, esperados: int) -> str:
             f"Se armó una línea con {len(campos)} campos y el formato exige "
             f"{esperados} — revisar contra el Anexo I de SUNAT."
         )
-    return "|".join("" if c is None else str(c) for c in campos) + "|"
+    return "|".join("" if c is None else str(c) for c in campos)
 
 
 # ============ MONTO EN LETRAS (archivo .ley) ============
@@ -238,7 +283,7 @@ def _construir_cabecera(
         "0000",                     # 5.  codLocalEmisor (domicilio fiscal principal)
         tipo_documento_comprador,   # 6.  tipDocUsuario
         numero_documento_comprador, # 7.  numDocUsuario
-        nombre_comprador,           # 8.  rznSocialUsuario
+        limpiar_texto(nombre_comprador),  # 8. rznSocialUsuario (sin tildes ni ñ)
         moneda,                     # 9.  tipMoneda
         _monto(igv),                # 10. sumTotTributos
         _monto(subtotal),           # 11. sumTotValVenta
@@ -296,7 +341,7 @@ def _construir_detalle_lineas(*, detalles: List[dict], subtotal_cabecera: float,
             item["cantidad"],                # 2.  ctdUnidadItem
             item["plato_id"],                # 3.  codProducto (id interno del plato)
             "",                              # 4.  codProductoSUNAT (condicional, sin usar)
-            item["descripcion"],             # 5.  desItem
+            limpiar_texto(item["descripcion"]),  # 5. desItem (sin tildes ni ñ)
             _monto(valor_unitario_sin_igv),  # 6.  mtoValorUnitario (sin IGV)
             _monto(igv_item),                # 7.  sumTotTributosItem
 
@@ -358,8 +403,12 @@ def _construir_leyendas_lineas(*, total: float, moneda: str) -> List[str]:
     """Leyendas del comprobante. La 1000 ("Monto en Letras") es obligatoria
     en todos, y es la única que aplica a una boleta de restaurante."""
     return [_linea(
-        CAT52_MONTO_EN_LETRAS,             # 1. codLeyenda
-        monto_en_letras(total, moneda),    # 2. desLeyenda
+        CAT52_MONTO_EN_LETRAS,                          # 1. codLeyenda
+        # Sin tildes: el monto en letras es el campo con MÁS acentos de
+        # todo el comprobante ("VEINTIDÓS", "MILLÓN", "DÓLARES"), y va
+        # impreso en la boleta que recibe el cliente. Es justo donde un
+        # encoding mal interpretado se ve.
+        limpiar_texto(monto_en_letras(total, moneda)),  # 2. desLeyenda
         esperados=CAMPOS_LEY,
     )]
 
