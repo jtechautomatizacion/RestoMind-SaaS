@@ -1,16 +1,20 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-sqlalchemy==2.0.23
-pydantic==2.5.0
-pydantic-settings==2.1.0
-python-multipart==0.0.6
-python-dotenv==1.0.0
-pytest==7.4.3
-pytest-asyncio==0.21.1
-httpx==0.25.2
-anthropic==0.25.0
-openpyxl==3.1.2
-PyJWT==2.8.0
-bcrypt==4.1.2
+fastapi==0.141.1
+starlette==1.6.0
+uvicorn[standard]==0.52.4
+sqlalchemy==2.0.52
+pydantic==2.13.5
+pydantic-settings==2.15.0
+# Fija >=0.0.27 a propósito: dos vulnerabilidades de denegación de servicio
+# conocidas en versiones anteriores (CVE-2024-24762, ReDoS en el parseo del
+# header Content-Type; GHSA-pp6c-gr5w-3c5g, sin límite en el tamaño de los
+# headers de un multipart) — la que este archivo pedía antes (0.0.6) es
+# vulnerable a las dos. Se usa para el upload de fotos de plato.
+python-multipart==0.0.32
+python-dotenv==1.2.3
+pytest==9.1.1
+httpx==0.28.1
+openpyxl==3.1.5
+PyJWT==2.13.0
+bcrypt==5.0.0
 Pillow==12.3.0
 firebase-admin==6.5.0
