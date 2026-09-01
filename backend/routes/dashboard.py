@@ -17,9 +17,10 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session
 from backend.database import get_db
-from backend.dependencies import get_cliente_id, get_tz_offset
+from backend.dependencies import get_cliente_id, get_tz_offset, get_usuario_actual
 from backend.models import Comanda, ComandaPlato, Compra
 from backend.schemas import DashboardResumen, DashboardSerieItem, DashboardTotales, TopPlatoItem, TopGastoItem
+from backend.utils.security import validar_admin
 
 router = APIRouter()
 
@@ -60,8 +61,15 @@ def resumen_financiero(
     hasta: str = Query(default=None),
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
+    usuario: str = Depends(get_usuario_actual),
     tz_offset: int = Depends(get_tz_offset),
 ):
+    # Ganancias, gastos y quién atendió cada comanda son del dueño, no del
+    # turno. Que el frontend muestre la pestaña Dinero solo al admin es UI,
+    # no seguridad: sin esto, cualquier mozo autenticado leía las finanzas
+    # completas del restaurante con un curl.
+    validar_admin(db, usuario, cliente_id)
+
     inicio, fin, inicio_dt, fin_dt, desfase = _calcular_rango(desde, hasta, dias, tz_offset)
 
     comandas_cobradas = (
@@ -195,8 +203,13 @@ def reporte_excel(
     hasta: str = Query(default=None),
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
+    usuario: str = Depends(get_usuario_actual),
     tz_offset: int = Depends(get_tz_offset),
 ):
+    # Mismo motivo que /dashboard/resumen: el Excel lleva exactamente los
+    # mismos datos financieros, en un archivo fácil de llevarse.
+    validar_admin(db, usuario, cliente_id)
+
     inicio, fin, inicio_dt, fin_dt, desfase = _calcular_rango(desde, hasta, dias, tz_offset)
 
     comandas_cobradas = (

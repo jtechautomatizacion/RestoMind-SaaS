@@ -1693,6 +1693,63 @@ def test_login_staff_bloquea_tras_varios_intentos_fallidos(test_client_real_auth
     assert resp.status_code == 429
 
 
+def _crear_staff_y_loguear(client, nombre, roles):
+    """Crea una cuenta de personal con el admin real y la loguea con su
+    código de acceso. Usa SOLO auth real (sin overrides de dependencias),
+    porque el bug que cubren estos tests vive justo en cómo el backend
+    resuelve la identidad del token."""
+    token_admin = _login_restaurante(client)
+    creado = client.post('/api/usuarios/staff', json={
+        "nombre": nombre, "password": "clave123", "roles": roles,
+    }, headers={"Authorization": f"Bearer {token_admin}"}).json()
+
+    login = client.post('/api/auth/login-staff', json={
+        "celular": creado["celular"], "password": "clave123",
+    })
+    assert login.status_code == 200, login.text
+    return creado, login.json()["access_token"]
+
+
+def test_staff_sigue_logueado_despues_de_recargar_la_pagina(test_client_real_auth, test_cliente):
+    """El staff no tiene email: su 'sub' en el token es el código de acceso.
+    /auth/me buscaba SOLO por email, así que devolvía 401 a todo el personal
+    y la app los expulsaba al login en cada recarga (initAuth lo llama al
+    arrancar) — entraban bien y a los segundos "se les caía" la sesión."""
+    creado, token = _crear_staff_y_loguear(
+        test_client_real_auth, "Ana Multitarea", ["cajero", "jefe_cocina"],
+    )
+    assert creado["email"] is None, "el staff se crea sin email; si esto cambia, revisar /auth/me"
+
+    me = test_client_real_auth.get('/api/auth/me', headers={"Authorization": f"Bearer {token}"})
+    assert me.status_code == 200, "la sesión del staff se cae al recargar"
+    assert sorted(me.json()["roles"]) == ["cajero", "jefe_cocina"]
+    # Sin email, se muestra el nombre para que el header no quede vacío.
+    assert me.json()["email"] == "Ana Multitarea"
+
+
+def test_staff_no_puede_entrar_a_endpoints_de_admin(test_client_real_auth, test_cliente):
+    """Contracara del test de arriba: que /auth/me ahora encuentre al staff
+    NO puede haberle dado permisos de admin. El 403 tiene que seguir ahí, y
+    ahora por el motivo correcto (su rol no es admin), no por un lookup que
+    no lo encontraba.
+
+    Ojo con qué se lista acá: GET /insumos y el historial de movimientos
+    NO son admin-only a propósito (a la cocina le sirve ver el stock, ver
+    test_insumos_requieren_rol_admin). Lo admin-only es la gestión de
+    cuentas, la caja y las ESCRITURAS de inventario."""
+    _, token = _crear_staff_y_loguear(test_client_real_auth, "Pedro Mozo", ["mozo"])
+    headers = {"Authorization": f"Bearer {token}"}
+
+    for ruta in ('/api/usuarios', '/api/caja/estado', '/api/dashboard/resumen'):
+        assert test_client_real_auth.get(ruta, headers=headers).status_code == 403, ruta
+
+    # Escritura de inventario: el mozo ve el stock pero no lo toca.
+    creado = test_client_real_auth.post('/api/insumos', json={
+        "nombre": "Arroz", "unidad": "kg", "cantidad_actual": 5, "cantidad_minima": 1,
+    }, headers=headers)
+    assert creado.status_code == 403
+
+
 def test_superadmin_login_bloquea_tras_varios_intentos_fallidos(test_client_real_auth, test_superadmin):
     from tests.conftest import TEST_SUPERADMIN_EMAIL
 

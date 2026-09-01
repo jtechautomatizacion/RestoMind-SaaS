@@ -1163,17 +1163,23 @@ Resumen de lo agregado:
 
 ## 🔍 AUDITORÍA DE SEGURIDAD PRE-PRODUCCIÓN (2026-08-31)
 
-**Estado:** 3 bloqueadores + 5 medios identificados. **Ninguno es arquitectónico** — todos arreglables en <100 líneas.
+**Estado:** 2 bloqueadores pendientes + 5 medios. **Ninguno es arquitectónico** — todos arreglables en <100 líneas.
 
 ### 🚨 BLOQUEADORES (Críticos antes de producción)
 
-**1. Dashboard Financiero accesible por cualquier rol (información privada)**
-- **Ubicación:** `backend/routes/dashboard.py` [:56-64, :191-199]
-- **Problema:** `GET /dashboard/resumen` y `GET /dashboard/reporte-excel` usan solo `get_cliente_id`, no `validar_admin`
-- **Riesgo:** Mozo/Cocina pueden leer **todas** las ganancias, gastos y detalles de quién atendió cada comanda
-- **Impacto:** Data leak financiera + incumplimiento de confidencialidad
-- **Fix:** Agregar `validar_admin()` call a ambos endpoints (2 líneas)
-- **Nota:** El frontend oculta la pestaña (UI, no seguridad) — irrelevante si hay curl
+**1. ✅ RESUELTO (2026-09-01) — Dashboard Financiero accesible por cualquier rol**
+- **Ubicación:** `backend/routes/dashboard.py`
+- **Era:** `GET /dashboard/resumen` y `GET /dashboard/reporte-excel` usaban solo
+  `get_cliente_id`, así que cualquier mozo autenticado leía todas las ganancias,
+  gastos y el detalle de quién atendió cada comanda — con un simple `curl`.
+- **Fix aplicado:** `validar_admin()` en ambos endpoints.
+- **Cubierto por:** `test_staff_no_puede_entrar_a_endpoints_de_admin`, que verifica
+  el 403 con un staff logueado de verdad (no con un override de dependencias).
+- **Cómo se encontró:** por accidente. Ese test se escribió para otra cosa —
+  confirmar que arreglar `/auth/me` no le hubiera dado permisos de admin al
+  staff— y de paso destapó que el dashboard llevaba meses abierto. Vale como
+  recordatorio de que los tests de permisos conviene escribirlos por rol real,
+  no por endpoint.
 
 **2. Header de zona horaria manipulable → cierre automático forzado**
 - **Ubicación:** `backend/routes/caja.py` [:113-158] + `backend/dependencies.py` [:55-71]
