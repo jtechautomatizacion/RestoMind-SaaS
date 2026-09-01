@@ -23,6 +23,26 @@ def test_respuestas_incluyen_cabeceras_de_seguridad(test_client):
     assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
 
 
+def test_static_no_se_cachea_sin_revalidar(test_client):
+    """frontend/sw.js promete 'network-first: siempre la versión más nueva'
+    para HTML/CSS/JS — pero sin Cache-Control, el navegador aplicaba SU
+    PROPIA caché heurística (con solo Last-Modified/ETag) y el fetch() del
+    Service Worker se resolvía contra esa copia sin tocar la red de verdad.
+    "Network-first" se volvía "cache-first silencioso": una cuenta podía
+    seguir corriendo JS de ANTES de un fix (ej. el que evita pedir
+    endpoints admin-only según el rol) sin que ni un F5 lo notara.
+
+    'no-cache' (pese al nombre) sí guarda la respuesta — obliga a
+    revalidarla contra el servidor en cada uso, así que un archivo sin
+    cambios sigue resolviéndose con un 304 casi gratis."""
+    resp = test_client.get('/static/js/app.js')
+    assert resp.headers.get("cache-control") == "no-cache"
+
+    # Solo /static/: la API ya es network-only por el propio Service
+    # Worker, no hace falta (ni conviene) tocarle la caché acá.
+    assert test_client.get('/health').headers.get("cache-control") is None
+
+
 def test_csp_permite_cargar_firebase_para_notificaciones_push(test_client):
     """El SDK de Firebase se sirve desde www.gstatic.com y habla con
     googleapis.com. Con el CSP original ('script-src self') el navegador

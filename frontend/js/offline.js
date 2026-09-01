@@ -73,7 +73,7 @@ async function sincronizarPendientes() {
     if (algunaSincronizada) {
         showToast('Pedidos pendientes sincronizados', 'success');
         if (typeof refreshMozo === 'function') refreshMozo();
-        if (typeof refreshCocina === 'function') refreshCocina();
+        if (typeof puedeVer === 'function' && puedeVer('cocina') && typeof refreshCocina === 'function') refreshCocina();
     }
 }
 

@@ -252,7 +252,12 @@ async function enviarComanda() {
         showToast('Comanda enviada a cocina', 'success');
         cerrarModal();
         await refreshMozo();
-        if (typeof refreshCocina === 'function') refreshCocina();
+        // Solo si este rol ve Cocina — mismo criterio que la línea de
+        // refreshDashboard más abajo. El backend igual lo permitiría (el
+        // monitor de cocina no es admin-only), pero para un mozo puro esa
+        // pestaña ni existe en el DOM visible: es una llamada de red que
+        // no sirve para nada.
+        if (puedeVer('cocina') && typeof refreshCocina === 'function') refreshCocina();
 
         // Dos papeles, uno por impresora: cocina (qué preparar) y la copia
         // del mozo (con precios, para su propio registro).

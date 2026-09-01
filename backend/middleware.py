@@ -76,6 +76,27 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "base-uri 'self'"
         )
 
+        # frontend/sw.js dice servir HTML/CSS/JS "network-first: siempre la
+        # versión más nueva cuando hay conexión" — pero StaticFiles no
+        # mandaba ningún Cache-Control, así que el navegador aplicaba SU
+        # PROPIA caché heurística (con solo Last-Modified/ETag, Chrome
+        # cachea por un tramo de la antigüedad del archivo). El fetch()
+        # que hace el Service Worker se resolvía contra esa copia sin
+        # tocar la red — "network-first" se volvía en la práctica
+        # "cache-first silencioso": una cuenta mozo podía seguir corriendo
+        # JS de ANTES de un fix (ej. el que evita pedir endpoints
+        # admin-only) sin que ni un F5 lo notara, porque nunca llegaba a
+        # preguntarle al servidor.
+        #
+        # "no-cache" (pese al nombre) SÍ permite guardar la respuesta —
+        # obliga a revalidarla contra el servidor en cada uso. Con el ETag
+        # ya presente, esa revalidación es un 304 casi gratis cuando el
+        # archivo no cambió, y trae el contenido nuevo de inmediato cuando
+        # sí cambió. Solo aplica a /static/: la API ya es network-only
+        # (sin cache en absoluto) por el Service Worker.
+        if request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+
         # HSTS solo tiene sentido si el sitio ya se sirve por HTTPS (lo
         # confirma el proxy que hace la terminación TLS, vía X-Forwarded-Proto
         # — ver PRODUCTION_READINESS.md). Mandarlo sobre HTTP plano no hace
