@@ -91,6 +91,14 @@ class Usuario(Base):
 
     # Relationships
     cliente = relationship("Cliente", back_populates="usuarios")
+    # Cascade a nivel ORM (no DB): SQLite no aplica ON DELETE CASCADE sin
+    # PRAGMA foreign_keys=ON, que esta app no activa. Con delete-orphan, el
+    # db.delete(usuario) de routes/usuarios.py limpia sus tokens push —
+    # si no, quedarían huérfanos y, peor, una cuenta nueva creada después
+    # con el mismo id heredaría los avisos del empleado anterior.
+    push_subscriptions = relationship(
+        "PushSubscription", back_populates="usuario", cascade="all, delete-orphan",
+    )
 
 
 class Categoria(Base):
@@ -353,6 +361,43 @@ class CierreCaja(Base):
     # Sin UniqueConstraint(cliente_id, fecha) a propósito: varios turnos
     # pueden compartir la misma fecha. "Solo una abierta a la vez" se
     # valida en la aplicación (routes/caja.py), no en el esquema.
+
+
+class PushSubscription(Base):
+    """
+    Token FCM (Firebase Cloud Messaging) de un dispositivo que quiere recibir
+    notificaciones push — hoy solo se usa para avisar de una comanda nueva,
+    incluso con la app minimizada (ver utils/push_notifications.py). Un
+    usuario puede tener varios tokens (un tablet fijo en cocina + su celular),
+    por eso no hay un token por fila de Usuario sino esta tabla aparte.
+
+    El vínculo es `usuario_id` (FK real), NUNCA el 'sub' del JWT: ese campo
+    vale el EMAIL para admin/superadmin pero el CÓDIGO DE ACCESO para el
+    staff (ver auth.py:login_staff, que hace crear_token(email=usuario.celular)),
+    y las cuentas de staff tienen email=NULL (usuarios.py:crear_staff). Una
+    versión anterior guardaba ese 'sub' en una columna `usuario_email` y
+    hacía el join contra Usuario.email — lo que en la práctica significaba
+    que jefe_cocina, el rol para el que existe este feature, NUNCA recibía
+    nada (NULL nunca matchea el código). La FK elimina esa clase de bug de
+    raíz y de paso permite el cascade de abajo.
+
+    El token en sí lo entrega el SDK de Firebase en el navegador — este
+    backend nunca genera ni valida su formato, solo lo guarda y se lo pasa
+    a la Admin SDK de Firebase al enviar.
+    """
+    __tablename__ = "push_subscriptions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cliente_id = Column(String, ForeignKey("clientes.id"), nullable=False, index=True)
+    usuario_id = Column(String, ForeignKey("usuarios.id"), nullable=False, index=True)
+    token = Column(String, nullable=False)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+
+    usuario = relationship("Usuario", back_populates="push_subscriptions")
+
+    __table_args__ = (
+        UniqueConstraint("usuario_id", "token", name="uq_push_usuario_token"),
+    )
 
 
 class FacturaComanda(Base):

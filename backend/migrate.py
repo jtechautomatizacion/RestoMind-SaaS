@@ -195,6 +195,26 @@ def migrate():
             else:
                 print("[OK] cierres_caja ya permite varios turnos por día")
 
+        # push_subscriptions: la primera versión vinculaba el token al 'sub'
+        # del JWT en una columna `usuario_email`. Ese valor es el email para
+        # admin pero el CÓDIGO DE ACCESO para el staff, y las cuentas de
+        # staff tienen email=NULL — o sea que jefe_cocina, el rol para el que
+        # existe el feature, nunca recibía nada. Ahora el vínculo es
+        # usuario_id (FK real). Se recrea la tabla en vez de migrar datos: un
+        # token FCM viejo no se puede reasociar de forma confiable (el 'sub'
+        # guardado puede no resolver a ningún usuario), y volver a
+        # registrarlo es automático la próxima vez que el navegador abre la
+        # app — no se pierde nada que el cliente note.
+        cursor.execute("PRAGMA table_info(push_subscriptions)")
+        cols_push = [row[1] for row in cursor.fetchall()]
+        if cols_push and "usuario_email" in cols_push:
+            print("Recreando push_subscriptions con usuario_id (FK)...")
+            cursor.execute("DROP TABLE push_subscriptions")
+            conn.commit()
+            print("[OK] push_subscriptions recreada (init_db la crea con el esquema nuevo)")
+        elif cols_push:
+            print("[OK] push_subscriptions ya usa usuario_id")
+
         print("[OK] Migración completada")
     except Exception as e:
         print(f"[ERROR] Error en migración: {e}")

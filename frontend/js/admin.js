@@ -31,7 +31,50 @@ function _thumbHtml(imagenUrl) {
 function initAdmin() {
     document.getElementById('compra-fecha').value = formatDateInput(new Date());
     _setupIconoPicker();
+    _initSwitchNotificacionesAdmin();
     refreshAdmin();
+}
+
+/**
+ * Switch de notificaciones del admin (opcional — a diferencia de cocina,
+ * que las activa solas y sin switch, ver push-notifications.js).
+ *
+ * Dos pasos a propósito: se pinta al instante con el valor local (para que
+ * el switch no aparezca "saltando" al cargar) y después se corrige con la
+ * verdad del servidor. Sin ese segundo paso, un navegador con localStorage
+ * limpio mostraba el switch apagado mientras los avisos seguían llegando.
+ */
+function _initSwitchNotificacionesAdmin() {
+    const input = document.getElementById('switch-notif-admin');
+    if (!input || typeof notificacionesAdminActivas !== 'function') return;
+
+    input.checked = notificacionesAdminActivas();
+
+    notificacionesAdminActivasEnServidor().then(activo => {
+        // null = no se pudo consultar (sin red): se deja lo que ya mostraba.
+        if (activo !== null) input.checked = activo;
+    });
+}
+
+async function onToggleNotificacionesAdmin(event) {
+    const input = event.target;
+    const quiereActivar = input.checked;
+
+    input.disabled = true;
+    try {
+        const quedoActivo = await toggleNotificacionesAdmin(quiereActivar);
+        input.checked = quedoActivo;
+
+        if (quiereActivar && !quedoActivo) {
+            showToast('No se pudo activar: revisa el permiso de notificaciones del navegador', 'error');
+        } else if (quiereActivar) {
+            showToast('Notificaciones activadas', 'success');
+        } else {
+            showToast('Notificaciones desactivadas', 'success');
+        }
+    } finally {
+        input.disabled = false;
+    }
 }
 
 async function refreshAdmin() {
@@ -484,6 +527,8 @@ function abrirModalNuevaCompra() {
     document.getElementById('modal-compra-title').textContent = 'Registrar Gasto';
     document.getElementById('form-compra').reset();
     document.getElementById('compra-fecha').value = formatDateInput(new Date());
+    document.getElementById('compra-monto').disabled = false;
+    document.getElementById('compra-monto-hint').classList.add('hidden');
     abrirModal('modal-compra');
 }
 
@@ -496,6 +541,8 @@ function editarCompra(compraId) {
     document.getElementById('compra-descripcion').value = compra.descripcion;
     document.getElementById('compra-categoria').value = compra.categoria || '';
     document.getElementById('compra-monto').value = compra.monto;
+    document.getElementById('compra-monto').disabled = true;
+    document.getElementById('compra-monto-hint').classList.remove('hidden');
     document.getElementById('compra-fecha').value = compra.fecha;
     abrirModal('modal-compra');
 }

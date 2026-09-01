@@ -7,7 +7,7 @@ CU-02 y CU-03: Gestión de Comandas
 from collections import OrderedDict
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.dependencies import get_cliente_id, get_usuario_actual
@@ -20,6 +20,7 @@ from backend.schemas import (
     MonitorPlatoItem,
 )
 from backend.services import comanda_to_response, actualizar_estado_comanda
+from backend.utils.push_notifications import notificar_nueva_comanda
 
 router = APIRouter()
 
@@ -86,6 +87,7 @@ def detalle_comanda(
 @router.post("/comandas", response_model=ComandaResponse, status_code=201)
 def crear_comanda(
     payload: ComandaCreate,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
     usuario: str = Depends(get_usuario_actual),
@@ -143,6 +145,13 @@ def crear_comanda(
 
     db.commit()
     db.refresh(comanda)
+
+    # En segundo plano: messaging.send_* es una llamada HTTP bloqueante a
+    # Google, y hacerla acá le sumaba ese round-trip a cada pedido que toma
+    # el mozo. La comanda ya está creada y visible en cocina por el camino
+    # normal — el push es un extra que puede tardar sin afectar a nadie.
+    background.add_task(notificar_nueva_comanda, cliente_id, payload.numero_mesa, comanda.id)
+
     return comanda_to_response(comanda)
 
 

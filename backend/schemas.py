@@ -428,9 +428,11 @@ class CompraCreate(BaseModel):
 
 
 class CompraUpdate(BaseModel):
+    # monto NO es editable a propósito: cambiar el monto de un gasto ya
+    # registrado rompería la trazabilidad de caja/dashboard para ese día.
+    # Si el monto está mal, se cancela el gasto y se crea uno nuevo.
     descripcion: Optional[str] = Field(default=None, min_length=1, max_length=100)
     categoria: Optional[str] = Field(default=None, max_length=50)
-    monto: Optional[float] = Field(default=None, gt=0)
     fecha: Optional[str] = None
 
 
@@ -527,6 +529,23 @@ class CierreCajaResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class PushTokenRequest(BaseModel):
+    """Token FCM que el navegador entrega tras pedir permiso de
+    notificaciones (ver frontend/js/push-notifications.js)."""
+    token: str = Field(..., min_length=10, max_length=500)
+
+
+class PushDesregistrarRequest(BaseModel):
+    """Baja de un dispositivo. `token` es opcional a propósito: sin él se dan
+    de baja TODOS los del usuario — el caso del navegador que perdió su
+    localStorage y ya no sabe qué token borrar (ver routes/push.py)."""
+    token: Optional[str] = Field(default=None, min_length=10, max_length=500)
+
+
+class PushEstadoResponse(BaseModel):
+    activo: bool
 
 
 class CajaGateResponse(BaseModel):

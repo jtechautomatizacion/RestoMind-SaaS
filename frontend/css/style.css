@@ -1812,6 +1812,20 @@ body {
     line-height: 1.5;
 }
 
+.form-group input:disabled {
+    background: var(--surface-alt);
+    color: var(--text-muted);
+    box-shadow: none;
+    cursor: not-allowed;
+}
+
+.form-hint {
+    display: block;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
 .form-group select {
     appearance: none;
     -webkit-appearance: none;
@@ -2040,6 +2054,120 @@ body {
 
 .tab-content.caja-bloqueada .caja-bloqueo-banner {
     display: flex;
+}
+
+/* ============ SWITCH DE NOTIFICACIONES (Admin > Personal) ============ */
+
+.notif-settings-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: 16px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.notif-settings-icon {
+    flex: 0 0 auto;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-md);
+    background: var(--surface-alt);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+}
+
+.notif-settings-icon svg {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.notif-settings-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.notif-settings-title {
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.notif-settings-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+/* Switch tipo iOS: input real (accesible, togglable con teclado) oculto
+   visualmente pero presente para foco/lectores de pantalla; el "riel" y la
+   "perilla" son dos capas con solo transform/box-shadow — misma restricción
+   de rendimiento que el resto del rediseño 3D (ver cabecera del archivo). */
+.switch {
+    position: relative;
+    flex: 0 0 auto;
+    width: 48px;
+    height: 28px;
+}
+
+.switch input {
+    position: absolute;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    cursor: pointer;
+    z-index: 1;
+}
+
+.switch-track {
+    position: absolute;
+    inset: 0;
+    background: var(--border);
+    border-radius: 999px;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.15);
+    transition: background 0.2s ease;
+}
+
+.switch-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #FFFFFF;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    transition: transform 0.2s ease;
+}
+
+.switch input:checked ~ .switch-track {
+    background: var(--accent-gradient);
+}
+
+.switch input:checked ~ .switch-thumb {
+    transform: translateX(20px);
+}
+
+.switch input:focus-visible ~ .switch-track {
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.15), 0 0 0 3px var(--surface-alt);
+}
+
+.switch input:disabled ~ .switch-track {
+    opacity: 0.5;
+}
+
+.switch input:disabled {
+    cursor: not-allowed;
 }
 
 /* ============ UTILS ============ */

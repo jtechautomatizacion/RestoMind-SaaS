@@ -65,6 +65,20 @@ class Settings(BaseSettings):
     facturacion_pe_api_key: str = ""
     facturacion_pe_url: str = "https://api.facturacion.pe/v1"
 
+    # Notificaciones push (Firebase Cloud Messaging) — avisan a jefe_cocina
+    # cuando entra una comanda nueva, incluso con la app minimizada.
+    # firebase_credentials_json: ruta al archivo de credenciales de cuenta de
+    # servicio que se descarga desde Firebase Console > Configuración del
+    # proyecto > Cuentas de servicio > "Generar nueva clave privada".
+    # Sin este valor, el envío de notificaciones se salta en silencio (ver
+    # utils/push_notifications.py) — la app funciona igual, solo sin avisos.
+    firebase_credentials_json: str = ""
+    # firebase_vapid_key: la "Clave pública" que Firebase Console genera en
+    # Configuración del proyecto > Cloud Messaging > Certificados push web.
+    # No es secreta (se sirve al navegador), pero vive en el backend para no
+    # tener que tocar el HTML/JS del frontend al configurarla.
+    firebase_vapid_key: str = ""
+
     # SMTP (para envío de emails)
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587

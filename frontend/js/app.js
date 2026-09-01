@@ -124,8 +124,10 @@ const api = {
         return this._fetch(endpoint, { method: 'PATCH', body: JSON.stringify(data || {}) });
     },
 
-    delete(endpoint) {
-        return this._fetch(endpoint, { method: 'DELETE' });
+    delete(endpoint, data) {
+        const options = { method: 'DELETE' };
+        if (data !== undefined) options.body = JSON.stringify(data);
+        return this._fetch(endpoint, options);
     },
 
     // Multipart, sin el header Content-Type: json de _fetch (el navegador
@@ -321,6 +323,12 @@ function aplicarPermisosRol() {
     }
 
     if (typeof renderMesas === 'function' && estado.currentTab === 'mozo') renderMesas();
+
+    // Cocina es el único rol al que le sirve un aviso incluso con la app
+    // minimizada (mozo/admin ya están mirando la pantalla al operar).
+    if (estado.rol === 'jefe_cocina' && typeof activarNotificacionesCocina === 'function') {
+        activarNotificacionesCocina();
+    }
 }
 
 function abrirSelectorRol() {

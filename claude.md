@@ -1,8 +1,10 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
 **Versión MVP:** 2.8 — Validador de Caja con Turnos Múltiples por Día
-**Implementado y probado:** ✅ 100% Autenticación + Seguridad + Facturación SUNAT SFS + Dashboard Financiero + Validador de Caja
+**Implementado y probado:** ✅ 100% Autenticación + Seguridad + Facturación SUNAT SFS + Dashboard Financiero (Ganancias Diarias 95% + Top 5 Platos 85%) + Validador de Caja 90%
 **Última actualización:** 2026-08-31
+**Auditoría:** ⚠️ 3 bloqueadores de seguridad identificados + 5 medios (ver sección "Auditoría de Seguridad Pre-Producción")
+**[NUEVA] Notificaciones push a Cocina:** Firebase Cloud Messaging — avisa a jefe_cocina con app minimizada, sin depender de impresora (ver sección "Notificaciones Push" más abajo). Requiere configurar un proyecto Firebase antes de usarse; sin configurar, el resto de la app funciona igual.
 
 > Este documento describe el diseño original (MVPv1). El estado real de la
 > implementación actual, bugs corregidos, features agregados y decisiones
@@ -1154,6 +1156,268 @@ Resumen de lo agregado:
   (CSP, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, y
   `Strict-Transport-Security` cuando detecta HTTPS vía `X-Forwarded-Proto`).
 - La contraseña mínima **sigue en 6 caracteres**, a propósito — no se tocó.
+
+---
+
+## 🔍 AUDITORÍA DE SEGURIDAD PRE-PRODUCCIÓN (2026-08-31)
+
+**Estado:** 3 bloqueadores + 5 medios identificados. **Ninguno es arquitectónico** — todos arreglables en <100 líneas.
+
+### 🚨 BLOQUEADORES (Críticos antes de producción)
+
+**1. Dashboard Financiero accesible por cualquier rol (información privada)**
+- **Ubicación:** `backend/routes/dashboard.py` [:56-64, :191-199]
+- **Problema:** `GET /dashboard/resumen` y `GET /dashboard/reporte-excel` usan solo `get_cliente_id`, no `validar_admin`
+- **Riesgo:** Mozo/Cocina pueden leer **todas** las ganancias, gastos y detalles de quién atendió cada comanda
+- **Impacto:** Data leak financiera + incumplimiento de confidencialidad
+- **Fix:** Agregar `validar_admin()` call a ambos endpoints (2 líneas)
+- **Nota:** El frontend oculta la pestaña (UI, no seguridad) — irrelevante si hay curl
+
+**2. Header de zona horaria manipulable → cierre automático forzado**
+- **Ubicación:** `backend/routes/caja.py` [:113-158] + `backend/dependencies.py` [:55-71]
+- **Problema:** `_auto_cerrar_si_vencida()` corre en `/caja/gate` (sin `validar_admin`) y usa `X-TZ-Offset` del cliente
+- **Explotación:** Mozo hace `GET /caja/gate` con `X-TZ-Offset: -840` (turno "de mañana") → turno del admin de hoy se cierra solo con `saldo_contado = saldo_esperado`
+- **Impacto:** Admin pierde su cierre real validado; audit_log dice `actor="sistema"` (no imputable)
+- **Fix:** 
+  1. Validar `X-TZ-Offset` contra el cliente (guardar su zona horaria al registrar)
+  2. O no usar header en `_auto_cerrar_si_vencida` — usar solo `fecha` de la BD
+  (3-5 líneas)
+
+**3. Race condition: dos turnos abiertos simultáneamente**
+- **Ubicación:** `backend/routes/caja.py` [:260-278] (check-then-insert sin lock)
+- **Problema:** Quitaste `UniqueConstraint(cliente_id, fecha)` para turnos múltiples, pero nunca agregaste constraint parcial sobre `estado='abierto'`
+- **Explotación:** Doble-click del admin o dos pestañas → dos filas con `estado='abierto'` en BD
+- **Impacto:** `.first()` elige arbitrariamente; las mismas ventas se cuentan en ambos turnos → caja nunca cuadra
+- **Fix:** Agregar a `CierreCaja` (models.py):
+  ```sql
+  db.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_cierres_caja_cliente_abierto 
+             ON cierres_caja(cliente_id) WHERE estado='abierto'")
+  ```
+  (1 línea en migrate.py)
+
+### 🟡 MEDIOS (Requieren atención, no bloquean)
+
+**4. Parámetros `desde`/`hasta` sin validar**
+- `?desde=2000-01-01&hasta=2030-12-31` → 500 (ValueError no capturado)
+- `?desde=2000-01-01&hasta=1999-01-01` → sin validar `desde <= hasta`
+- Risk: Genera queries enormes (30 años de datos), SQLite límite de variables
+
+**5. Dashboard vs Caja cuentan gastos diferente**
+- Dashboard: `Compra.fecha` (date, elegida a mano)
+- Caja: `Compra.creado_en` (timestamp real)
+- Efecto: Gasto de hoy con fecha de ayer → suma a ayer en dashboard, descuenta del turno de hoy en caja
+- Decisión: Documentado en docstring, pero confunde a usuarios
+
+**6. Dinero en Float (pérdida de precisión)**
+- `UMBRAL_CUADRADO = 0.01` trata diferencias <0.01 como "cuadrado"
+- Float de IEEE754 puede acumular error justo en esa escala (centavos)
+- Fix: O centavos en enteros (Decimal mejor, pero SQLite no lo entiende) o documentar que redondeos <0.01 son esperados
+
+**7. Umbral de discrepancia hardcodeado (5.0 PEN)**
+- No considera `clientes.moneda` (puede ser USD, PEN, etc.)
+- No escala con facturación del restaurante (5 soles en un restaurante de 20k/día es ruido; en uno de 500/día es 1% de margen)
+- Fix: Guardar `umbral_discrepancia` en tabla `clientes` o hacer dinámico por cliente
+
+**8. Cero tests para Validador de Caja**
+- 121 tests totales (cobertura 80%+), pero `test_caja*` no existe
+- Los 3 bloqueadores arriba los habría atrapado un test básico
+- Fix: Agregar ~20 tests (abrir → cerrar, turno vencido, doble-click, edge cases)
+
+### 🟢 MENORES (Correcciones menores)
+
+9. **Variación porcentual con saldo negativo:** Fórmula invierte el signo ([caja.py:314](backend/routes/caja.py#L314))
+10. **Top platos borrados:** `"Plato eliminado"` colapsa distintos platos bajo un mismo nombre
+11. **Polling de `/caja/gate`:** Race condition similar a #3, puede duplicar auditoría
+
+---
+
+**Resumen:** Los **3 bloqueadores son obligatorios** antes de llevar a producción. Los 5 medios son riesgos conocidos y documentables. Los 3 menores son correcciones cosméticas (tómalas si hay tiempo).
+
+---
+
+## 🔔 NOTIFICACIONES PUSH (Firebase Cloud Messaging)
+
+**Contexto:** un restaurante sin impresora de cocina no tiene forma de que
+el jefe_cocina se entere de una comanda nueva salvo mirar la pantalla todo
+el turno. Si minimiza la app (para ver WhatsApp, etc.) pierde el aviso —
+el polling normal y `navigator.vibrate()` se silencian en segundo plano por
+política del navegador. La única forma real de avisar con la app
+minimizada (o cerrada) es una notificación del sistema operativo vía
+**Web Push**, y el único proveedor gratis y sin backend propio es
+**Firebase Cloud Messaging (FCM)** — gratis hasta 100 millones de
+mensajes/mes, muy por encima de lo que un MVP necesita.
+
+### Requiere configuración externa (no funciona "de fábrica")
+
+Firebase necesita un proyecto real que solo el dueño puede crear (no es
+algo que el código pueda generar solo):
+
+1. Crear proyecto gratis en https://console.firebase.google.com
+2. **Configuración del proyecto → General → Tus apps → Agregar app Web** →
+   copiar el objeto `firebaseConfig` y pegarlo en:
+   - `frontend/js/push-notifications.js` (constante `FIREBASE_CONFIG`)
+   - `frontend/sw.js` (constante `FIREBASE_CONFIG_SW` — duplicada a
+     propósito: el Service Worker no puede importar el otro archivo)
+3. **Configuración del proyecto → Cloud Messaging → Certificados push
+   web** → "Generar par de claves" → pegar la clave pública en el `.env`
+   del backend como `FIREBASE_VAPID_KEY` (no es secreta, pero vive en el
+   backend para no tocar el JS al configurarla — se sirve vía
+   `GET /api/push/vapid-key`)
+4. **Configuración del proyecto → Cuentas de servicio → Generar nueva
+   clave privada** → descarga un `.json` → apuntar `FIREBASE_CREDENTIALS_JSON`
+   del `.env` del backend a esa ruta
+
+Sin estos 4 pasos, `activarNotificacionesCocina()` se salta en silencio
+(un `console.warn`, sin toast molesto) y el resto de la app sigue
+funcionando exactamente igual — el push es un plus, nunca una dependencia
+dura del flujo de comandas.
+
+### Cómo funciona
+
+```
+Cocinero abre la app, elige rol "Cocina"
+   ↓
+aplicarPermisosRol() detecta rol=jefe_cocina
+   ↓ (frontend/js/push-notifications.js)
+activarNotificacionesCocina() pide permiso del navegador, obtiene un
+token FCM del dispositivo, lo registra en POST /api/push/registrar
+   ↓
+Mozo crea una comanda → POST /api/comandas
+   ↓ (backend/routes/comandas.py, después del commit)
+notificar_nueva_comanda() busca tokens de usuarios rol=jefe_cocina de
+ESE cliente_id y envía un push a cada uno vía Firebase Admin SDK
+   ↓
+El celular/tablet del cocinero muestra la notificación del SO — con
+vibración y `requireInteraction: true` — incluso con la app minimizada
+```
+
+### Decisiones de diseño
+
+- **Solo jefe_cocina recibe el aviso.** Mozo y admin ya están mirando la
+  pantalla al operar (registran comandas, cobran) — el caso real es el
+  cocinero que puede tener el tablet minimizado.
+- **Nunca rompe la creación de la comanda.** `notificar_nueva_comanda()`
+  atrapa cualquier excepción (Firebase mal configurado, token vencido,
+  cuota agotada, timeout) y no propaga nada — mismo principio que
+  `registrar_evento()` con la auditoría. Un token individual inválido
+  tampoco frena el envío al resto de dispositivos registrados.
+- **Inicialización perezosa de Firebase Admin SDK.** Se intenta una sola
+  vez por proceso, recién en el primer envío (no al arrancar la app) —
+  así un `.env` sin configurar no bloquea el arranque del servidor.
+- **Un usuario puede tener varios tokens** (tabla `push_subscriptions`,
+  N:1 contra `Usuario`) — un tablet fijo en cocina + el celular personal
+  del cocinero, ambos reciben el aviso.
+- **`GET /api/push/vapid-key` es público** (cualquier usuario autenticado,
+  no solo admin) porque la clave VAPID no es secreta — solo hace falta
+  para que el navegador arme la suscripción push.
+
+### El vínculo es `usuario_id`, NUNCA el `sub` del JWT
+
+La primera versión guardaba en `push_subscriptions` el `sub` del token en una
+columna `usuario_email`, y al enviar hacía el join contra `Usuario.email`.
+Eso está mal en esta app: el `sub` vale el **email** para admin/superadmin
+pero el **código de acceso** para el staff (`auth.py:login_staff` hace
+`crear_token(email=usuario.celular, ...)`), y las cuentas de staff se crean
+con `email=None` (`usuarios.py:crear_staff`). Resultado: `NULL` nunca
+matcheaba el código, así que **jefe_cocina —el rol para el que existe todo
+este feature— no recibía absolutamente nada**, en silencio, mientras el
+admin sí (porque él sí loguea con email).
+
+Ahora `PushSubscription.usuario_id` es una FK real a `usuarios.id`, resuelta
+al registrar el token con `_resolver_usuario()`, que prueba contra las dos
+columnas (`email` O `celular`) siempre acotado al `cliente_id` del token. De
+paso habilita el cascade ORM (`Usuario.push_subscriptions`, con
+`delete-orphan`): eliminar una cuenta limpia sus tokens, en vez de dejarlos
+huérfanos para que una cuenta futura con el mismo id herede sus avisos.
+
+> **Lección para los tests:** esto pasó los 10 tests originales porque el
+> fixture de jefe_cocina le inventaba un email, algo que la app nunca hace.
+> El test codificó la suposición equivocada en vez del comportamiento real.
+> Ahora `test_push.py` crea el staff con `POST /api/usuarios/staff` (el
+> camino real) y el primer test del archivo verifica justamente que un
+> cocinero **sin email** recibe el aviso.
+
+### El envío corre en segundo plano
+
+`messaging.send_each_for_multicast()` es una llamada HTTP bloqueante a
+Google. Hacerla dentro de `POST /comandas` le sumaba ese round-trip a cada
+pedido que toma el mozo, contra el criterio de "<500ms" de este mismo
+documento. Ahora va en un `BackgroundTasks` de FastAPI: la comanda responde
+de inmediato y el push sale después. Por eso `notificar_nueva_comanda()`
+**abre su propia sesión de BD** — la del request ya está cerrada cuando el
+background task corre.
+
+Se usa `send_each_for_multicast` (una sola llamada para todos los tokens) en
+vez de un `send()` por dispositivo, y su respuesta por token permite
+**purgar los tokens muertos**: FCM los rota, y sin limpiarlos la tabla
+acumulaba tokens inválidos para siempre. Solo se borran los que fallan con
+`UnregisteredError`/`InvalidArgumentError` — un fallo transitorio (cuota,
+timeout) conserva el token, porque el dispositivo sigue siendo válido.
+
+### Endpoints (`backend/routes/push.py`)
+
+```
+GET  /api/push/vapid-key    → clave pública VAPID — exige sesión válida
+GET  /api/push/estado       → { activo } — ¿este usuario tiene algún dispositivo?
+POST /api/push/registrar    → { token } — registra el dispositivo
+POST /api/push/desregistrar → { token? } — da de baja uno, o TODOS si se omite
+```
+
+`desregistrar` es POST y no DELETE porque lleva cuerpo: un DELETE con body
+lo descartan varios proxies (y ni el `TestClient` de Starlette lo soporta).
+
+### Switch opcional para el admin (Admin > Personal)
+
+A diferencia de jefe_cocina (obligatorio, sin control en la UI), el admin
+puede o no querer que su celular le avise de cada comanda — ya ve todo
+desde el Dashboard, así que es una preferencia, no una necesidad. Se
+resuelve con un único switch (`.notif-settings-card` en `index.html`,
+arriba de "Nueva cuenta" en Admin > Personal) sin agregar una columna de
+preferencia aparte en la BD: **la fila en `push_subscriptions` ES el
+opt-in**. Para jefe_cocina la crea la activación automática al elegir ese
+rol; para admin la crea/borra el propio switch (`toggleNotificacionesAdmin()`
+en `push-notifications.js`, `onToggleNotificacionesAdmin()` en `admin.js`).
+`notificar_nueva_comanda()` (backend) por eso solo necesitó ampliar el
+filtro de `rol == "jefe_cocina"` a `rol.in_(("jefe_cocina", "admin"))` —
+una sola fuente de verdad, sin duplicar el estado "¿quiere avisos?" entre
+una tabla de suscripción y una tabla de preferencias que podrían
+desincronizarse.
+
+- **El servidor es la fuente de verdad del switch, no `localStorage`.** Se
+  pinta al instante con el valor local (`restomind_push_admin_activo`, para
+  que el switch no "salte" al cargar) y enseguida se corrige con
+  `GET /push/estado`. Sin ese segundo paso, un navegador con `localStorage`
+  limpio mostraba el switch apagado mientras los avisos seguían llegando.
+- **Apagar funciona aunque se haya perdido el `localStorage`.** Antes,
+  `_desactivarPush()` salía sin hacer nada si no encontraba el token
+  guardado — así que después de limpiar datos del sitio (o de usar el botón
+  `?reset` de la app, que hace `localStorage.clear()`) la fila quedaba viva
+  **para siempre** y el admin no tenía forma de apagar los avisos. Ahora la
+  baja sin token significa "dar de baja todos mis dispositivos".
+- **Apagar no solo borra del backend** — también llama a
+  `messaging.deleteToken()` para invalidar el token del lado del navegador.
+- Activar puede fallar (permiso denegado por el navegador): en ese caso el
+  switch vuelve solo a "apagado" con un toast explicando por qué, en vez de
+  quedar mostrando "activado" sin serlo.
+- El switch vive en Admin > Personal (no en un "Configuración" separado)
+  porque es, conceptualmente, una preferencia de la cuenta del admin — el
+  mismo lugar donde ve/edita su propia fila ("Tú").
+
+### Tests (`tests/integration/test_push.py`)
+
+16 tests. Los que cubren lo que de verdad se puede romper:
+
+- **jefe_cocina real (sin email, creado por `POST /usuarios/staff`) recibe
+  el aviso** — el bug que los tests originales no vieron
+- Varios dispositivos del mismo usuario → **un solo** envío a Firebase
+- El admin recibe solo si registró su token (opt-in); el mozo nunca
+- **Aislamiento multi-tenant**: un token de otro `cliente_id` no recibe
+  estas comandas
+- Eliminar una cuenta borra sus tokens (cascade)
+- Dar de baja **sin** token borra todos los dispositivos del usuario
+- La comanda se crea igual: sin tokens, sin Firebase configurado, y aunque
+  Firebase lance una excepción al enviar
+- Los 4 endpoints de push responden 401 sin sesión
 
 ---
 
