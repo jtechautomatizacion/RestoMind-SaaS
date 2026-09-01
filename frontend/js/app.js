@@ -62,6 +62,14 @@ function tabsPermitidas() {
     return [...set];
 }
 
+// ¿Este usuario puede ver esta pestaña? Se usa para NO llamar a endpoints
+// que su rol tiene prohibidos: el backend responde 403 (correctamente),
+// pero pedirlos igual llena la consola de errores y confunde al depurar un
+// problema real. La seguridad la pone el backend; esto solo evita el ruido.
+function puedeVer(tab) {
+    return tabsPermitidas().includes(tab);
+}
+
 // ============ API CLIENT ============
 
 // Minutos que hay que sumarle a la hora local para obtener UTC (Perú = 300).
@@ -190,7 +198,20 @@ async function init() {
     // Cada módulo se inicializa de forma aislada: si uno falla, no debe
     // dejar a los demás sin arrancar (pasó con un bug de CSS que dejaba
     // pestañas invisibles; un módulo roto no debería repetir ese efecto).
-    ['initMozo', 'initCocina', 'initDashboard', 'initAdmin'].forEach(fnName => {
+    //
+    // Solo se arrancan los módulos cuya pestaña este rol puede ver:
+    // initDashboard e initAdmin piden datos a endpoints admin-only nada más
+    // arrancar, así que con un mozo el backend devolvía 403 —correcto— pero
+    // la consola quedaba llena de errores rojos en cada carga, tapando
+    // cualquier problema de verdad.
+    const MODULOS = {
+        mozo: 'initMozo',
+        cocina: 'initCocina',
+        dashboard: 'initDashboard',
+        admin: 'initAdmin',
+    };
+    Object.entries(MODULOS).forEach(([tab, fnName]) => {
+        if (!puedeVer(tab)) return;
         try {
             if (typeof window[fnName] === 'function') window[fnName]();
         } catch (err) {

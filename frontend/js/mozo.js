@@ -447,7 +447,9 @@ async function cobrarMesaActual() {
     showToast(`Cobrado ${formatCurrency(resultado.total_cobrado)} · Mesa ${resultado.mesa_numero} libre`, 'success');
     cerrarModalCuenta();
     await refreshMozo();
-    if (typeof refreshDashboard === 'function') refreshDashboard();
+    // Solo si este rol ve el Dashboard: un mozo/cajero cobrando dispararía
+    // si no una llamada admin-only que el backend rechaza con 403.
+    if (puedeVer('dashboard') && typeof refreshDashboard === 'function') refreshDashboard();
 
     // Sin await a propósito: la boleta se genera en paralelo, de fondo,
     // exactamente igual que el ticket de cocina en print.js no bloquea la

@@ -7,7 +7,7 @@
  * la versión vieja hasta cerrar todas las pestañas).
  */
 
-const CACHE_NAME = 'restomind-v30';
+const CACHE_NAME = 'restomind-v31';
 const STATIC_ASSETS = [
     '/static/index.html',
     '/static/css/style.css',
@@ -108,6 +108,18 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
     const { request } = event;
 
+    // Todo lo que no sea de este origen se deja pasar SIN tocar: no se
+    // llama a respondWith, así que el navegador lo resuelve por su cuenta.
+    //
+    // Es lo que necesita el SDK de Firebase (se sirve desde gstatic.com):
+    // al interceptarlo, el fetch() de más abajo lo convertía en una
+    // "conexión" hecha por el Service Worker, y entonces le aplicaba
+    // connect-src en vez de script-src. El navegador la bloqueaba y el SDK
+    // nunca cargaba — con un ERR_FAILED confuso que parecía un problema de
+    // red. Cachear un origen ajeno tampoco aporta nada: es de otro
+    // servidor, no parte de la app.
+    if (!request.url.startsWith(self.location.origin)) return;
+
     // API: siempre red, nunca cache (los datos deben ser frescos)
     if (request.url.includes('/api/')) {
         event.respondWith(
@@ -119,13 +131,11 @@ self.addEventListener('fetch', event => {
         return;
     }
 
-    // La extensión de DevTools/otras extensiones del navegador inyectan
-    // requests con esquema chrome-extension:// que pasan por acá — la
-    // Cache API los rechaza siempre ("Request scheme ... is unsupported").
-    // Sin este filtro, cache.put() los intenta igual y explota en cada
-    // fetch como promesa sin capturar (el error que se ve en consola).
-    // Cache API tampoco acepta requests que no sean GET.
-    const cacheable = request.method === 'GET' && request.url.startsWith(self.location.origin);
+    // El origen ya quedó filtrado arriba (eso descarta de paso los
+    // chrome-extension:// que inyectan las extensiones del navegador, que
+    // la Cache API rechaza siempre). Acá solo queda excluir lo que no sea
+    // GET, que la Cache API tampoco acepta.
+    const cacheable = request.method === 'GET';
 
     // Estáticos: red primero, cache como respaldo offline
     event.respondWith(
