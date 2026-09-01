@@ -1772,7 +1772,10 @@ def test_staff_no_puede_entrar_a_endpoints_de_admin(test_client_real_auth, test_
     _, token = _crear_staff_y_loguear(test_client_real_auth, "Pedro Mozo", ["mozo"])
     headers = {"Authorization": f"Bearer {token}"}
 
-    for ruta in ('/api/usuarios', '/api/caja/estado', '/api/dashboard/resumen'):
+    for ruta in (
+        '/api/usuarios', '/api/caja/estado', '/api/dashboard/resumen',
+        '/api/facturas', '/api/facturas/pendientes', '/api/facturas/1',
+    ):
         assert test_client_real_auth.get(ruta, headers=headers).status_code == 403, ruta
 
     # Escritura de inventario: el mozo ve el stock pero no lo toca.

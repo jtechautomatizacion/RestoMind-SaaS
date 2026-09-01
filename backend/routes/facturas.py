@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session
 
 from backend.config import settings
 from backend.database import get_db
-from backend.dependencies import get_cliente_id, get_tz_offset
+from backend.dependencies import get_cliente_id, get_tz_offset, get_usuario_actual
 from backend.models import Cliente, Comanda, Factura, FacturaComanda
 from backend.schemas import (
     FacturaDetalleItem,
@@ -50,6 +50,7 @@ from backend.schemas import (
     VentaSinBoletaItem,
 )
 from backend.utils.facturacion_pe import FacturacionPeError, generar_boleta
+from backend.utils.security import validar_admin
 from backend.utils.sfs_export import SfsExportError, exportar_comprobante
 
 router = APIRouter()
@@ -426,6 +427,7 @@ def reintentar_factura(
 def listar_pendientes(
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
+    usuario: str = Depends(get_usuario_actual),
 ):
     """Todo lo que quedó cobrado pero sin boleta válida — el punto de
     recuperación cuando la emisión falla (Facturador apagado, carpeta mal
@@ -442,6 +444,11 @@ def listar_pendientes(
         alcanzó el servidor) -> hay que emitirla de cero con
         POST /facturas/generar sobre esas comandas.
     """
+    # Solo la pantalla Admin > Boletas llama a esto, y lo que devuelve
+    # (totales por mesa, boletas con error) es la misma clase de dato
+    # financiero que el Dashboard — mismo criterio, mismo candado.
+    validar_admin(db, usuario, cliente_id)
+
     facturas_con_error = [
         FacturaPendienteItem(
             id=f.id,
@@ -500,7 +507,13 @@ def obtener_factura(
     factura_id: int,
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
+    usuario: str = Depends(get_usuario_actual),
 ):
+    """El flujo real de cobro no llama a esto: mozo.js usa directo la
+    respuesta de POST /facturas/generar para imprimir. Esta ruta queda para
+    consulta administrativa — mismo candado que el resto de lo financiero."""
+    validar_admin(db, usuario, cliente_id)
+
     factura = db.query(Factura).filter(Factura.id == factura_id, Factura.cliente_id == cliente_id).first()
     if not factura:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
@@ -513,7 +526,9 @@ def listar_facturas(
     limit: int = 50,
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
+    usuario: str = Depends(get_usuario_actual),
 ):
+    validar_admin(db, usuario, cliente_id)
     limit = max(1, min(limit, 200))
     facturas = (
         db.query(Factura)
