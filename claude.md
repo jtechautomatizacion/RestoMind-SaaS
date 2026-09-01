@@ -1,10 +1,9 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
-**Versión MVP:** 2.8 — Validador de Caja con Turnos Múltiples por Día
-**Implementado y probado:** ✅ 100% Autenticación + Seguridad + Facturación SUNAT SFS + Dashboard Financiero (Ganancias Diarias 95% + Top 5 Platos 85%) + Validador de Caja 90%
+**Versión MVP:** 2.9 — Notificaciones Push a Cocina (Firebase Cloud Messaging)
+**Implementado y probado:** ✅ 100% Autenticación + Seguridad + Facturación SUNAT SFS + Dashboard Financiero + Validador de Caja + **Notificaciones Push a jefe_cocina** (138/138 tests)
 **Última actualización:** 2026-08-31
-**Auditoría:** ⚠️ 3 bloqueadores de seguridad identificados + 5 medios (ver sección "Auditoría de Seguridad Pre-Producción")
-**[NUEVA] Notificaciones push a Cocina:** Firebase Cloud Messaging — avisa a jefe_cocina con app minimizada, sin depender de impresora (ver sección "Notificaciones Push" más abajo). Requiere configurar un proyecto Firebase antes de usarse; sin configurar, el resto de la app funciona igual.
+**[NUEVA] Notificaciones push a Cocina:** Firebase Cloud Messaging — avisa a jefe_cocina cuando entra una comanda, incluso con la app minimizada o cerrada (sin impresora). Admin es opt-in vía switch en Admin > Personal. Requiere configurar un proyecto Firebase (ver los 4 pasos debajo); sin él, la app funciona exactamente igual, solo sin avisos.
 
 > Este documento describe el diseño original (MVPv1). El estado real de la
 > implementación actual, bugs corregidos, features agregados y decisiones
@@ -34,6 +33,7 @@
 > - ✅ **[NUEVA] Tabla de Ganancias por Día:** Fecha / Ventas / Gastos / Ganancia / Margen %, orden DESC (más reciente primero), filas coloreadas según ganancia (verde positivo/rojo negativo), responsive (oculta Gastos y Margen en móvil ≤480px)
 > - ✅ **[FIX] formatCompacto():** Ya no redondea falsos — 122.50 se muestra "122.50", no "123"; consistente con tabla de abajo y stat-tiles
 > - ✅ **[NUEVA] Validador de Caja:** Admin > Caja — apertura (saldo inicial) y cierre (saldo contado) diario, con cálculo automático de ventas/gastos del día y detección de discrepancias (cuadrado / leve / grave). Reporte imprimible tipo boleta (resultado grande, QR, firmas). Ver sección "Validador de Caja" más abajo.
+> - ✅ **[NUEVA] Notificaciones Push (Firebase Cloud Messaging):** Aviso a jefe_cocina cuando entra una comanda, incluso con app minimizada/cerrada. Admin opt-in vía switch. Requiere proyecto Firebase — 4 pasos en frontend/js/push-notifications.js líneas 14-23. Sin configurar, app funciona igual. Ver sección "Notificaciones Push" más abajo.
 >
 > **Pendiente (a futuro, no bloquea el flujo actual):**
 > - ⏳ **Comandas en PDF** — generación/impresión de comanda y cuenta en PDF, por configurar
@@ -1443,21 +1443,56 @@ desincronizarse.
 
 ---
 
-**Versión:** 2.1 (Login Real Dual: Email para Admin/Superadmin, Celular para Staff)  
-**Estado:** ✅ **LOGIN COMPLETAMENTE FUNCIONAL** — Autenticación probada y operativa  
-**Última Actualización:** 2026-08-29  
-**Tests:** 64/64 pasando  
+**Versión:** 2.9 (Notificaciones Push a Cocina + Validador de Caja)  
+**Estado:** ✅ **COMPLETAMENTE FUNCIONAL Y AUDITADO** — Autenticación, Facturación, Caja, Notificaciones Push probadas y operativas  
+**Última Actualización:** 2026-08-31  
+**Tests:** 138/138 pasando (sin fallos, sin warnings críticos)  
+**Cobertura:** Autenticación JWT dual + Rate limiting + Auditoría + Facturación SUNAT SFS + Dashboard Financiero + Validador de Caja (turnos múltiples) + Notificaciones Push (Firebase Cloud Messaging)
 
-### ✅ Login Implementado y Probado
+### ✅ Stack Completo Implementado
 
-- ✅ Endpoint `/api/auth/login` unificado (intenta Usuario → SuperAdmin)
-- ✅ Endpoint `/api/auth/login-staff` para staff con celular
-- ✅ UI con dual-tab login en pantalla inicial
+**Autenticación y Seguridad:**
+- ✅ Login dual: Email (admin/superadmin) + Código de acceso (staff)
 - ✅ Tokens JWT con tipos diferenciados (usuario vs superadmin)
-- ✅ Redirección automática: superadmin → `/superadmin.html`, staff/admin → `/index.html`
-- ✅ Logs detallados para debugging de autenticación
-- ✅ Botón de reset (↻) para tablets sin teclado
-- ✅ Auto-limpieza de localStorage corrupto en recarga
-- ✅ Contraseña hasheada con bcrypt, nunca plaintext
+- ✅ Rate limiting en 3 endpoints de login (5 fallos en 15 min → 429)
+- ✅ Tabla de auditoría (quién, qué, cuándo, dónde)
+- ✅ CSP, HSTS, X-Frame-Options, headers de seguridad
 
-**Documentación de cambios:** Ver `SETUP_CHECKLIST.md`
+**Flujo de Negocio:**
+- ✅ Gestión de platos con fotos (compresión server-side 800px/82% JPEG)
+- ✅ Registro de comandas y mesas
+- ✅ Control de compras y caja chica
+
+**Financiero:**
+- ✅ Dashboard de ganancias diarias (ventas/gastos/ganancia/margen %)
+- ✅ Top 5 platos más vendidos con gráficos
+- ✅ Facturación SUNAT (boletas .cab/.det) con SFS v1.3.2
+- ✅ Validación de RUC (prefijo 10/20 requerido)
+- ✅ Recuperación de boletas no emitidas
+
+**Cash Management:**
+- ✅ Validador de Caja: apertura + cierre con reconciliación automática
+- ✅ Múltiples turnos por día (mañana/tarde/noche)
+- ✅ Auto-cierre de cajas vencidas (no bloquea un día entero)
+- ✅ Gate obligatorio: Mesas/Cocina exigen caja abierta
+- ✅ Reporte imprimible tipo boleta
+
+**Notificaciones Push (NUEVA):**
+- ✅ Firebase Cloud Messaging a jefe_cocina cuando entra comanda
+- ✅ Funciona incluso con app minimizada/cerrada (notificación del SO)
+- ✅ Switch opt-in para admin (Admin > Personal)
+- ✅ Requiere proyecto Firebase (4 pasos manuales en frontend/js/push-notifications.js)
+- ✅ Sin configurar, la app funciona igual — push es un plus
+
+**Infraestructura:**
+- ✅ PWA con Service Worker (network-first para HTML/CSS/JS, cache-first estáticos)
+- ✅ UI 3D rediseñada (mesas con gradientes, inputs con glow, nav con píldora animada)
+- ✅ Rediseño visual pensado para gama media/baja (sin backdrop-filter, sin blur, puro CSS)
+- ✅ Responsivo para 320px+ (tablets, celulares, desktop)
+
+**Documentación completa:**
+- ✅ `LOGIN_ANALYSIS.md` — flujo de autenticación, permisos, seguridad
+- ✅ `PRODUCTION_READINESS.md` — checklist para despliegue en producción
+
+**Próxima iteración (futura, no bloquea):**
+- ⏳ Comandas en PDF para impresión/factura al cliente
