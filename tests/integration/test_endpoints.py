@@ -282,9 +282,21 @@ def test_crear_compra_y_editar_mismo_dia(test_client, test_cliente):
     assert resp.status_code == 201
     compra_id = resp.json()["id"]
 
-    resp = test_client.patch(f'/api/compras/{compra_id}', json={"monto": 90.0})
+    resp = test_client.patch(f'/api/compras/{compra_id}', json={"descripcion": "Pescado congelado"})
     assert resp.status_code == 200
-    assert resp.json()["monto"] == 90.0
+    assert resp.json()["descripcion"] == "Pescado congelado"
+
+
+def test_editar_compra_ignora_intento_de_cambiar_monto(test_client, test_cliente):
+    from datetime import datetime
+    payload = {"descripcion": "Pescado rojo", "categoria": "Insumos", "monto": 85.5, "fecha": datetime.utcnow().date().isoformat()}
+    compra_id = test_client.post('/api/compras', json=payload).json()["id"]
+
+    # monto no es un campo de CompraUpdate: si el cliente lo manda igual
+    # (payload manual, no desde la UI), Pydantic lo descarta como campo extra.
+    resp = test_client.patch(f'/api/compras/{compra_id}', json={"monto": 999.0})
+    assert resp.status_code == 200
+    assert resp.json()["monto"] == 85.5
 
 
 def test_crear_compra_fecha_futura_falla(test_client, test_cliente):
