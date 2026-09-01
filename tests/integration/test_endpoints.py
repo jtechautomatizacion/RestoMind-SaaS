@@ -23,6 +23,29 @@ def test_respuestas_incluyen_cabeceras_de_seguridad(test_client):
     assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
 
 
+def test_csp_permite_cargar_firebase_para_notificaciones_push(test_client):
+    """El SDK de Firebase se sirve desde www.gstatic.com y habla con
+    googleapis.com. Con el CSP original ('script-src self') el navegador
+    bloqueaba esa carga y las notificaciones a cocina quedaban muertas EN
+    SILENCIO — el backend enviaba, pero ningún dispositivo llegaba a
+    registrar su token. No lo atrapó ningún test porque solo se verificaba
+    que el header existiera, no que permitiera lo que la app necesita."""
+    csp = test_client.get('/health').headers["content-security-policy"]
+    assert "https://www.gstatic.com" in csp, "el SDK de Firebase no podría cargar"
+    assert "https://fcm.googleapis.com" in csp, "el registro del token push fallaría"
+
+
+def test_csp_sigue_bloqueando_origenes_de_terceros(test_client):
+    """La excepción para Firebase se abrió host por host a propósito: si
+    alguien la relaja a 'https:' entero (o a '*'), cualquier script externo
+    podría inyectarse. Este test falla si eso pasa."""
+    csp = test_client.get('/health').headers["content-security-policy"]
+    assert "script-src 'self' 'unsafe-inline' https://www.gstatic.com;" in csp
+    assert "*" not in csp
+    assert "object-src 'none'" in csp
+    assert "frame-ancestors 'none'" in csp
+
+
 # ============ AUTENTICACIÓN ============
 
 def test_login_correcto_devuelve_token(test_client_real_auth, test_cliente):

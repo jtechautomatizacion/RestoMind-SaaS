@@ -41,12 +41,29 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # subir el archivo — sin "blob:" el navegador bloquea esa preview
         # (y cualquier otra que use el mismo mecanismo) aunque la subida en
         # sí funcione bien.
+        #
+        # Los dos hosts de Google son EXCLUSIVAMENTE para Firebase Cloud
+        # Messaging (notificaciones push a cocina, ver
+        # frontend/js/push-notifications.js y sw.js):
+        #   - www.gstatic.com  → de ahí se sirve el SDK de Firebase, tanto en
+        #     la página (<script src>) como dentro del Service Worker
+        #     (importScripts). Sin esto el navegador bloquea la carga y el
+        #     push queda muerto en silencio: la app funciona, pero cocina
+        #     nunca recibe el aviso de comanda nueva.
+        #   - *.googleapis.com → las llamadas que el SDK hace para registrar
+        #     el dispositivo y recibir mensajes (fcm/firebaseinstallations).
+        # Se listan host por host a propósito, en vez de abrir "https:"
+        # entero: si mañana se cuela un script de otro origen, sigue
+        # bloqueado.
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline'; "
+            "script-src 'self' 'unsafe-inline' https://www.gstatic.com; "
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: blob:; "
-            "connect-src 'self'; "
+            "connect-src 'self' https://fcm.googleapis.com "
+            "https://firebaseinstallations.googleapis.com "
+            "https://firebaseremoteconfig.googleapis.com; "
+            "worker-src 'self'; "
             "object-src 'none'; "
             "frame-ancestors 'none'; "
             "base-uri 'self'"
