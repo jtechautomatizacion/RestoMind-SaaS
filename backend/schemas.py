@@ -934,3 +934,39 @@ class VentaSinBoletaItem(BaseModel):
 class FacturasPendientesResponse(BaseModel):
     facturas_con_error: List[FacturaPendienteItem]
     ventas_sin_boleta: List[VentaSinBoletaItem]
+
+
+# ============ AGENTE DE DESCARGA (PC del restaurante) ============
+
+class ComprobanteParaDescargar(BaseModel):
+    """Un comprobante listo para que el agente lo deposite en la carpeta
+    del Facturador SUNAT.
+
+    Los cuatro archivos viajan JUNTOS, en el mismo objeto, y no en cuatro
+    descargas separadas: el Facturador necesita los cuatro para procesar la
+    boleta, y bajarlos de a uno abre la ventana para que una caída de red
+    deje un comprobante incompleto en la carpeta. Pesan menos de 1 KB en
+    total, así que no hay razón para separarlos.
+    """
+    id: int
+    nombre_base: str  # RUC-tipo-serie-correlativo, sin extensión
+    numero_boleta: str
+    cab: str
+    det: str
+    tri: str
+    ley: str
+
+
+class AgentePendientesResponse(BaseModel):
+    comprobantes: List[ComprobanteParaDescargar]
+
+
+class AgenteConfirmarRequest(BaseModel):
+    ids: List[int] = Field(..., min_length=1)
+
+
+class AgentePingResponse(BaseModel):
+    """Para que el instalador valide el token sin bajar comprobantes."""
+    cliente_id: str
+    cliente_nombre: str
+    pendientes: int

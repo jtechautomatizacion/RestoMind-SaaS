@@ -266,6 +266,23 @@ def migrate():
             else:
                 print("[OK] Índice único de turno abierto ya existe")
 
+        # facturas.descargado_en: cuándo el agente de la PC del restaurante
+        # confirmó que los cuatro archivos llegaron al Facturador. Las
+        # boletas que ya existían quedan en NULL, o sea "pendientes de
+        # entregar" — correcto: se generaron cuando RestoMind corría en la
+        # misma máquina que el Facturador, así que nunca pasaron por el
+        # agente. Si alguna vez se apunta el agente a esta base, las va a
+        # bajar de nuevo; son 18 archivos, y el Facturador ignora lo que ya
+        # procesó.
+        if cols_facturas := [row[1] for row in cursor.execute("PRAGMA table_info(facturas)").fetchall()]:
+            if "descargado_en" not in cols_facturas:
+                print("Agregando columna 'descargado_en' a facturas...")
+                cursor.execute("ALTER TABLE facturas ADD COLUMN descargado_en DATETIME")
+                conn.commit()
+                print("[OK] Columna 'descargado_en' agregada")
+            else:
+                print("[OK] Columna 'descargado_en' ya existe")
+
         print("[OK] Migración completada")
     except Exception as e:
         print(f"[ERROR] Error en migración: {e}")

@@ -19,6 +19,13 @@ restomind.db-wal
 # puede llevar rutas o datos de la BD real.
 *.log
 
+# Archivos que el agente de la PC del restaurante genera o completa.
+# config.json lleva el TOKEN de ese local en claro; descargados.txt es el
+# registro de qué comprobantes ya se entregaron, propio de esa máquina.
+# Solo se versiona config.example.json, con placeholders.
+agente/config.json
+agente/descargados.txt
+
 # Fotos subidas por el usuario: son datos de instancia, no del repo.
 # El endpoint las crea al vuelo (backend/routes/platos.py); solo se
 # versiona la carpeta vacía (.gitkeep).

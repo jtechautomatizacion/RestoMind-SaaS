@@ -7,9 +7,15 @@ esa identidad — cada ruta que las usa (casi todas) queda protegida sin
 que haya que tocar el archivo de esa ruta.
 """
 
+from datetime import datetime
 from typing import Optional
+
 from fastapi import Depends, Header, HTTPException
-from backend.auth import decodificar_token
+from sqlalchemy.orm import Session
+
+from backend.auth import decodificar_token, verificar_password
+from backend.database import get_db
+from backend.models import AgenteToken
 
 
 def _payload_del_token(authorization: Optional[str] = Header(default=None)) -> dict:
@@ -50,6 +56,45 @@ def get_superadmin_email(payload: dict = Depends(_payload_del_token)) -> str:
     if payload.get("tipo") != "superadmin":
         raise HTTPException(status_code=403, detail="Esta acción requiere una sesión de administrador general")
     return payload["sub"]
+
+
+def get_cliente_id_agente(
+    x_agente_token: Optional[str] = Header(default=None, alias="X-Agente-Token"),
+    db: Session = Depends(get_db),
+) -> str:
+    """
+    Autentica al agente que corre en la PC del restaurante (ver
+    routes/agente.py) y devuelve su cliente_id, para que las consultas se
+    filtren igual que en el resto de la app.
+
+    No usa JWT a propósito: el agente no es una sesión de usuario. Un JWT
+    expiraría a las 12 h (nadie va a estar re-logueando una PC en el salón
+    de un restaurante), daría acceso a toda la API del tenant desde una
+    máquina que no controlamos, y no se podría revocar.
+
+    El token se compara con bcrypt contra los hashes guardados. Eso implica
+    recorrer los tokens activos en vez de buscar por índice — es O(n) sobre
+    la cantidad de agentes dados de alta (uno o dos por restaurante), y a
+    cambio el token nunca queda almacenado en claro. Si algún día son
+    miles, se le antepone un prefijo identificador al token para poder
+    buscar la fila directo y verificar un solo hash.
+    """
+    if not x_agente_token:
+        raise HTTPException(status_code=401, detail="Falta el token del agente")
+
+    for agente in db.query(AgenteToken).filter(AgenteToken.estado == "activo").all():
+        if verificar_password(x_agente_token, agente.token_hash):
+            # Deja rastro de que este agente sigue vivo, para poder detectar
+            # desde el servidor uno que dejó de reportarse (PC apagada, sin
+            # internet, tarea programada borrada) antes de que el
+            # restaurante llame porque no le salen las boletas.
+            agente.ultimo_uso_en = datetime.utcnow()
+            db.commit()
+            return agente.cliente_id
+
+    # Mismo mensaje para "no existe" y "revocado": a un cliente no
+    # autenticado no se le confirma si un token existió alguna vez.
+    raise HTTPException(status_code=401, detail="Token de agente inválido")
 
 
 def get_tz_offset(x_tz_offset: Optional[str] = Header(default=None, alias="X-TZ-Offset")) -> int:

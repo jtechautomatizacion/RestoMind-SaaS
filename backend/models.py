@@ -364,6 +364,15 @@ class Factura(Base):
     qr_code = Column(Text, nullable=True)  # data URI base64, puede ser largo
     codigo_hash = Column(String, nullable=True)  # Hash/CDR que devuelve SUNAT
     archivo_local = Column(String, nullable=True)  # Ruta del .cab escrito para el Facturador SUNAT
+    # Cuándo el agente de la PC del restaurante confirmó que los cuatro
+    # archivos llegaron a la carpeta del Facturador (ver routes/agente.py).
+    # Nulo = generado en el VPS pero todavía sin entregar.
+    #
+    # Es el registro DURABLE de qué se entregó: el agente lleva su propio
+    # control local para no escribir dos veces, pero ese control vive en una
+    # PC de restaurante que se puede reinstalar. Sin esta columna, perder esa
+    # PC significaría no poder saber qué boletas nunca llegaron a SUNAT.
+    descargado_en = Column(DateTime, nullable=True)
 
     # pendiente: recién creada, aún no se llamó al proveedor (o llamada en curso)
     # enviada_sunat: SUNAT la aceptó
@@ -523,6 +532,42 @@ class PushSubscription(Base):
     __table_args__ = (
         UniqueConstraint("usuario_id", "token", name="uq_push_usuario_token"),
     )
+
+
+class AgenteToken(Base):
+    """
+    Credencial del agente que corre en la PC del restaurante y baja los
+    comprobantes SUNAT para dejárselos al Facturador (ver routes/agente.py).
+
+    Por qué un token propio y no el JWT de un usuario:
+    - Un JWT expira a las 12 h; el agente tiene que poder trabajar meses sin
+      que nadie toque esa PC.
+    - Un JWT de admin daría acceso a TODO el restaurante (caja, personal,
+      finanzas) desde una PC que está en el salón de un local. Este token
+      solo sirve para las rutas de /api/agente/*.
+    - Un JWT no se puede revocar (limitación conocida, ver
+      PRODUCTION_READINESS.md). Este sí: se marca estado='revocado' y deja
+      de funcionar en el próximo request.
+
+    Se guarda HASHEADO con bcrypt, igual que una contraseña: vive en el
+    disco de una PC ajena, así que hay que poder revocarlo pero nunca
+    volver a leerlo. Se muestra una sola vez, al generarlo con
+    backend/scripts/crear_token_agente.py.
+    """
+    __tablename__ = "agente_tokens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cliente_id = Column(String, ForeignKey("clientes.id"), nullable=False, index=True)
+    # Para distinguirlos si un restaurante tiene más de una caja con su
+    # propio Facturador ("Caja principal", "Terraza").
+    nombre = Column(String, nullable=False)
+    token_hash = Column(String, nullable=False)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+    # Permite ver desde el VPS si un agente dejó de reportarse (PC apagada,
+    # sin internet, tarea programada borrada) ANTES de que el restaurante
+    # llame porque no le salen las boletas.
+    ultimo_uso_en = Column(DateTime, nullable=True)
+    estado = Column(String, default="activo")  # activo | revocado
 
 
 class FacturaComanda(Base):
