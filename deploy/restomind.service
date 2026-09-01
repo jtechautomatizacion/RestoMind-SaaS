@@ -1,0 +1,31 @@
+[Unit]
+Description=RestoMind API (FastAPI + Uvicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=restomind
+Group=restomind
+WorkingDirectory=/home/restomind/app
+EnvironmentFile=/home/restomind/app/.env
+# Un solo worker, sin --workers: backend/utils/rate_limit.py guarda los
+# intentos fallidos de login en memoria del proceso. Con más de un worker,
+# cada uno lleva su propio contador y el límite de "5 fallos" se vuelve
+# "5 x cantidad de workers" — pasar a varios workers requiere antes migrar
+# ese contador a algo compartido (Redis). Escucha solo en loopback: Nginx
+# es la única puerta pública (ver deploy/nginx.conf.template).
+ExecStart=/home/restomind/app/venv/bin/uvicorn backend.app:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+# Endurecimiento estándar de systemd — no le da a este proceso más de lo
+# que necesita (no puede escalar privilegios, ni tocar /home de otros
+# usuarios, ni el resto del sistema de archivos salvo lo que declara acá).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/restomind/app
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,55 @@
+# Reverse proxy para RestoMind — Nginx delante de Uvicorn (que escucha solo
+# en 127.0.0.1:8000, ver restomind.service).
+#
+# Antes de usar: reemplazá TU_DOMINIO por el dominio real (buscar y
+# reemplazar en todo el archivo), copialo a /etc/nginx/sites-available/,
+# symlink a sites-enabled/, y corré certbot (ver deploy/RUNBOOK.md):
+#
+#   sudo cp deploy/nginx.conf.template /etc/nginx/sites-available/restomind
+#   sudo sed -i 's/TU_DOMINIO/app.tudominio.com/g' /etc/nginx/sites-available/restomind
+#   sudo ln -s /etc/nginx/sites-available/restomind /etc/nginx/sites-enabled/
+#   sudo nginx -t && sudo systemctl reload nginx
+#   sudo certbot --nginx -d TU_DOMINIO
+#
+# certbot reescribe este archivo solo para agregar los bloques de SSL —
+# lo de abajo es el estado ANTES de correrlo (server_name + el challenge
+# ACME, todavía sin certificado).
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name TU_DOMINIO;
+
+    # certbot usa esta ruta para el desafío HTTP-01 al emitir/renovar el
+    # certificado — tiene que responder incluso antes de tener HTTPS.
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    # El resto de tráfico HTTP se sirve igual HASTA que corras certbot: a
+    # partir de ahí, certbot agrega acá mismo un redirect 301 a HTTPS.
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # Obligatorio: backend/middleware.py lo usa para decidir si manda
+        # Strict-Transport-Security. Sin este header, esa cabecera nunca
+        # sale aunque el sitio ya esté en HTTPS.
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # El frontend es HTML/JS/CSS estático sin build step — Nginx lo sirve
+    # directo del checkout de git, sin pasar por el proceso Python (más
+    # rápido, y libera a Uvicorn para la API). La ruta tiene que coincidir
+    # con dónde clonaste el repo en setup_vps.sh (APP_DIR).
+    location /static/ {
+        alias /home/restomind/app/frontend/;
+        expires 1h;
+        add_header Cache-Control "public";
+    }
+}
+
+# certbot agrega acá un segundo server block (listen 443 ssl) con los
+# certificados de Let's Encrypt, y convierte el bloque de arriba en un
+# simple redirect a HTTPS. No hace falta escribirlo a mano.
