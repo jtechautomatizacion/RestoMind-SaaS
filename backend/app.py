@@ -16,7 +16,16 @@ migrate()
 init_db()
 _seed_db = SessionLocal()
 try:
-    seed_if_empty(_seed_db)
+    # Solo fuera de producción: seed_if_empty crea un restaurante y un
+    # admin de PRUEBA con contraseña "admin123" — pública, está en este
+    # mismo archivo. En un VPS recién levantado, antes de que corra
+    # backend/scripts/crear_cliente.py, esa sería la única cuenta del
+    # sistema: cualquiera que conozca este repo (es público en GitHub)
+    # podría loguearse como admin. backfill_clientes_existentes es otra
+    # cosa — repara datos de restaurantes REALES que ya existen — y sí
+    # tiene que correr siempre, en cualquier entorno.
+    if settings.environment != "production":
+        seed_if_empty(_seed_db)
     backfill_clientes_existentes(_seed_db)
 finally:
     _seed_db.close()
