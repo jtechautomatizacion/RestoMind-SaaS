@@ -1,8 +1,26 @@
 import re
 
-from pydantic import BaseModel, Field, field_validator
-from typing import List, Optional
-from datetime import datetime
+from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import List, Literal, Optional
+from datetime import date, datetime
+
+from backend.utils.roles import ROLES_STAFF, roles_de
+
+
+def _validar_roles_staff(roles: List[str]) -> List[str]:
+    """Compartido entre StaffCreateRequest y StaffUpdateRequest: sin roles
+    vacío no tiene sentido (una cuenta sin ningún permiso), 'admin' nunca
+    puede colarse por acá (ese lo asigna el superadmin al crear el
+    restaurante, ver crear_usuario en routes/usuarios.py), y duplicados son
+    un error del cliente, no algo a tolerar en silencio."""
+    if not roles:
+        raise ValueError("Debe seleccionar al menos un rol")
+    if len(set(roles)) != len(roles):
+        raise ValueError("No repitas el mismo rol")
+    invalidos = [r for r in roles if r not in ROLES_STAFF]
+    if invalidos:
+        raise ValueError(f"Rol inválido: {invalidos[0]}")
+    return roles
 
 
 def _validar_celular_peru(valor: str) -> str:
@@ -39,6 +57,11 @@ class UsuarioMe(BaseModel):
     email: str
     nombre: str
     rol: str
+    # Ver UsuarioResponse.roles — misma idea, pero acá se pasa explícito en
+    # cada construcción (routes/auth.py) porque UsuarioMe no siempre sale de
+    # un objeto Usuario del ORM (el login de superadmin no tiene fila en
+    # esa tabla).
+    roles: List[str]
     cliente_id: str
     cliente_nombre: str
     # Datos del negocio para imprimir tickets/pre-cuentas sin una llamada
@@ -279,8 +302,20 @@ class UsuarioCreate(BaseModel):
 
 class UsuarioUpdate(BaseModel):
     nombre: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    # 'rol' se mantiene tal cual (valor único) SOLO para los guards de
+    # admin en routes/usuarios.py (bloquear que alguien intente ascender a
+    # "admin", o que un admin se quite su propio rol) — la UI ya no lo usa
+    # para editar personal. 'roles' (lista) es el camino real para eso: una
+    # cuenta de staff puede cubrir varias tareas a la vez (ej. cocina Y
+    # caja), ver backend/utils/roles.py.
     rol: Optional[str] = Field(default=None, pattern="^(admin|mozo|jefe_cocina|cajero)$")
+    roles: Optional[List[str]] = Field(default=None, min_length=1)
     estado: Optional[str] = Field(default=None, pattern="^(activo|inactivo)$")
+
+    @field_validator("roles")
+    @classmethod
+    def _validar_roles(cls, v):
+        return _validar_roles_staff(v) if v is not None else v
 
 
 class UsuarioResponse(BaseModel):
@@ -289,15 +324,32 @@ class UsuarioResponse(BaseModel):
     email: Optional[str]
     celular: Optional[str]
     rol: str
+    # Una cuenta de staff puede cubrir varias tareas a la vez (ej. cocina Y
+    # caja, cuando el restaurante tiene poco personal) — `rol` en BD guarda
+    # esa combinación como CSV (ver backend/utils/roles.py); `roles` es esa
+    # lista ya separada, lo que consume el frontend. `admin` sigue siendo
+    # un solo valor exclusivo, nunca combinado: acá se ve como ['admin'].
+    roles: List[str] = Field(default_factory=list)
     estado: str
     creado_en: datetime
 
     class Config:
         from_attributes = True
 
+    @model_validator(mode="after")
+    def _derivar_roles(self):
+        # 'roles' nunca viene del ORM (no es una columna) — se deriva
+        # siempre del 'rol' real de la fila. Se usa "after" (no un
+        # field_validator con default) porque un validador con default
+        # nunca se ejecuta si el campo no vino en el input, y acá nunca
+        # viene: from_attributes=True lee 'rol' directo del objeto ORM.
+        self.roles = ["admin"] if self.rol == "admin" else roles_de(self.rol)
+        return self
+
 
 class StaffCreateRequest(BaseModel):
-    """Crear mozo, cajero o cocinero.
+    """Crear una cuenta de personal (mozo/cajero/cocina), con uno o varios
+    roles a la vez.
 
     Ya no se pide celular: el admin normalmente no tiene un número real
     distinto para cada empleado (ni quiere repartir el suyo propio), así
@@ -306,18 +358,33 @@ class StaffCreateRequest(BaseModel):
     real) que no hace falta para el login, algo a favor en una auditoría
     de datos.
 
-    El valor de rol para cocina es 'jefe_cocina' — así se llama en toda la
-    app (ROLES_PERMITIDOS, dashboard, permisos), no 'cocinero'.
+    `roles` es una lista (no un solo string) porque en restaurantes con
+    poco personal una sola persona suele cubrir más de una tarea (ej.
+    cocina Y caja) — ver backend/utils/roles.py. El valor para cocina es
+    'jefe_cocina' — así se llama en toda la app (ROLES_PERMITIDOS,
+    dashboard, permisos), no 'cocinero'. 'admin' nunca es una opción acá.
     """
     nombre: str = Field(..., min_length=1, max_length=100)
     password: str = Field(..., min_length=6, max_length=200)
-    rol: str = Field(..., pattern="^(mozo|cajero|jefe_cocina)$")
+    roles: List[str] = Field(..., min_length=1)
+
+    @field_validator("roles")
+    @classmethod
+    def _validar(cls, v):
+        return _validar_roles_staff(v)
 
 
 class StaffUpdateRequest(BaseModel):
-    """Editar staff. Solo nombre y contraseña. No se puede cambiar el código de acceso ni el rol."""
+    """Editar staff: nombre, contraseña y/o roles. El código de acceso NO
+    se puede cambiar (cambiarlo sería re-crear la cuenta)."""
     nombre: Optional[str] = Field(default=None, min_length=1, max_length=100)
     password: Optional[str] = Field(default=None, min_length=6, max_length=200)
+    roles: Optional[List[str]] = Field(default=None, min_length=1)
+
+    @field_validator("roles")
+    @classmethod
+    def _validar(cls, v):
+        return _validar_roles_staff(v) if v is not None else v
 
 
 class LoginStaffRequest(BaseModel):
@@ -446,6 +513,118 @@ class CompraResponse(BaseModel):
     estado: str
     creado_por: Optional[str] = None
     creado_en: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ============ INVENTARIO (INSUMOS) ============
+
+# Lista cerrada a propósito: con texto libre, "kg", "Kg", "kilos" y "kilo"
+# terminan siendo cuatro unidades distintas para lo mismo — el mismo
+# problema que ya tuvo la carta antes de que las categorías fueran un
+# catálogo propio (ver backend/routes/categorias.py).
+UNIDADES_VALIDAS = ("kg", "gramo", "litro", "ml", "unidad", "docena", "paquete", "caja")
+
+
+class InsumoCreate(BaseModel):
+    nombre: str = Field(..., min_length=1, max_length=60)
+    unidad: str = Field(..., min_length=1, max_length=20)
+    # cantidad_actual admite 0 (se acabó, pero el insumo sigue en la lista);
+    # cantidad_minima no, porque un mínimo de 0 nunca dispararía una alerta
+    # y volvería inútil la fila.
+    cantidad_actual: float = Field(..., ge=0)
+    cantidad_minima: float = Field(..., gt=0)
+
+    @field_validator("unidad")
+    @classmethod
+    def validar_unidad(cls, v: str) -> str:
+        unidad = v.strip().lower()
+        if unidad not in UNIDADES_VALIDAS:
+            raise ValueError(f"Unidad inválida. Use una de: {', '.join(UNIDADES_VALIDAS)}")
+        return unidad
+
+
+class InsumoUpdate(BaseModel):
+    nombre: Optional[str] = Field(default=None, min_length=1, max_length=60)
+    unidad: Optional[str] = Field(default=None, min_length=1, max_length=20)
+    cantidad_actual: Optional[float] = Field(default=None, ge=0)
+    cantidad_minima: Optional[float] = Field(default=None, gt=0)
+
+    @field_validator("unidad")
+    @classmethod
+    def validar_unidad(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        unidad = v.strip().lower()
+        if unidad not in UNIDADES_VALIDAS:
+            raise ValueError(f"Unidad inválida. Use una de: {', '.join(UNIDADES_VALIDAS)}")
+        return unidad
+
+
+class InsumoResponse(BaseModel):
+    id: int
+    cliente_id: str
+    nombre: str
+    unidad: str
+    cantidad_actual: float
+    cantidad_minima: float
+    # Derivado, no una columna: guardarlo en la BD obligaría a recalcular la
+    # fila entera cada vez que cambia el mínimo o la cantidad, con el riesgo
+    # de que quede desincronizado. Se calcula al responder (ver routes/insumos.py).
+    estado: str  # "ok" | "bajo" | "critico"
+    creado_en: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# Razones válidas de un movimiento de stock. Lista cerrada por el mismo
+# motivo que UNIDADES_VALIDAS: con texto libre, "merma"/"Merma"/"se echó a
+# perder" terminan siendo tres categorías para lo mismo y el historial deja
+# de servir para responder "¿en qué se me va el pescado?".
+# "reversion" no se ofrece en el POST — la pone el sistema al deshacer.
+RAZONES_VALIDAS = ("compra", "uso", "ajuste", "merma", "otro")
+
+
+class MovimientoCreate(BaseModel):
+    tipo: Literal["entrada", "salida"]
+    cantidad: float = Field(..., gt=0)  # Siempre positiva: el signo lo da 'tipo'
+    razon: str = Field(default="otro", max_length=20)
+    # Fecha de negocio. Opcional: si no viene, es hoy — el caso normal es
+    # anotar el movimiento en el momento.
+    fecha: Optional[date] = None
+
+    @field_validator("razon")
+    @classmethod
+    def validar_razon(cls, v: str) -> str:
+        razon = v.strip().lower()
+        if razon not in RAZONES_VALIDAS:
+            raise ValueError(f"Razón inválida. Use una de: {', '.join(RAZONES_VALIDAS)}")
+        return razon
+
+    @field_validator("fecha")
+    @classmethod
+    def validar_fecha(cls, v: Optional[date]) -> Optional[date]:
+        # Mismo criterio que Compra: se puede registrar algo de ayer, nunca
+        # de mañana. Un movimiento futuro descuadraría el stock de hoy.
+        if v is not None and v > date.today():
+            raise ValueError("La fecha no puede ser futura")
+        return v
+
+
+class MovimientoResponse(BaseModel):
+    id: int
+    insumo_id: int
+    tipo: str
+    cantidad: float
+    razon: str
+    saldo_despues: float
+    fecha: datetime
+    usuario_nombre: Optional[str] = None
+    creado_en: datetime
+    # El frontend lo usa para tachar la fila y esconder su botón de deshacer.
+    revertido: bool = False
 
     class Config:
         from_attributes = True

@@ -1826,6 +1826,18 @@ body {
     color: var(--text-muted);
 }
 
+/* Dos campos cortos en una línea (stock actual / mínimo): separarlos en dos
+   filas completas desperdicia altura de pantalla en un celular. */
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.form-row .form-group {
+    margin-bottom: 0;
+}
+
 .form-group select {
     appearance: none;
     -webkit-appearance: none;
@@ -1845,6 +1857,383 @@ body {
     font-size: 14.5px;
     font-weight: 600;
     color: var(--text-muted);
+}
+
+/* ============ INVENTARIO (Admin > Gastos) ============ */
+
+.insumo-section {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 1px 2px rgba(20, 20, 20, 0.05), var(--shadow-sm);
+    margin-bottom: 14px;
+    overflow: hidden;
+}
+
+.insumo-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 14px 16px;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    text-align: left;
+}
+
+.insumo-toggle-titulo {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.insumo-toggle-titulo svg {
+    width: 18px;
+    height: 18px;
+    stroke: var(--accent);
+    fill: none;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex-shrink: 0;
+}
+
+.insumo-toggle-derecha {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.insumo-chevron {
+    width: 18px;
+    height: 18px;
+    stroke: var(--text-muted);
+    fill: none;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 0.18s ease;
+}
+
+.insumo-toggle.abierto .insumo-chevron {
+    transform: rotate(180deg);
+}
+
+.insumo-resumen {
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.insumo-resumen:empty {
+    display: none;
+}
+
+.insumo-resumen.ok { background: var(--success-bg); color: var(--success); }
+.insumo-resumen.bajo { background: var(--warning-bg); color: var(--warning); }
+.insumo-resumen.critico { background: var(--danger-bg); color: var(--danger); }
+
+.insumo-panel {
+    padding: 0 16px 16px;
+}
+
+.insumo-alertas {
+    background: var(--warning-bg);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.insumo-alerta-fila {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--text);
+}
+
+.insumo-alerta-fila span:last-child {
+    color: var(--text-muted);
+    margin-left: auto;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+/* El punto de color es el semáforo: acompaña al texto en vez de
+   reemplazarlo, para que el estado no dependa solo de distinguir colores. */
+.insumo-punto {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: inline-block;
+}
+
+.insumo-punto.ok { background: var(--success); }
+.insumo-punto.bajo { background: var(--warning); }
+.insumo-punto.critico { background: var(--danger); }
+
+.insumo-tabla-wrap {
+    overflow-x: auto;
+    margin-bottom: 12px;
+}
+
+.insumo-tabla {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.insumo-tabla th {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+
+.insumo-tabla td {
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+}
+
+.insumo-tabla tr:last-child td {
+    border-bottom: none;
+}
+
+.insumo-tabla .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.insumo-tabla td:first-child {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+}
+
+.insumo-fila.critico td:first-child { color: var(--danger); }
+.insumo-fila.bajo td:first-child { color: var(--warning); }
+
+.insumo-acciones {
+    display: flex;
+    justify-content: flex-end;
+    gap: 4px;
+}
+
+/* ============ MOVIMIENTOS DE STOCK ============ */
+
+/* Entrada y salida se distinguen por color además del ícono: en una lista
+   de movimientos, la dirección es lo primero que el ojo busca. */
+.icon-btn.entrada svg { stroke: var(--success); }
+.icon-btn.salida svg { stroke: var(--warning); }
+.icon-btn.entrada:hover { background: var(--success-bg); }
+.icon-btn.salida:hover { background: var(--warning-bg); }
+
+.mov-contexto {
+    background: var(--surface-alt);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    margin-bottom: 14px;
+    font-size: 13.5px;
+    color: var(--text);
+}
+
+.mov-cantidad-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.mov-cantidad-wrap input {
+    padding-right: 62px;
+}
+
+/* La unidad va dentro del campo, no como texto suelto al lado: el admin
+   escribe "5" viendo "kg" pegado al número, sin dudar de qué está tipeando. */
+.mov-unidad {
+    position: absolute;
+    right: 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    pointer-events: none;
+}
+
+/* Una salida no es una acción "primaria positiva": el botón usa el color de
+   advertencia para que registrar una salida no se sienta igual que sumar. */
+.btn-primary.btn-salida {
+    background: linear-gradient(135deg, #FBBF4D 0%, var(--warning) 55%, #D97706 100%);
+}
+
+.btn-link-danger {
+    display: block;
+    width: 100%;
+    margin-top: 14px;
+    padding: 10px;
+    border: none;
+    background: none;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--danger);
+    cursor: pointer;
+    text-align: center;
+}
+
+.btn-link-danger:hover {
+    text-decoration: underline;
+}
+
+/* ============ PANEL DE HISTORIAL ============ */
+
+.historial-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 20, 20, 0.35);
+    z-index: 1400;
+}
+
+.historial-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(360px, 88vw);
+    background: var(--surface);
+    box-shadow: var(--shadow-md);
+    z-index: 1500;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.24s ease;
+}
+
+.historial-panel.abierto {
+    transform: translateX(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .historial-panel { transition: none; }
+}
+
+.historial-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.historial-header h3 {
+    font-size: 16px;
+    font-weight: 700;
+    margin: 0 0 2px;
+}
+
+.historial-subtitulo {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.historial-lista {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 16px 16px;
+    -webkit-overflow-scrolling: touch;
+}
+
+.mov-fila {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.mov-fila:last-child {
+    border-bottom: none;
+}
+
+/* Un movimiento deshecho sigue visible (es parte del historial) pero
+   atenuado y tachado, para que no se lea como stock vigente. */
+.mov-fila.revertido {
+    opacity: 0.55;
+}
+
+.mov-fila.revertido .mov-monto {
+    text-decoration: line-through;
+}
+
+.mov-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.mov-badge svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.mov-badge.entrada { background: var(--success-bg); }
+.mov-badge.entrada svg { stroke: var(--success); }
+.mov-badge.salida { background: var(--warning-bg); }
+.mov-badge.salida svg { stroke: var(--warning); }
+
+.mov-cuerpo {
+    flex: 1;
+    min-width: 0;
+}
+
+.mov-linea {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+}
+
+.mov-monto {
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+}
+
+.mov-saldo {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.mov-meta {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    margin-top: 2px;
 }
 
 /* ============ TOASTS ============ */
@@ -2168,6 +2557,21 @@ body {
 
 .switch input:disabled {
     cursor: not-allowed;
+}
+
+/* Fila de un switch de rol en el modal "Nueva Cuenta"/"Editar Cuenta" —
+   una por rol combinable (Mozo/Cajero/Cocina), mismo componente .switch
+   de arriba, sin CSS nuevo salvo el layout de la fila. */
+.rol-switch-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    font-size: 14px;
+}
+
+.rol-switch-row + .rol-switch-row {
+    border-top: 1px solid var(--border);
 }
 
 /* ============ UTILS ============ */

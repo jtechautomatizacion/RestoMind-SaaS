@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime, Text, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from backend.database import Base
@@ -74,6 +74,7 @@ class Cliente(Base):
     # cuelgan de ellas— huérfanas en la BD. Peor que con categorías: son
     # registros tributarios, justo lo que una auditoría iría a buscar.
     facturas = relationship("Factura", cascade="all, delete-orphan")
+    insumos = relationship("Insumo", back_populates="cliente", cascade="all, delete-orphan")
 
 
 class Usuario(Base):
@@ -200,6 +201,101 @@ class Compra(Base):
 
     # Relationships
     cliente = relationship("Cliente", back_populates="compras")
+
+
+class Insumo(Base):
+    """
+    Stock de almacén (pescado, limón, ají...) con un mínimo por insumo para
+    avisar antes de quedarse sin nada a mitad de un servicio.
+
+    Deliberadamente DESACOPLADO de Compra: registrar un gasto no mueve el
+    stock, y mover el stock no registra un gasto. Son dos preguntas
+    distintas —"cuánto gasté" (financiero, ya resuelto en Compra) y "cuánto
+    me queda" (físico, esto)— y atarlas haría divergir el stock teórico del
+    real, porque en un restaurante hay mermas, desperdicio y compras que no
+    entran a almacén. El admin ajusta la cantidad con lo que cuenta de
+    verdad, que es el único número en el que puede confiar.
+    """
+    __tablename__ = "insumos"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cliente_id = Column(String, ForeignKey("clientes.id"), nullable=False, index=True)
+    nombre = Column(String, nullable=False)
+    unidad = Column(String, nullable=False)  # kg, litro, unidad, docena...
+    cantidad_actual = Column(Float, nullable=False)
+    cantidad_minima = Column(Float, nullable=False)
+    creado_en = Column(DateTime, default=datetime.utcnow)
+    actualizado_en = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("cliente_id", "nombre", name="uq_cliente_insumo_nombre"),)
+
+    # Relationships
+    cliente = relationship("Cliente", back_populates="insumos")
+    movimientos = relationship("MovimientoInsumo", back_populates="insumo", cascade="all, delete-orphan")
+
+
+class MovimientoInsumo(Base):
+    """
+    Cada entrada o salida de stock, con quién la hizo y por qué.
+
+    Insumo.cantidad_actual es el saldo; esta tabla es el extracto que lo
+    explica. Sin ella, un stock que no cuadra es un callejón sin salida:
+    el admin ve "quedan 3kg" sin poder saber si fue una salida mal tipeada,
+    una merma no anotada o alguien llevándose mercadería. Con el historial,
+    esa pregunta se responde mirando las filas.
+
+    El saldo se mantiene en Insumo y NO se recalcula sumando movimientos:
+    la carga de insumos existentes no tiene movimiento de origen (el admin
+    escribió el stock a mano al darlos de alta), así que SUM(movimientos)
+    daría un número distinto del real desde la primera fila.
+    """
+    __tablename__ = "movimientos_insumo"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cliente_id = Column(String, ForeignKey("clientes.id"), nullable=False, index=True)
+    insumo_id = Column(Integer, ForeignKey("insumos.id"), nullable=False, index=True)
+
+    tipo = Column(String, nullable=False)  # "entrada" | "salida"
+    cantidad = Column(Float, nullable=False)  # Siempre positiva; el signo lo da 'tipo'
+    razon = Column(String, nullable=False)  # compra, uso, ajuste, merma, reversion, otro
+
+    # Saldo del insumo DESPUÉS de aplicar este movimiento, congelado acá.
+    # Es redundante con Insumo.cantidad_actual solo para el último
+    # movimiento; para los anteriores es la única forma de reconstruir el
+    # historial ("¿cuánto había el martes?") sin re-sumar toda la cadena,
+    # que además fallaría por lo dicho en el docstring de la clase.
+    saldo_despues = Column(Float, nullable=False)
+
+    # Fecha de negocio: cuándo ocurrió el movimiento en la vida real (el
+    # admin puede registrar hoy una merma de ayer). Distinta de creado_en,
+    # que es cuándo se tipeó en el sistema — la auditoría necesita las dos.
+    fecha = Column(DateTime, nullable=False)
+
+    # FK real al usuario, NO el 'sub' del JWT: ese vale email para el admin
+    # pero código de acceso para el staff, y las cuentas de staff se crean
+    # con email=None (ver la lección de push_subscriptions en CLAUDE.md).
+    usuario_id = Column(String, ForeignKey("usuarios.id"), nullable=True)
+    # Nombre congelado al momento del movimiento: si la cuenta se elimina
+    # después, el historial debe seguir diciendo quién lo hizo.
+    usuario_nombre = Column(String, nullable=True)
+
+    # Deshacer un movimiento NO borra su fila: agrega una inversa que apunta
+    # acá. Borrarla haría desaparecer justo lo que hay que auditar (el error
+    # y quién lo cometió) y dejaría un ajuste suelto sin explicación. Es el
+    # mismo criterio que un contra-asiento contable.
+    revierte_a_id = Column(Integer, ForeignKey("movimientos_insumo.id"), nullable=True)
+    # Marca en el original. Sin esto, dos clicks al botón de deshacer
+    # descuentan el doble y dejan el stock peor que el error a corregir.
+    revertido = Column(Boolean, default=False, nullable=False)
+
+    creado_en = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_movimientos_insumo_historial", "cliente_id", "insumo_id", "creado_en"),
+    )
+
+    # Relationships
+    insumo = relationship("Insumo", back_populates="movimientos")
 
 
 class AuditLog(Base):

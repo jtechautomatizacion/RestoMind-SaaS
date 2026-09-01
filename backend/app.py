@@ -6,7 +6,7 @@ from backend.config import settings
 from backend.database import init_db, SessionLocal
 from backend.middleware import SecurityHeadersMiddleware
 from backend.seed import seed_if_empty, backfill_clientes_existentes
-from backend.routes import platos, mesas, comandas, compras, dashboard, categorias, auth, superadmin, usuarios, facturas, caja, push
+from backend.routes import platos, mesas, comandas, compras, dashboard, categorias, auth, superadmin, usuarios, facturas, caja, push, insumos, movimientos
 from backend.migrate import migrate
 
 # Ejecutar migración antes de init_db
@@ -64,6 +64,8 @@ app.include_router(platos.router, prefix="/api", tags=["Platos"])
 app.include_router(mesas.router, prefix="/api", tags=["Mesas"])
 app.include_router(comandas.router, prefix="/api", tags=["Comandas"])
 app.include_router(compras.router, prefix="/api", tags=["Compras"])
+app.include_router(insumos.router, prefix="/api", tags=["Inventario"])
+app.include_router(movimientos.router, prefix="/api", tags=["Inventario"])
 app.include_router(dashboard.router, prefix="/api", tags=["Dashboard"])
 app.include_router(categorias.router, prefix="/api", tags=["Categorías"])
 app.include_router(usuarios.router, prefix="/api", tags=["Personal"])

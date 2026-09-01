@@ -517,7 +517,133 @@
                         <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                         Registrar gasto
                     </button>
+
+                    <!-- Inventario: vive acá dentro de Gastos, no en una pestaña
+                         propia, porque el admin ya entra a esta pantalla cuando
+                         llega mercadería. Una sexta pestaña sería una función más
+                         que hay que acordarse de visitar. Va colapsado por defecto
+                         para no empujar la lista de gastos fuera de la pantalla. -->
+                    <div class="insumo-section">
+                        <button type="button" class="insumo-toggle" id="insumo-toggle" onclick="toggleInventario()" aria-expanded="false" aria-controls="insumo-panel">
+                            <span class="insumo-toggle-titulo">
+                                <svg viewBox="0 0 24 24"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
+                                Inventario
+                            </span>
+                            <span class="insumo-toggle-derecha">
+                                <span id="insumo-resumen" class="insumo-resumen"></span>
+                                <svg class="insumo-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+                            </span>
+                        </button>
+
+                        <div id="insumo-panel" class="insumo-panel hidden">
+                            <div id="insumo-alertas"></div>
+                            <div id="insumo-lista"></div>
+                            <button class="btn btn-secondary btn-block" onclick="abrirModalInsumo()">+ Agregar insumo</button>
+                        </div>
+                    </div>
+
                     <div id="admin-compras-list"></div>
+
+                    <div id="modal-insumo" class="modal hidden">
+                        <div class="modal-content modal-small">
+                            <div class="modal-header">
+                                <h2 id="modal-insumo-title">Nuevo insumo</h2>
+                                <button class="btn-close" onclick="cerrarModalInsumo()">✕</button>
+                            </div>
+                            <div class="modal-scroll">
+                                <form id="form-insumo" onsubmit="guardarInsumo(event)">
+                                    <div class="form-group">
+                                        <label>Insumo</label>
+                                        <input type="text" id="insumo-nombre" placeholder="Ej: Pescado fresco" required maxlength="60">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Unidad</label>
+                                        <select id="insumo-unidad" required>
+                                            <option value="kg">Kilos (kg)</option>
+                                            <option value="gramo">Gramos</option>
+                                            <option value="litro">Litros</option>
+                                            <option value="ml">Mililitros (ml)</option>
+                                            <option value="unidad">Unidades</option>
+                                            <option value="docena">Docenas</option>
+                                            <option value="paquete">Paquetes</option>
+                                            <option value="caja">Cajas</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-row">
+                                        <div class="form-group">
+                                            <label>Stock actual</label>
+                                            <input type="number" id="insumo-cantidad" placeholder="20" step="0.01" min="0" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>Stock mínimo</label>
+                                            <input type="number" id="insumo-minima" placeholder="8" step="0.01" min="0.01" required>
+                                        </div>
+                                    </div>
+                                    <small class="form-hint">Te avisamos cuando el stock baje del mínimo.</small>
+                                    <button type="submit" class="btn btn-primary btn-block">Guardar</button>
+                                    <!-- Eliminar vive acá y no en la fila: al lado de los
+                                         botones de entrada/salida que se usan a diario, un
+                                         mis-tap borraría el insumo y todo su historial. -->
+                                    <button type="button" id="insumo-eliminar" class="btn-link-danger hidden" onclick="eliminarInsumo(editingInsumoId)">Eliminar este insumo</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Entrada/salida de stock. El tipo no es un campo del
+                         formulario: lo fija el botón que abrió el modal, así
+                         el admin no puede tipear una salida creyendo que
+                         registra una entrada. -->
+                    <div id="modal-movimiento" class="modal hidden">
+                        <div class="modal-content modal-small">
+                            <div class="modal-header">
+                                <h2 id="modal-movimiento-title">Registrar entrada</h2>
+                                <button class="btn-close" onclick="cerrarModalMovimiento()">✕</button>
+                            </div>
+                            <div class="modal-scroll">
+                                <form id="form-movimiento" onsubmit="guardarMovimiento(event)">
+                                    <p id="movimiento-contexto" class="mov-contexto"></p>
+                                    <div class="form-group">
+                                        <label>Cantidad</label>
+                                        <div class="mov-cantidad-wrap">
+                                            <input type="number" id="movimiento-cantidad" placeholder="5" step="0.01" min="0.01" required autocomplete="off">
+                                            <span id="movimiento-unidad" class="mov-unidad"></span>
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Motivo</label>
+                                        <select id="movimiento-razon" required>
+                                            <option value="compra">Llegó mercadería</option>
+                                            <option value="uso">Se usó en cocina</option>
+                                            <option value="merma">Se echó a perder</option>
+                                            <option value="ajuste">Ajuste por conteo</option>
+                                            <option value="otro">Otro</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Fecha</label>
+                                        <input type="date" id="movimiento-fecha" required>
+                                    </div>
+                                    <button type="submit" id="movimiento-submit" class="btn btn-primary btn-block">Registrar</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Historial: panel lateral, no modal. Un modal obliga a
+                         cerrarlo para volver a la tabla; acá el admin puede
+                         mirar el historial y seguir viendo el stock al lado. -->
+                    <div id="historial-overlay" class="historial-overlay hidden" onclick="cerrarHistorial()"></div>
+                    <aside id="historial-panel" class="historial-panel" aria-hidden="true">
+                        <div class="historial-header">
+                            <div>
+                                <h3 id="historial-titulo">Movimientos</h3>
+                                <span id="historial-subtitulo" class="historial-subtitulo"></span>
+                            </div>
+                            <button class="btn-close" onclick="cerrarHistorial()">✕</button>
+                        </div>
+                        <div id="historial-lista" class="historial-lista"></div>
+                    </aside>
 
                     <div id="modal-compra" class="modal hidden">
                         <div class="modal-content modal-small">
@@ -744,13 +870,37 @@
                                         <label>Contraseña (mínimo 6 caracteres)</label>
                                         <input type="text" id="usuario-password" minlength="6" maxlength="200">
                                     </div>
+                                    <!-- Switches en vez de un <select> de un solo valor: una cuenta
+                                         de personal puede cubrir varias tareas a la vez (ej. cocina
+                                         Y caja, cuando el restaurante tiene poco personal). Reutiliza
+                                         el mismo componente .switch del aviso de notificaciones de
+                                         más arriba — sin CSS nuevo. -->
                                     <div class="form-group" id="usuario-rol-group">
-                                        <label>Rol</label>
-                                        <select id="usuario-rol" required>
-                                            <option value="mozo">Mozo</option>
-                                            <option value="cajero">Cajero</option>
-                                            <option value="jefe_cocina">Cocina</option>
-                                        </select>
+                                        <label>Roles</label>
+                                        <div class="rol-switch-row">
+                                            <span>Mozo</span>
+                                            <label class="switch">
+                                                <input type="checkbox" id="rol-check-mozo">
+                                                <span class="switch-track"></span>
+                                                <span class="switch-thumb"></span>
+                                            </label>
+                                        </div>
+                                        <div class="rol-switch-row">
+                                            <span>Cajero</span>
+                                            <label class="switch">
+                                                <input type="checkbox" id="rol-check-cajero">
+                                                <span class="switch-track"></span>
+                                                <span class="switch-thumb"></span>
+                                            </label>
+                                        </div>
+                                        <div class="rol-switch-row">
+                                            <span>Cocina</span>
+                                            <label class="switch">
+                                                <input type="checkbox" id="rol-check-jefe_cocina">
+                                                <span class="switch-track"></span>
+                                                <span class="switch-thumb"></span>
+                                            </label>
+                                        </div>
                                     </div>
                                     <!-- Admin (fila "Tú"): el rol no se puede tocar desde acá -->
                                     <div class="form-group hidden" id="usuario-rol-fijo-group">

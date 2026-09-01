@@ -7,10 +7,12 @@
 let editingPlatoId = null;
 let editingCompraId = null;
 let editingUsuarioId = null;
+let editingInsumoId = null;
 let usuarioEnResetPassword = null;
 let adminCompras = [];
 let adminCategorias = [];
 let adminPersonal = [];
+let adminInsumos = [];
 let adminFiltroCategoria = null; // null = "Todas"; si no, nombre exacto de la categoría
 let archivoImagenPendiente = null; // Blob ya comprimido, listo para subir tras guardar
 let platoImagenActualUrl = null;   // imagen_url ya guardada en el server (si se está editando)
@@ -20,6 +22,20 @@ const ICON_CANCEL = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><l
 const ICON_RESTORE = '<svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>';
 const ICON_DELETE = '<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
 const ICON_PHOTO_PLACEHOLDER = '<div class="item-thumb-placeholder"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div>';
+const ICON_ENTRADA = '<svg viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
+const ICON_SALIDA = '<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>';
+const ICON_HISTORIAL = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>';
+const ICON_UNDO = '<svg viewBox="0 0 24 24"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>';
+
+// Se muestran en el historial, no los valores crudos que guarda la BD.
+const MOVIMIENTO_RAZON_LABEL = {
+    compra: 'Llegó mercadería',
+    uso: 'Se usó en cocina',
+    merma: 'Se echó a perder',
+    ajuste: 'Ajuste por conteo',
+    reversion: 'Deshecho',
+    otro: 'Otro',
+};
 
 function _thumbHtml(imagenUrl) {
     if (imagenUrl) {
@@ -82,22 +98,25 @@ async function refreshAdmin() {
         // Sin incluir_inactivos: un plato "eliminado" (aunque internamente se
         // haya archivado por tener historial de ventas) debe desaparecer de
         // la carta que ve el admin, igual que si de verdad se hubiera borrado.
-        const [platos, compras, categorias, personal] = await Promise.all([
+        const [platos, compras, categorias, personal, insumos] = await Promise.all([
             api.get('/platos'),
             api.get('/compras'),
             api.get('/categorias'),
             api.get('/usuarios'),
+            api.get('/insumos'),
         ]);
         estado.platos = platos;
         adminCompras = compras;
         adminCategorias = categorias;
         adminPersonal = personal;
+        adminInsumos = insumos;
     } catch (err) {
         console.error('Error cargando datos de administración:', err);
     }
     renderPlatosAdmin();
     renderCompras();
     renderPersonal();
+    renderInventario();
 }
 
 // ============ CU-01: PLATOS ============
@@ -598,6 +617,377 @@ async function cancelarCompra(compraId) {
     }
 }
 
+// ============ INVENTARIO (stock de almacén) ============
+
+/**
+ * Vive dentro de Gastos, no en una pestaña propia: el admin ya entra ahí
+ * cuando llega mercadería, así que el stock queda a mano sin sumar una
+ * función más al menú. Arranca colapsado para no empujar la lista de
+ * gastos fuera de la pantalla en un celular.
+ */
+
+const INSUMO_ESTADO_LABEL = { ok: 'OK', bajo: 'Bajo', critico: 'Crítico' };
+
+function toggleInventario() {
+    const panel = document.getElementById('insumo-panel');
+    const toggle = document.getElementById('insumo-toggle');
+    const abierto = panel.classList.toggle('hidden') === false;
+    toggle.classList.toggle('abierto', abierto);
+    toggle.setAttribute('aria-expanded', String(abierto));
+}
+
+function renderInventario() {
+    renderResumenInsumos();
+    renderAlertasInsumos();
+    renderListaInsumos();
+}
+
+// Contador en la cabecera: es lo único visible con el panel colapsado, así
+// que tiene que alcanzar para decidir si vale la pena abrirlo.
+function renderResumenInsumos() {
+    const resumen = document.getElementById('insumo-resumen');
+    const criticos = adminInsumos.filter(i => i.estado === 'critico').length;
+    const bajos = adminInsumos.filter(i => i.estado === 'bajo').length;
+
+    if (criticos > 0) {
+        resumen.textContent = `${criticos} crítico${criticos === 1 ? '' : 's'}`;
+        resumen.className = 'insumo-resumen critico';
+    } else if (bajos > 0) {
+        resumen.textContent = `${bajos} bajo${bajos === 1 ? '' : 's'}`;
+        resumen.className = 'insumo-resumen bajo';
+    } else if (adminInsumos.length > 0) {
+        resumen.textContent = 'Todo OK';
+        resumen.className = 'insumo-resumen ok';
+    } else {
+        resumen.textContent = '';
+        resumen.className = 'insumo-resumen';
+    }
+}
+
+function renderAlertasInsumos() {
+    const container = document.getElementById('insumo-alertas');
+    const enAlerta = adminInsumos.filter(i => i.estado !== 'ok');
+
+    if (enAlerta.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    // Críticos primero: es el que puede faltar hoy mismo.
+    const orden = { critico: 0, bajo: 1 };
+    enAlerta.sort((a, b) => orden[a.estado] - orden[b.estado]);
+
+    container.innerHTML = `
+        <div class="insumo-alertas">
+            ${enAlerta.map(i => `
+                <div class="insumo-alerta-fila">
+                    <span class="insumo-punto ${i.estado}"></span>
+                    <strong>${escapeHtml(i.nombre)}</strong>
+                    <span>${formatCantidad(i.cantidad_actual)} ${escapeHtml(i.unidad)} · mín ${formatCantidad(i.cantidad_minima)}</span>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function renderListaInsumos() {
+    const container = document.getElementById('insumo-lista');
+
+    if (adminInsumos.length === 0) {
+        container.innerHTML = '<p class="empty-hint">Aún no registras insumos. Agrega los que más te importan (pescado, limón, ají...).</p>';
+        return;
+    }
+
+    container.innerHTML = `
+        <div class="insumo-tabla-wrap">
+            <table class="insumo-tabla">
+                <thead>
+                    <tr>
+                        <th>Insumo</th>
+                        <th class="num">Stock</th>
+                        <th class="num">Mín</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${adminInsumos.map(i => `
+                        <tr class="insumo-fila ${i.estado}">
+                            <td>
+                                <span class="insumo-punto ${i.estado}" title="${INSUMO_ESTADO_LABEL[i.estado]}"></span>
+                                ${escapeHtml(i.nombre)}
+                            </td>
+                            <td class="num"><strong>${formatCantidad(i.cantidad_actual)}</strong> ${escapeHtml(i.unidad)}</td>
+                            <td class="num">${formatCantidad(i.cantidad_minima)}</td>
+                            <td class="insumo-acciones">
+                                <button class="icon-btn entrada" title="Registrar entrada" onclick="abrirModalMovimiento(${i.id}, 'entrada')">${ICON_ENTRADA}</button>
+                                <button class="icon-btn salida" title="Registrar salida" onclick="abrirModalMovimiento(${i.id}, 'salida')">${ICON_SALIDA}</button>
+                                <button class="icon-btn" title="Ver movimientos" onclick="abrirHistorial(${i.id})">${ICON_HISTORIAL}</button>
+                                <button class="icon-btn" title="Editar" onclick="abrirModalInsumo(${i.id})">${ICON_EDIT}</button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+// Un stock rara vez es decimal exacto: 20 se muestra "20", no "20.00", pero
+// 0.5 kg de ají sigue viéndose "0.5".
+function formatCantidad(n) {
+    const num = parseFloat(n || 0);
+    return Number.isInteger(num) ? String(num) : String(parseFloat(num.toFixed(2)));
+}
+
+function abrirModalInsumo(insumoId = null) {
+    editingInsumoId = insumoId;
+    const form = document.getElementById('form-insumo');
+    form.reset();
+
+    const btnEliminar = document.getElementById('insumo-eliminar');
+
+    if (insumoId) {
+        const insumo = adminInsumos.find(i => i.id === insumoId);
+        if (!insumo) return;
+        document.getElementById('modal-insumo-title').textContent = 'Editar insumo';
+        document.getElementById('insumo-nombre').value = insumo.nombre;
+        document.getElementById('insumo-unidad').value = insumo.unidad;
+        document.getElementById('insumo-cantidad').value = insumo.cantidad_actual;
+        document.getElementById('insumo-minima').value = insumo.cantidad_minima;
+        btnEliminar.classList.remove('hidden');
+    } else {
+        document.getElementById('modal-insumo-title').textContent = 'Nuevo insumo';
+        btnEliminar.classList.add('hidden');
+    }
+
+    abrirModal('modal-insumo');
+}
+
+function cerrarModalInsumo() {
+    document.getElementById('modal-insumo').classList.add('hidden');
+    document.getElementById('form-insumo').reset();
+    editingInsumoId = null;
+}
+
+async function guardarInsumo(event) {
+    event.preventDefault();
+
+    const data = {
+        nombre: document.getElementById('insumo-nombre').value.trim(),
+        unidad: document.getElementById('insumo-unidad').value,
+        cantidad_actual: parseFloat(document.getElementById('insumo-cantidad').value),
+        cantidad_minima: parseFloat(document.getElementById('insumo-minima').value),
+    };
+
+    try {
+        if (editingInsumoId) {
+            await api.patch(`/insumos/${editingInsumoId}`, data);
+            showToast('Insumo actualizado', 'success');
+        } else {
+            await api.post('/insumos', data);
+            showToast('Insumo agregado', 'success');
+        }
+        cerrarModalInsumo();
+        await refreshAdmin();
+    } catch (err) {
+        showToast(err.message || 'Error al guardar el insumo', 'error');
+    }
+}
+
+async function eliminarInsumo(insumoId) {
+    const insumo = adminInsumos.find(i => i.id === insumoId);
+    const nombre = insumo ? insumo.nombre : 'este insumo';
+    // Avisa que se lleva el historial: es lo que el admin no espera, y sin
+    // ese aviso descubre la pérdida cuando ya no puede recuperarla.
+    if (!confirm(`¿Eliminar "${nombre}" del inventario?\n\nSe borran también todos sus movimientos registrados.`)) return;
+
+    try {
+        await api.delete(`/insumos/${insumoId}`);
+        showToast('Insumo eliminado', 'success');
+        cerrarModalInsumo();
+        await refreshAdmin();
+    } catch (err) {
+        showToast(err.message || 'No se pudo eliminar el insumo', 'error');
+    }
+}
+
+// ============ MOVIMIENTOS DE STOCK (entradas / salidas) ============
+
+let movimientoInsumoId = null;
+let movimientoTipo = null;
+let historialInsumoId = null;
+
+function abrirModalMovimiento(insumoId, tipo) {
+    const insumo = adminInsumos.find(i => i.id === insumoId);
+    if (!insumo) return;
+
+    movimientoInsumoId = insumoId;
+    movimientoTipo = tipo;
+
+    const esEntrada = tipo === 'entrada';
+    document.getElementById('modal-movimiento-title').textContent =
+        esEntrada ? 'Registrar entrada' : 'Registrar salida';
+    document.getElementById('movimiento-contexto').innerHTML =
+        `<strong>${escapeHtml(insumo.nombre)}</strong> · quedan ${formatCantidad(insumo.cantidad_actual)} ${escapeHtml(insumo.unidad)}`;
+    document.getElementById('movimiento-unidad').textContent = insumo.unidad;
+
+    const form = document.getElementById('form-movimiento');
+    form.reset();
+    // El motivo más probable según el tipo: quien registra una entrada casi
+    // siempre está anotando mercadería que acaba de llegar.
+    document.getElementById('movimiento-razon').value = esEntrada ? 'compra' : 'uso';
+    document.getElementById('movimiento-fecha').value = hoyLocalISO();
+
+    const submit = document.getElementById('movimiento-submit');
+    submit.textContent = esEntrada ? 'Registrar entrada' : 'Registrar salida';
+    submit.classList.toggle('btn-salida', !esEntrada);
+
+    abrirModal('modal-movimiento');
+    document.getElementById('movimiento-cantidad').focus();
+}
+
+function cerrarModalMovimiento() {
+    document.getElementById('modal-movimiento').classList.add('hidden');
+    document.getElementById('form-movimiento').reset();
+    movimientoInsumoId = null;
+    movimientoTipo = null;
+}
+
+// El <input type="date"> espera fecha LOCAL. toISOString() devuelve UTC, que
+// en Perú (UTC-5) da el día anterior en cualquier movimiento antes de las 7pm.
+function hoyLocalISO() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+async function guardarMovimiento(event) {
+    event.preventDefault();
+
+    const insumoId = movimientoInsumoId;
+    const insumo = adminInsumos.find(i => i.id === insumoId);
+    const data = {
+        tipo: movimientoTipo,
+        cantidad: parseFloat(document.getElementById('movimiento-cantidad').value),
+        razon: document.getElementById('movimiento-razon').value,
+        fecha: document.getElementById('movimiento-fecha').value,
+    };
+
+    try {
+        const mov = await api.post(`/insumos/${insumoId}/movimientos`, data);
+        const signo = mov.tipo === 'entrada' ? '+' : '−';
+        const unidad = insumo ? insumo.unidad : '';
+        showToast(
+            `${signo}${formatCantidad(mov.cantidad)} ${unidad} · quedan ${formatCantidad(mov.saldo_despues)} ${unidad}`,
+            'success'
+        );
+        cerrarModalMovimiento();
+        await refreshAdmin();
+    } catch (err) {
+        showToast(err.message || 'No se pudo registrar el movimiento', 'error');
+    }
+}
+
+async function abrirHistorial(insumoId) {
+    const insumo = adminInsumos.find(i => i.id === insumoId);
+    if (!insumo) return;
+
+    historialInsumoId = insumoId;
+    document.getElementById('historial-titulo').textContent = insumo.nombre;
+    document.getElementById('historial-subtitulo').textContent =
+        `${formatCantidad(insumo.cantidad_actual)} ${insumo.unidad} en stock`;
+    document.getElementById('historial-lista').innerHTML = '<p class="empty-hint">Cargando...</p>';
+
+    document.getElementById('historial-overlay').classList.remove('hidden');
+    const panel = document.getElementById('historial-panel');
+    panel.classList.add('abierto');
+    panel.setAttribute('aria-hidden', 'false');
+
+    await cargarHistorial();
+}
+
+async function cargarHistorial() {
+    const container = document.getElementById('historial-lista');
+    try {
+        const movimientos = await api.get(`/insumos/${historialInsumoId}/movimientos?limite=50`);
+        renderHistorial(movimientos);
+    } catch (err) {
+        container.innerHTML = `<p class="empty-hint">${escapeHtml(err.message || 'No se pudo cargar el historial')}</p>`;
+    }
+}
+
+function renderHistorial(movimientos) {
+    const container = document.getElementById('historial-lista');
+
+    if (movimientos.length === 0) {
+        container.innerHTML = '<p class="empty-hint">Sin movimientos todavía. Las entradas y salidas que registres aparecen acá.</p>';
+        return;
+    }
+
+    const insumo = adminInsumos.find(i => i.id === historialInsumoId);
+    const unidad = insumo ? escapeHtml(insumo.unidad) : '';
+
+    container.innerHTML = movimientos.map(m => {
+        const esEntrada = m.tipo === 'entrada';
+        const signo = esEntrada ? '+' : '−';
+        // Una reversión ya no se puede deshacer, y un movimiento revertido
+        // tampoco: ofrecer el botón sería prometer algo que da 400.
+        const puedeDeshacer = !m.revertido && m.razon !== 'reversion';
+        return `
+            <div class="mov-fila ${m.revertido ? 'revertido' : ''}">
+                <span class="mov-badge ${m.tipo}">${esEntrada ? ICON_ENTRADA : ICON_SALIDA}</span>
+                <div class="mov-cuerpo">
+                    <div class="mov-linea">
+                        <strong class="mov-monto">${signo}${formatCantidad(m.cantidad)} ${unidad}</strong>
+                        <span class="mov-saldo">→ ${formatCantidad(m.saldo_despues)} ${unidad}</span>
+                    </div>
+                    <div class="mov-meta">
+                        ${escapeHtml(MOVIMIENTO_RAZON_LABEL[m.razon] || m.razon)}
+                        · ${formatFechaCorta(m.fecha)}
+                        ${m.usuario_nombre ? '· ' + escapeHtml(m.usuario_nombre) : ''}
+                    </div>
+                </div>
+                ${puedeDeshacer
+                    ? `<button class="icon-btn" title="Deshacer este movimiento" onclick="revertirMovimiento(${m.id})">${ICON_UNDO}</button>`
+                    : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+function formatFechaCorta(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    return d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short' });
+}
+
+async function revertirMovimiento(movimientoId) {
+    if (!confirm('¿Deshacer este movimiento?\n\nEl original queda registrado y se agrega uno que lo corrige.')) return;
+
+    try {
+        await api.delete(`/insumos/${historialInsumoId}/movimientos/${movimientoId}`);
+        showToast('Movimiento deshecho', 'success');
+        await refreshAdmin();
+        // Después de refreshAdmin para que el encabezado del panel muestre
+        // el stock ya corregido, no el de antes de deshacer.
+        const insumo = adminInsumos.find(i => i.id === historialInsumoId);
+        if (insumo) {
+            document.getElementById('historial-subtitulo').textContent =
+                `${formatCantidad(insumo.cantidad_actual)} ${insumo.unidad} en stock`;
+        }
+        await cargarHistorial();
+    } catch (err) {
+        showToast(err.message || 'No se pudo deshacer el movimiento', 'error');
+    }
+}
+
+function cerrarHistorial() {
+    document.getElementById('historial-overlay').classList.add('hidden');
+    const panel = document.getElementById('historial-panel');
+    panel.classList.remove('abierto');
+    panel.setAttribute('aria-hidden', 'true');
+    historialInsumoId = null;
+}
+
 // ============ PERSONAL (mozos, cajeros, cocina) ============
 
 function renderPersonal() {
@@ -616,7 +1006,7 @@ function renderPersonal() {
         <div class="admin-item ${u.estado === 'inactivo' ? 'inactivo' : ''}">
             <div class="admin-item-info">
                 <h4>${escapeHtml(u.nombre)} ${esUnoMismo ? '<span class="cantidad-badge">Tú</span>' : ''}</h4>
-                <p>${escapeHtml(u.email || u.celular || '')} · ${ROL_LABELS[u.rol] || u.rol}</p>
+                <p>${escapeHtml(u.email || u.celular || '')} · ${(u.roles || [u.rol]).map(r => ROL_LABELS[r] || r).join(' + ')}</p>
             </div>
             <div class="admin-item-actions">
                 <button class="icon-btn" title="Editar" onclick="abrirModalEditarUsuario('${u.id}')">${ICON_EDIT}</button>
@@ -676,14 +1066,18 @@ function abrirModalEditarUsuario(usuarioId) {
     } else {
         // Personal: el código de acceso es el identificador de login, ya
         // generado y no se puede cambiar (cambiarlo sería re-crear la
-        // cuenta), pero el rol sí.
+        // cuenta), pero los roles sí — puede tener varios a la vez (ej.
+        // cocina Y caja, cuando el restaurante tiene poco personal).
         document.getElementById('usuario-celular-group').classList.remove('hidden');
         document.getElementById('usuario-celular').value = usuario.celular;
         document.getElementById('usuario-email-fijo-group').classList.add('hidden');
 
         document.getElementById('usuario-rol-group').classList.remove('hidden');
         document.getElementById('usuario-rol-fijo-group').classList.add('hidden');
-        document.getElementById('usuario-rol').value = usuario.rol;
+        const rolesActuales = usuario.roles || [usuario.rol];
+        ['mozo', 'cajero', 'jefe_cocina'].forEach(r => {
+            document.getElementById(`rol-check-${r}`).checked = rolesActuales.includes(r);
+        });
     }
 
     abrirModal('modal-usuario');
@@ -695,6 +1089,15 @@ function cerrarModalUsuario() {
     editingUsuarioId = null;
 }
 
+// Roles marcados en los 3 switches del modal (Mozo/Cajero/Cocina) — no
+// incluye 'admin', que nunca se ofrece acá (ver comentario en
+// abrirModalNuevoUsuario).
+function _rolesMarcados() {
+    return ['mozo', 'cajero', 'jefe_cocina'].filter(
+        r => document.getElementById(`rol-check-${r}`).checked
+    );
+}
+
 async function guardarUsuario(event) {
     event.preventDefault();
 
@@ -704,10 +1107,15 @@ async function guardarUsuario(event) {
         if (editingUsuarioId) {
             const usuario = adminPersonal.find(u => u.id === editingUsuarioId);
             const datos = { nombre };
-            // El rol de un admin nunca se manda: es fijo, y el backend lo
-            // rechazaría igual si se intentara cambiar.
+            // Los roles de un admin nunca se mandan: son fijos, y el
+            // backend lo rechazaría igual si se intentara cambiar.
             if (usuario && usuario.rol !== 'admin') {
-                datos.rol = document.getElementById('usuario-rol').value;
+                const roles = _rolesMarcados();
+                if (roles.length === 0) {
+                    showToast('Marca al menos un rol', 'error');
+                    return;
+                }
+                datos.roles = roles;
             }
             await api.patch(`/usuarios/${editingUsuarioId}`, datos);
             cerrarModalUsuario();
@@ -715,8 +1123,12 @@ async function guardarUsuario(event) {
             showToast('Cuenta actualizada', 'success');
         } else {
             const password = document.getElementById('usuario-password').value;
-            const rol = document.getElementById('usuario-rol').value;
-            const creado = await api.post('/usuarios/staff', { nombre, password, rol });
+            const roles = _rolesMarcados();
+            if (roles.length === 0) {
+                showToast('Marca al menos un rol', 'error');
+                return;
+            }
+            const creado = await api.post('/usuarios/staff', { nombre, password, roles });
             cerrarModalUsuario();
             await refreshAdmin();
             // El código lo genera el backend — sin esto, el admin no tiene

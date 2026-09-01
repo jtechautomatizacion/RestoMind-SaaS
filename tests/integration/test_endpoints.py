@@ -672,6 +672,450 @@ def test_eliminar_categoria_en_uso_falla(test_client, test_cliente):
     assert resp.status_code == 400
 
 
+# ============ INVENTARIO (insumos de almacén) ============
+
+def _crear_insumo(client, nombre="Pescado fresco", unidad="kg", actual=20.0, minima=8.0):
+    return client.post('/api/insumos', json={
+        "nombre": nombre,
+        "unidad": unidad,
+        "cantidad_actual": actual,
+        "cantidad_minima": minima,
+    })
+
+
+def test_crear_y_listar_insumo(test_client, test_cliente):
+    resp = _crear_insumo(test_client)
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["nombre"] == "Pescado fresco"
+    assert body["unidad"] == "kg"
+    assert body["estado"] == "ok"
+
+    resp = test_client.get('/api/insumos')
+    assert resp.status_code == 200
+    assert [i["nombre"] for i in resp.json()] == ["Pescado fresco"]
+
+
+@pytest.mark.parametrize("actual,minima,esperado", [
+    (20.0, 8.0, "ok"),        # holgado
+    (8.0, 8.0, "ok"),         # justo en el mínimo todavía no es alerta
+    (7.9, 8.0, "bajo"),       # apenas por debajo
+    (5.0, 8.0, "bajo"),       # bajo pero por encima de la mitad
+    (4.0, 8.0, "critico"),    # exactamente la mitad ya es crítico
+    (0.0, 8.0, "critico"),    # se acabó
+])
+def test_estado_insumo_segun_umbrales(test_client, test_cliente, actual, minima, esperado):
+    resp = _crear_insumo(test_client, nombre=f"Insumo {actual}", actual=actual, minima=minima)
+    assert resp.status_code == 201
+    assert resp.json()["estado"] == esperado
+
+
+def test_crear_insumo_duplicado_falla(test_client, test_cliente):
+    _crear_insumo(test_client, nombre="Limón")
+    resp = _crear_insumo(test_client, nombre="Limón")
+    assert resp.status_code == 400
+
+
+def test_crear_insumo_unidad_invalida_falla(test_client, test_cliente):
+    resp = _crear_insumo(test_client, unidad="toneladas")
+    assert resp.status_code == 422
+
+
+def test_crear_insumo_minimo_cero_falla(test_client, test_cliente):
+    """Un mínimo de 0 nunca dispararía alerta: la fila no serviría de nada."""
+    resp = _crear_insumo(test_client, minima=0)
+    assert resp.status_code == 422
+
+
+def test_crear_insumo_stock_cero_es_valido(test_client, test_cliente):
+    """Se acabó el insumo, pero sigue en la lista para saber que hay que reponerlo."""
+    resp = _crear_insumo(test_client, actual=0)
+    assert resp.status_code == 201
+    assert resp.json()["estado"] == "critico"
+
+
+def test_editar_insumo_actualiza_estado(test_client, test_cliente):
+    insumo_id = _crear_insumo(test_client, actual=20.0, minima=8.0).json()["id"]
+
+    resp = test_client.patch(f'/api/insumos/{insumo_id}', json={"cantidad_actual": 3.0})
+    assert resp.status_code == 200
+    assert resp.json()["cantidad_actual"] == 3.0
+    assert resp.json()["estado"] == "critico"
+
+
+def test_editar_insumo_a_nombre_ya_usado_falla(test_client, test_cliente):
+    _crear_insumo(test_client, nombre="Limón")
+    otro_id = _crear_insumo(test_client, nombre="Ají amarillo").json()["id"]
+
+    resp = test_client.patch(f'/api/insumos/{otro_id}', json={"nombre": "Limón"})
+    assert resp.status_code == 400
+
+
+def test_editar_insumo_conservando_su_propio_nombre_funciona(test_client, test_cliente):
+    """Renombrar-a-sí-mismo no debe chocar con la validación de duplicados."""
+    insumo_id = _crear_insumo(test_client, nombre="Limón").json()["id"]
+
+    resp = test_client.patch(f'/api/insumos/{insumo_id}', json={"nombre": "Limón", "cantidad_actual": 30.0})
+    assert resp.status_code == 200
+    assert resp.json()["cantidad_actual"] == 30.0
+
+
+def test_eliminar_insumo(test_client, test_cliente):
+    insumo_id = _crear_insumo(test_client).json()["id"]
+
+    resp = test_client.delete(f'/api/insumos/{insumo_id}')
+    assert resp.status_code == 204
+    assert test_client.get('/api/insumos').json() == []
+
+
+def test_insumo_inexistente_da_404(test_client, test_cliente):
+    assert test_client.patch('/api/insumos/9999', json={"cantidad_actual": 1}).status_code == 404
+    assert test_client.delete('/api/insumos/9999').status_code == 404
+
+
+def test_insumos_aislados_por_cliente(test_client, test_cliente, test_db):
+    """Un insumo de otro restaurante no debe aparecer, ni poder editarse/borrarse."""
+    from backend.models import Cliente, Insumo
+
+    otro = Cliente(id="otro-cliente", nombre="Otro Resto", email="otro@resto.com")
+    test_db.add(otro)
+    test_db.commit()
+
+    ajeno = Insumo(
+        cliente_id="otro-cliente",
+        nombre="Pulpo",
+        unidad="kg",
+        cantidad_actual=5.0,
+        cantidad_minima=2.0,
+    )
+    test_db.add(ajeno)
+    test_db.commit()
+
+    # No aparece en la lista del cliente de test
+    assert test_client.get('/api/insumos').json() == []
+
+    # Y tampoco se puede tocar por id directo
+    assert test_client.patch(f'/api/insumos/{ajeno.id}', json={"cantidad_actual": 99}).status_code == 404
+    assert test_client.delete(f'/api/insumos/{ajeno.id}').status_code == 404
+
+
+def test_insumos_requieren_rol_admin(test_client, test_cliente, test_db):
+    """Un mozo no debe poder cambiar el stock del almacén."""
+    from backend.app import app
+    from backend.dependencies import get_usuario_actual
+    from backend.models import Usuario
+    from backend.auth import hash_password
+    from tests.conftest import TEST_CLIENTE_ID
+
+    mozo = Usuario(
+        id="usr-mozo-inv",
+        cliente_id=TEST_CLIENTE_ID,
+        nombre="Mozo",
+        email="mozo-inv@test.local",
+        password_hash=hash_password("clave123"),
+        rol="mozo",
+        estado="activo",
+    )
+    test_db.add(mozo)
+    test_db.commit()
+
+    app.dependency_overrides[get_usuario_actual] = lambda: "mozo-inv@test.local"
+    try:
+        assert _crear_insumo(test_client).status_code == 403
+        # Leer sí puede: ver el stock no rompe nada y sirve en la cocina.
+        assert test_client.get('/api/insumos').status_code == 200
+    finally:
+        from tests.conftest import TEST_USUARIO_EMAIL
+        app.dependency_overrides[get_usuario_actual] = lambda: TEST_USUARIO_EMAIL
+
+
+def test_eliminar_cliente_borra_tambien_sus_insumos(test_client_real_auth, test_superadmin, test_cliente, test_db):
+    """Mismo caso que categorías/facturas: sin cascade quedarían huérfanos."""
+    from backend.models import Insumo
+
+    test_db.add(Insumo(
+        cliente_id=test_cliente.id,
+        nombre="Pescado",
+        unidad="kg",
+        cantidad_actual=10.0,
+        cantidad_minima=4.0,
+    ))
+    test_db.commit()
+    assert test_db.query(Insumo).filter(Insumo.cliente_id == test_cliente.id).count() == 1
+
+    token = _login_superadmin(test_client_real_auth)
+    resp = test_client_real_auth.delete(
+        f'/api/superadmin/clientes/{test_cliente.id}',
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code in (200, 204)
+    assert test_db.query(Insumo).filter(Insumo.cliente_id == test_cliente.id).count() == 0
+
+
+# ============ MOVIMIENTOS DE INSUMO (entradas/salidas de stock) ============
+
+def _mover(client, insumo_id, tipo, cantidad, razon="ajuste", fecha=None):
+    payload = {"tipo": tipo, "cantidad": cantidad, "razon": razon}
+    if fecha:
+        payload["fecha"] = fecha
+    return client.post(f'/api/insumos/{insumo_id}/movimientos', json=payload)
+
+
+def _stock(client, insumo_id):
+    return next(i for i in client.get('/api/insumos').json() if i["id"] == insumo_id)
+
+
+def test_entrada_sube_el_stock(test_client, test_cliente):
+    insumo_id = _crear_insumo(test_client, actual=10.0, minima=4.0).json()["id"]
+
+    resp = _mover(test_client, insumo_id, "entrada", 5.0, razon="compra")
+    assert resp.status_code == 201
+    assert resp.json()["saldo_despues"] == 15.0
+    assert _stock(test_client, insumo_id)["cantidad_actual"] == 15.0
+
+
+def test_salida_baja_el_stock_y_cambia_el_estado(test_client, test_cliente):
+    insumo_id = _crear_insumo(test_client, actual=10.0, minima=4.0).json()["id"]
+    assert _stock(test_client, insumo_id)["estado"] == "ok"
+
+    resp = _mover(test_client, insumo_id, "salida", 8.0, razon="uso")
+    assert resp.status_code == 201
+    assert resp.json()["saldo_despues"] == 2.0
+
+    insumo = _stock(test_client, insumo_id)
+    assert insumo["cantidad_actual"] == 2.0
+    assert insumo["estado"] == "critico"  # 2 <= 4 * 0.5
+
+
+def test_salida_sin_stock_suficiente_se_rechaza_sin_tocar_el_saldo(test_client, test_cliente):
+    """El stock negativo no significa nada físicamente y dejaría el semáforo
+    en 'critico' para siempre."""
+    insumo_id = _crear_insumo(test_client, actual=3.0, minima=1.0).json()["id"]
+
+    resp = _mover(test_client, insumo_id, "salida", 5.0)
+    assert resp.status_code == 400
+
+    assert _stock(test_client, insumo_id)["cantidad_actual"] == 3.0
+    assert test_client.get(f'/api/insumos/{insumo_id}/movimientos').json() == []
+
+
+def test_salida_exacta_hasta_cero_es_valida(test_client, test_cliente):
+    """Sacar TODO lo que queda es legítimo; solo el negativo se rechaza."""
+    insumo_id = _crear_insumo(test_client, actual=3.0, minima=1.0).json()["id"]
+
+    resp = _mover(test_client, insumo_id, "salida", 3.0)
+    assert resp.status_code == 201
+    assert resp.json()["saldo_despues"] == 0.0
+
+
+def test_cantidad_cero_o_negativa_se_rechaza(test_client, test_cliente):
+    """El signo lo da 'tipo', nunca la cantidad: una 'entrada de -5' sería
+    una salida disfrazada que esquiva la validación de stock."""
+    insumo_id = _crear_insumo(test_client).json()["id"]
+    assert _mover(test_client, insumo_id, "entrada", 0).status_code == 422
+    assert _mover(test_client, insumo_id, "salida", -5).status_code == 422
+
+
+def test_razon_invalida_se_rechaza(test_client, test_cliente):
+    insumo_id = _crear_insumo(test_client).json()["id"]
+    resp = _mover(test_client, insumo_id, "entrada", 1, razon="se_echo_a_perder")
+    assert resp.status_code == 422
+
+
+def test_tipo_invalido_se_rechaza(test_client, test_cliente):
+    insumo_id = _crear_insumo(test_client).json()["id"]
+    resp = _mover(test_client, insumo_id, "devolucion", 1)
+    assert resp.status_code == 422
+
+
+def test_fecha_futura_se_rechaza(test_client, test_cliente):
+    """Un movimiento de mañana descuadraría el stock de hoy."""
+    from datetime import date, timedelta
+    insumo_id = _crear_insumo(test_client).json()["id"]
+    manana = (date.today() + timedelta(days=1)).isoformat()
+
+    resp = _mover(test_client, insumo_id, "entrada", 1, fecha=manana)
+    assert resp.status_code == 422
+
+
+def test_historial_ordenado_del_mas_reciente_al_mas_viejo(test_client, test_cliente):
+    insumo_id = _crear_insumo(test_client, actual=10.0, minima=2.0).json()["id"]
+    _mover(test_client, insumo_id, "entrada", 1.0)
+    _mover(test_client, insumo_id, "entrada", 2.0)
+    _mover(test_client, insumo_id, "entrada", 3.0)
+
+    historial = test_client.get(f'/api/insumos/{insumo_id}/movimientos').json()
+    assert [m["cantidad"] for m in historial] == [3.0, 2.0, 1.0]
+    # El saldo de cada fila reconstruye la cadena sin re-sumar nada
+    assert [m["saldo_despues"] for m in historial] == [16.0, 13.0, 11.0]
+
+
+def test_historial_paginado(test_client, test_cliente):
+    insumo_id = _crear_insumo(test_client, actual=100.0, minima=2.0).json()["id"]
+    for _ in range(5):
+        _mover(test_client, insumo_id, "entrada", 1.0)
+
+    assert len(test_client.get(f'/api/insumos/{insumo_id}/movimientos?limite=2').json()) == 2
+    pagina2 = test_client.get(f'/api/insumos/{insumo_id}/movimientos?limite=2&offset=2').json()
+    assert len(pagina2) == 2
+    assert len(test_client.get(f'/api/insumos/{insumo_id}/movimientos?limite=2&offset=4').json()) == 1
+
+
+def test_revertir_devuelve_el_stock_y_conserva_el_original(test_client, test_cliente):
+    """Deshacer NO borra la fila original: agrega una inversa. Borrarla haría
+    desaparecer justo lo que hay que auditar."""
+    insumo_id = _crear_insumo(test_client, actual=10.0, minima=2.0).json()["id"]
+    mov_id = _mover(test_client, insumo_id, "salida", 4.0, razon="merma").json()["id"]
+    assert _stock(test_client, insumo_id)["cantidad_actual"] == 6.0
+
+    resp = test_client.delete(f'/api/insumos/{insumo_id}/movimientos/{mov_id}')
+    assert resp.status_code == 200
+    assert resp.json()["tipo"] == "entrada"  # inverso de la salida
+    assert resp.json()["razon"] == "reversion"
+
+    assert _stock(test_client, insumo_id)["cantidad_actual"] == 10.0
+
+    historial = test_client.get(f'/api/insumos/{insumo_id}/movimientos').json()
+    assert len(historial) == 2  # el original sigue ahí
+    original = next(m for m in historial if m["id"] == mov_id)
+    assert original["revertido"] is True
+
+
+def test_no_se_puede_revertir_dos_veces(test_client, test_cliente):
+    """Dos clicks al botón de deshacer descontarían el doble."""
+    insumo_id = _crear_insumo(test_client, actual=10.0, minima=2.0).json()["id"]
+    mov_id = _mover(test_client, insumo_id, "salida", 4.0).json()["id"]
+
+    assert test_client.delete(f'/api/insumos/{insumo_id}/movimientos/{mov_id}').status_code == 200
+    assert test_client.delete(f'/api/insumos/{insumo_id}/movimientos/{mov_id}').status_code == 400
+    assert _stock(test_client, insumo_id)["cantidad_actual"] == 10.0
+
+
+def test_no_se_puede_revertir_una_reversion(test_client, test_cliente):
+    insumo_id = _crear_insumo(test_client, actual=10.0, minima=2.0).json()["id"]
+    mov_id = _mover(test_client, insumo_id, "salida", 4.0).json()["id"]
+    reversion_id = test_client.delete(f'/api/insumos/{insumo_id}/movimientos/{mov_id}').json()["id"]
+
+    resp = test_client.delete(f'/api/insumos/{insumo_id}/movimientos/{reversion_id}')
+    assert resp.status_code == 400
+
+
+def test_revertir_entrada_ya_consumida_se_rechaza(test_client, test_cliente):
+    """Si llegaron 10kg y ya se usaron 8, deshacer la entrada dejaría -8."""
+    insumo_id = _crear_insumo(test_client, actual=0.0, minima=2.0).json()["id"]
+    entrada_id = _mover(test_client, insumo_id, "entrada", 10.0, razon="compra").json()["id"]
+    _mover(test_client, insumo_id, "salida", 8.0, razon="uso")
+
+    resp = test_client.delete(f'/api/insumos/{insumo_id}/movimientos/{entrada_id}')
+    assert resp.status_code == 400
+    assert _stock(test_client, insumo_id)["cantidad_actual"] == 2.0
+
+
+def test_movimiento_registra_quien_lo_hizo(test_client, test_cliente):
+    insumo_id = _crear_insumo(test_client).json()["id"]
+    resp = _mover(test_client, insumo_id, "entrada", 1.0)
+    assert resp.json()["usuario_nombre"]  # el nombre del admin, no vacío
+
+
+def test_movimiento_queda_en_auditoria(test_client, test_cliente, test_db):
+    from backend.models import AuditLog
+
+    insumo_id = _crear_insumo(test_client, actual=10.0, minima=2.0).json()["id"]
+    _mover(test_client, insumo_id, "salida", 1.0, razon="merma")
+
+    eventos = test_db.query(AuditLog).filter(AuditLog.accion == "movimiento_insumo").all()
+    assert len(eventos) == 1
+    assert "merma" in eventos[0].detalle
+
+
+def test_alerta_solo_al_cruzar_el_umbral(test_client, test_cliente, test_db):
+    """Avisar en cada salida por debajo del mínimo generaría alertas
+    repetidas que el admin dejaría de mirar."""
+    from backend.models import AuditLog
+
+    def alertas():
+        return test_db.query(AuditLog).filter(AuditLog.accion == "alerta_insumo").count()
+
+    insumo_id = _crear_insumo(test_client, actual=10.0, minima=6.0).json()["id"]
+
+    _mover(test_client, insumo_id, "salida", 1.0)   # 9, sigue ok
+    assert alertas() == 0
+
+    _mover(test_client, insumo_id, "salida", 4.0)   # 5, cruza a bajo
+    assert alertas() == 1
+
+    _mover(test_client, insumo_id, "salida", 0.5)   # 4.5, sigue bajo
+    assert alertas() == 1
+
+    _mover(test_client, insumo_id, "salida", 2.0)   # 2.5, cruza a critico
+    assert alertas() == 2
+
+
+def test_movimientos_aislados_por_cliente(test_client, test_cliente, test_db):
+    from backend.models import Cliente, Insumo
+
+    test_db.add(Cliente(id="otro-mov", nombre="Otro", email="otro-mov@resto.com"))
+    test_db.commit()
+    ajeno = Insumo(cliente_id="otro-mov", nombre="Pulpo", unidad="kg",
+                   cantidad_actual=5.0, cantidad_minima=2.0)
+    test_db.add(ajeno)
+    test_db.commit()
+
+    # Ni leer el historial ni mover stock de un insumo de otro restaurante
+    assert test_client.get(f'/api/insumos/{ajeno.id}/movimientos').status_code == 404
+    assert _mover(test_client, ajeno.id, "entrada", 1.0).status_code == 404
+
+
+def test_movimiento_de_otro_insumo_no_se_puede_revertir_desde_este(test_client, test_cliente):
+    """El id del movimiento se valida contra el insumo de la ruta, no solo
+    contra el cliente."""
+    insumo_a = _crear_insumo(test_client, nombre="Limón", actual=10.0, minima=2.0).json()["id"]
+    insumo_b = _crear_insumo(test_client, nombre="Ají", actual=10.0, minima=2.0).json()["id"]
+    mov_a = _mover(test_client, insumo_a, "salida", 1.0).json()["id"]
+
+    resp = test_client.delete(f'/api/insumos/{insumo_b}/movimientos/{mov_a}')
+    assert resp.status_code == 404
+
+
+def test_movimientos_escritura_admin_only_lectura_abierta(test_client, test_cliente, test_db):
+    from backend.app import app
+    from backend.dependencies import get_usuario_actual
+    from backend.models import Usuario
+    from backend.auth import hash_password
+    from tests.conftest import TEST_CLIENTE_ID, TEST_USUARIO_EMAIL
+
+    insumo_id = _crear_insumo(test_client, actual=10.0, minima=2.0).json()["id"]
+    mov_id = _mover(test_client, insumo_id, "salida", 1.0).json()["id"]
+
+    test_db.add(Usuario(
+        id="usr-mozo-mov", cliente_id=TEST_CLIENTE_ID, nombre="Mozo",
+        email="mozo-mov@test.local", password_hash=hash_password("clave123"),
+        rol="mozo", estado="activo",
+    ))
+    test_db.commit()
+
+    app.dependency_overrides[get_usuario_actual] = lambda: "mozo-mov@test.local"
+    try:
+        # Ver el historial sí (en cocina sirve saber qué se sacó)
+        assert test_client.get(f'/api/insumos/{insumo_id}/movimientos').status_code == 200
+        # Moverlo o deshacerlo no
+        assert _mover(test_client, insumo_id, "entrada", 1.0).status_code == 403
+        assert test_client.delete(f'/api/insumos/{insumo_id}/movimientos/{mov_id}').status_code == 403
+    finally:
+        app.dependency_overrides[get_usuario_actual] = lambda: TEST_USUARIO_EMAIL
+
+
+def test_eliminar_insumo_borra_sus_movimientos(test_client, test_cliente, test_db):
+    from backend.models import MovimientoInsumo
+
+    insumo_id = _crear_insumo(test_client, actual=10.0, minima=2.0).json()["id"]
+    _mover(test_client, insumo_id, "salida", 1.0)
+    assert test_db.query(MovimientoInsumo).filter(MovimientoInsumo.insumo_id == insumo_id).count() == 1
+
+    assert test_client.delete(f'/api/insumos/{insumo_id}').status_code == 204
+    assert test_db.query(MovimientoInsumo).filter(MovimientoInsumo.insumo_id == insumo_id).count() == 0
+
+
 # ============ SUPERADMIN (panel del revendedor) ============
 
 def _login_superadmin(client):
@@ -1017,7 +1461,7 @@ def test_crear_staff_genera_codigo_de_acceso_automaticamente(test_client, test_c
     """El admin no escribe ningún identificador: el backend genera un
     código de 6 dígitos y lo devuelve en la respuesta."""
     resp = test_client.post('/api/usuarios/staff', json={
-        "nombre": "Pedro Mozo", "password": "clave123", "rol": "mozo",
+        "nombre": "Pedro Mozo", "password": "clave123", "roles": ["mozo"],
     })
     assert resp.status_code == 201
     codigo = resp.json()["celular"]
@@ -1028,19 +1472,43 @@ def test_crear_staff_genera_codigo_de_acceso_automaticamente(test_client, test_c
 
 def test_crear_dos_staff_reciben_codigos_distintos(test_client, test_cliente):
     r1 = test_client.post('/api/usuarios/staff', json={
-        "nombre": "Pedro Mozo", "password": "clave123", "rol": "mozo",
+        "nombre": "Pedro Mozo", "password": "clave123", "roles": ["mozo"],
     }).json()
     r2 = test_client.post('/api/usuarios/staff', json={
-        "nombre": "Ana Cajera", "password": "clave123", "rol": "cajero",
+        "nombre": "Ana Cajera", "password": "clave123", "roles": ["cajero"],
     }).json()
     assert r1["celular"] != r2["celular"]
+
+
+def test_crear_staff_con_varios_roles_a_la_vez(test_client, test_cliente):
+    """Una sola cuenta puede cubrir varias tareas (ej. cocina Y caja) cuando
+    el restaurante tiene poco personal."""
+    resp = test_client.post('/api/usuarios/staff', json={
+        "nombre": "Ana Multitarea", "password": "clave123", "roles": ["cajero", "jefe_cocina"],
+    })
+    assert resp.status_code == 201
+    assert sorted(resp.json()["roles"]) == ["cajero", "jefe_cocina"]
+
+
+def test_crear_staff_sin_roles_falla(test_client, test_cliente):
+    resp = test_client.post('/api/usuarios/staff', json={
+        "nombre": "Nadie", "password": "clave123", "roles": [],
+    })
+    assert resp.status_code == 422
+
+
+def test_crear_staff_con_rol_admin_falla(test_client, test_cliente):
+    resp = test_client.post('/api/usuarios/staff', json={
+        "nombre": "Intento", "password": "clave123", "roles": ["admin"],
+    })
+    assert resp.status_code == 422
 
 
 def test_crear_staff_no_acepta_celular_del_cliente(test_client, test_cliente):
     """El campo celular ya no es parte del payload — si se manda, FastAPI
     lo ignora (extra field) en vez de usarlo como identificador de login."""
     resp = test_client.post('/api/usuarios/staff', json={
-        "nombre": "Pedro Mozo", "celular": "999999999", "password": "clave123", "rol": "mozo",
+        "nombre": "Pedro Mozo", "celular": "999999999", "password": "clave123", "roles": ["mozo"],
     })
     assert resp.status_code == 201
     assert resp.json()["celular"] != "999999999"
@@ -1234,7 +1702,7 @@ def test_crear_staff_queda_en_el_registro_de_auditoria(test_client, test_cliente
     from backend.models import AuditLog
 
     creado = test_client.post('/api/usuarios/staff', json={
-        "nombre": "Pedro Mozo", "password": "clave123", "rol": "mozo",
+        "nombre": "Pedro Mozo", "password": "clave123", "roles": ["mozo"],
     }).json()
 
     evento = test_db.query(AuditLog).filter(
@@ -1247,7 +1715,7 @@ def test_eliminar_usuario_queda_en_el_registro_de_auditoria(test_client, test_cl
     from backend.models import AuditLog
 
     creado = test_client.post('/api/usuarios/staff', json={
-        "nombre": "Pedro Mozo", "password": "clave123", "rol": "mozo",
+        "nombre": "Pedro Mozo", "password": "clave123", "roles": ["mozo"],
     }).json()
     test_client.delete(f'/api/usuarios/{creado["id"]}')
 
