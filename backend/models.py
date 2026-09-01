@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, Index, text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from backend.database import Base
@@ -401,10 +401,15 @@ class CierreCaja(Base):
       La diferencia entre "debería haber" y "hay" es la señal de fraude/
       error que este validador existe para detectar.
 
-    Solo puede haber UNA fila con estado='abierto' por cliente_id a la vez
-    (lo impone POST /caja/abrir, no una constraint de BD) — pero SÍ puede
-    haber varias filas cerradas con la misma `fecha` (varios turnos del
-    mismo día). Por eso `fecha` NO tiene UniqueConstraint.
+    Solo puede haber UNA fila con estado='abierto' por cliente_id a la vez.
+    Lo imponen DOS cosas: el chequeo de POST /caja/abrir (que da el mensaje
+    de error legible) y el índice único parcial de __table_args__ (que
+    cierra la carrera entre dos requests simultáneos — un doble clic del
+    admin, o dos pestañas abiertas, alcanzaban para dejar dos turnos
+    abiertos, y entonces las mismas ventas se contaban en los dos y la caja
+    no cuadraba nunca). SÍ puede haber varias filas CERRADAS con la misma
+    `fecha` (varios turnos del mismo día): por eso `fecha` no es única y el
+    índice filtra por estado='abierto'.
 
     Simplificación deliberada del MVP: ventas_cobradas y gastos_efectivo
     asumen que TODO el dinero registrado en Comanda/Compra es efectivo — la
@@ -423,6 +428,14 @@ class CierreCaja(Base):
     saldo_inicial = Column(Float, nullable=False)
     abierto_en = Column(DateTime, default=datetime.utcnow, nullable=False)
     abierto_por = Column(String, nullable=False)  # email del admin
+    # Zona horaria del restaurante, capturada del dispositivo del ADMIN al
+    # abrir el turno. El auto-cierre de turnos vencidos necesita saber qué
+    # día local es "hoy", y antes lo tomaba del header X-TZ-Offset de quien
+    # consultaba — pero /caja/gate lo consulta cualquier rol, así que un
+    # mozo mandando un offset falso podía adelantar el "hoy" y forzar el
+    # cierre automático del turno que el admin tenía abierto y validado.
+    # Guardarlo acá lo vuelve un dato del turno, no del que pregunta.
+    tz_offset = Column(Integer, default=0, nullable=False)
 
     # Acumulado del TURNO (ventana abierto_en -> cerrado_en, no el día
     # calendario completo) — se calculan y congelan recién AL CERRAR (no se
@@ -455,8 +468,24 @@ class CierreCaja(Base):
     estado = Column(String, default="abierto", nullable=False)
 
     # Sin UniqueConstraint(cliente_id, fecha) a propósito: varios turnos
-    # pueden compartir la misma fecha. "Solo una abierta a la vez" se
-    # valida en la aplicación (routes/caja.py), no en el esquema.
+    # pueden compartir la misma fecha (turno mañana y turno tarde).
+    #
+    # Lo que sí es único es "un turno ABIERTO por restaurante", y por eso el
+    # índice es PARCIAL (WHERE estado='abierto'): así no estorba a los
+    # cerrados. routes/caja.py ya chequeaba esto antes de insertar, pero un
+    # check-then-insert sin lock no sirve contra dos requests a la vez —
+    # bastaba un doble clic del admin, o dos pestañas abiertas, para dejar
+    # dos turnos abiertos. Con dos, .first() elige uno cualquiera y las
+    # mismas ventas se cuentan en ambos: la caja no vuelve a cuadrar nunca.
+    # La BD es el único lugar donde esa regla se puede imponer de verdad.
+    __table_args__ = (
+        Index(
+            "ix_cierres_caja_un_turno_abierto",
+            "cliente_id",
+            unique=True,
+            sqlite_where=text("estado = 'abierto'"),
+        ),
+    )
 
 
 class PushSubscription(Base):

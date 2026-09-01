@@ -1163,9 +1163,10 @@ Resumen de lo agregado:
 
 ## 🔍 AUDITORÍA DE SEGURIDAD PRE-PRODUCCIÓN (2026-08-31)
 
-**Estado:** 2 bloqueadores pendientes + 5 medios. **Ninguno es arquitectónico** — todos arreglables en <100 líneas.
+**Estado:** ✅ **Los 3 bloqueadores están resueltos** (2026-09-01), cada uno con
+tests que fallan si se revierte el fix. Quedan los 5 medios y los 3 menores.
 
-### 🚨 BLOQUEADORES (Críticos antes de producción)
+### 🚨 BLOQUEADORES (todos cerrados)
 
 **1. ✅ RESUELTO (2026-09-01) — Dashboard Financiero accesible por cualquier rol**
 - **Ubicación:** `backend/routes/dashboard.py`
@@ -1181,27 +1182,43 @@ Resumen de lo agregado:
   recordatorio de que los tests de permisos conviene escribirlos por rol real,
   no por endpoint.
 
-**2. Header de zona horaria manipulable → cierre automático forzado**
-- **Ubicación:** `backend/routes/caja.py` [:113-158] + `backend/dependencies.py` [:55-71]
-- **Problema:** `_auto_cerrar_si_vencida()` corre en `/caja/gate` (sin `validar_admin`) y usa `X-TZ-Offset` del cliente
-- **Explotación:** Mozo hace `GET /caja/gate` con `X-TZ-Offset: -840` (turno "de mañana") → turno del admin de hoy se cierra solo con `saldo_contado = saldo_esperado`
-- **Impacto:** Admin pierde su cierre real validado; audit_log dice `actor="sistema"` (no imputable)
-- **Fix:** 
-  1. Validar `X-TZ-Offset` contra el cliente (guardar su zona horaria al registrar)
-  2. O no usar header en `_auto_cerrar_si_vencida` — usar solo `fecha` de la BD
-  (3-5 líneas)
+**2. ✅ RESUELTO (2026-09-01) — Header de zona horaria manipulable**
+- **Ubicación:** `backend/routes/caja.py`, `backend/models.py` (`CierreCaja.tz_offset`)
+- **Era:** `_auto_cerrar_si_vencida()` corre en `/caja/gate` (que a propósito NO
+  exige admin: mozo y cocina necesitan saber si pueden operar) y calculaba "qué
+  día es hoy" con el `X-TZ-Offset` de quien consultaba. Un mozo con
+  `X-TZ-Offset: -840` adelantaba el día y el turno abierto del admin se cerraba
+  solo con `saldo_contado = saldo_esperado`: perdía su conteo real y en el
+  `audit_log` quedaba `actor="sistema"`, sin nadie a quien imputarlo.
+- **Fix aplicado:** la zona horaria se captura del dispositivo del ADMIN al abrir
+  el turno y se guarda en `CierreCaja.tz_offset`. El auto-cierre usa ese valor,
+  nunca el header del visitante. `/caja/gate` además ya no necesita el header:
+  pregunta si queda algún turno abierto, porque los vencidos ya se cerraron con
+  la zona horaria correcta.
+- **Cubierto por:** `test_un_mozo_no_puede_forzar_el_cierre_de_la_caja_del_admin`
+  y `test_el_auto_cierre_sigue_funcionando_con_un_turno_de_ayer` (la contracara:
+  blindar esto no puede haber roto la válvula de seguridad).
+- **Nota sobre el test:** congela el reloj a mediodía UTC a propósito. Sin eso
+  el test es una moneda al aire — el desfase entre UTC-5 y UTC+14 es de 19h, así
+  que cruza la medianoche o no según la hora a la que se corra la suite. Un test
+  de seguridad que a veces no ve el agujero es peor que no tenerlo.
 
-**3. Race condition: dos turnos abiertos simultáneamente**
-- **Ubicación:** `backend/routes/caja.py` [:260-278] (check-then-insert sin lock)
-- **Problema:** Quitaste `UniqueConstraint(cliente_id, fecha)` para turnos múltiples, pero nunca agregaste constraint parcial sobre `estado='abierto'`
-- **Explotación:** Doble-click del admin o dos pestañas → dos filas con `estado='abierto'` en BD
-- **Impacto:** `.first()` elige arbitrariamente; las mismas ventas se cuentan en ambos turnos → caja nunca cuadra
-- **Fix:** Agregar a `CierreCaja` (models.py):
-  ```sql
-  db.execute("CREATE UNIQUE INDEX IF NOT EXISTS ix_cierres_caja_cliente_abierto 
-             ON cierres_caja(cliente_id) WHERE estado='abierto'")
-  ```
-  (1 línea en migrate.py)
+**3. ✅ RESUELTO (2026-09-01) — Race condition: dos turnos abiertos**
+- **Ubicación:** `backend/models.py` (índice parcial), `backend/routes/caja.py`
+- **Era:** `POST /caja/abrir` hacía check-then-insert sin lock. Un doble clic del
+  admin, o dos pestañas abiertas, dejaban dos filas con `estado='abierto'`. Con
+  dos, `.first()` elige una arbitrariamente y las MISMAS ventas se cuentan en
+  ambos turnos: la caja no vuelve a cuadrar nunca.
+- **Fix aplicado:** índice único PARCIAL
+  `ix_cierres_caja_un_turno_abierto ON cierres_caja(cliente_id) WHERE estado='abierto'`.
+  Es parcial para no romper los turnos múltiples por día (varias filas CERRADAS
+  sí comparten `fecha`). La ruta captura el `IntegrityError` y lo traduce al
+  mismo mensaje legible de siempre.
+- **Migración:** `backend/migrate.py` crea el índice y, si encuentra duplicados
+  de antes, cierra los antiguos dejando abierto el más reciente (sin eso el
+  índice no se puede crear sobre una BD que ya trae el problema).
+- **Cubierto por:** `test_la_bd_impide_dos_turnos_abiertos_aunque_se_salte_la_validacion`
+  y `test_varios_turnos_cerrados_el_mismo_dia_siguen_permitidos`.
 
 ### 🟡 MEDIOS (Requieren atención, no bloquean)
 

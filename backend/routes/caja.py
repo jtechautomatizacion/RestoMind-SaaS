@@ -36,6 +36,7 @@ por vos el turno que quedó pendiente de un día que ya pasó.
 from datetime import datetime, timedelta, date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
@@ -110,10 +111,18 @@ def _clasificar_estado(diferencia: float) -> str:
     return "discrepancia_grave"
 
 
-def _auto_cerrar_si_vencida(db: Session, cliente_id: str, tz_offset: int) -> None:
+def _auto_cerrar_si_vencida(db: Session, cliente_id: str) -> None:
     """Ver docstring del módulo ("Válvula de seguridad"). Se llama al
     principio de /caja/estado, /caja/gate y /caja/abrir — así el auto-cierre
-    ocurre en el primer request del día sin necesitar un cron aparte."""
+    ocurre en el primer request del día sin necesitar un cron aparte.
+
+    NO recibe el tz_offset del request a propósito: usa el que quedó
+    guardado en el turno al abrirlo (dispositivo del admin). Antes tomaba el
+    header X-TZ-Offset de quien consultaba, y como /caja/gate lo consulta
+    cualquier rol, un mozo podía mandar un offset extremo para adelantar el
+    "hoy" y forzar el cierre automático del turno que el admin tenía abierto
+    — perdiendo su conteo real y quedando registrado como actor "sistema",
+    sin nadie a quien imputarlo."""
     caja = (
         db.query(CierreCaja)
         .filter(CierreCaja.cliente_id == cliente_id, CierreCaja.estado == "abierto")
@@ -122,7 +131,7 @@ def _auto_cerrar_si_vencida(db: Session, cliente_id: str, tz_offset: int) -> Non
     if not caja:
         return
 
-    hoy = _hoy_local(tz_offset)
+    hoy = _hoy_local(caja.tz_offset or 0)
     fecha_caja = date.fromisoformat(caja.fecha)
     if fecha_caja >= hoy:
         return  # sigue siendo un turno de hoy — nada que auto-cerrar
@@ -162,27 +171,28 @@ def _auto_cerrar_si_vencida(db: Session, cliente_id: str, tz_offset: int) -> Non
 def verificar_gate_caja(
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
-    tz_offset: int = Depends(get_tz_offset),
 ):
     """
     Semáforo para Mesas/Cocina: ¿hay un turno abierto HOY? Sin validar_admin
     a propósito — mozo/cocina también necesitan saber si pueden operar, y a
     diferencia de /caja/estado esta ruta nunca expone montos (eso es
     información financiera privada del admin).
-    """
-    _auto_cerrar_si_vencida(db, cliente_id, tz_offset)
 
-    hoy = _hoy_local(tz_offset)
-    turno_hoy_abierto = (
+    No depende del header X-TZ-Offset de quien llama: basta con preguntar si
+    queda algún turno abierto, porque _auto_cerrar_si_vencida ya cerró los
+    de días anteriores usando la zona horaria del propio turno. Antes se
+    comparaba contra un "hoy" derivado del header, y como esta ruta la llama
+    cualquier rol, ese dato manipulable decidía tanto el gate como el
+    auto-cierre del turno del admin.
+    """
+    _auto_cerrar_si_vencida(db, cliente_id)
+
+    turno_abierto = (
         db.query(CierreCaja)
-        .filter(
-            CierreCaja.cliente_id == cliente_id,
-            CierreCaja.estado == "abierto",
-            CierreCaja.fecha == hoy.isoformat(),
-        )
+        .filter(CierreCaja.cliente_id == cliente_id, CierreCaja.estado == "abierto")
         .first()
     )
-    return CajaGateResponse(hay_caja_abierta=bool(turno_hoy_abierto))
+    return CajaGateResponse(hay_caja_abierta=bool(turno_abierto))
 
 
 @router.get("/caja/estado", response_model=CajaEstadoResponse)
@@ -193,7 +203,7 @@ def obtener_estado_caja(
     tz_offset: int = Depends(get_tz_offset),
 ):
     validar_admin(db, usuario_actual, cliente_id)
-    _auto_cerrar_si_vencida(db, cliente_id, tz_offset)
+    _auto_cerrar_si_vencida(db, cliente_id)
 
     hoy = _hoy_local(tz_offset)
 
@@ -251,7 +261,7 @@ def abrir_caja(
     tz_offset: int = Depends(get_tz_offset),
 ):
     validar_admin(db, usuario_actual, cliente_id)
-    _auto_cerrar_si_vencida(db, cliente_id, tz_offset)
+    _auto_cerrar_si_vencida(db, cliente_id)
 
     # Único requisito para abrir: que no haya YA un turno abierto (de hoy o
     # de un día anterior — aunque a esta altura _auto_cerrar_si_vencida ya
@@ -272,10 +282,22 @@ def abrir_caja(
         saldo_inicial=payload.saldo_inicial,
         abierto_en=datetime.utcnow(),
         abierto_por=usuario_actual,
+        # Se guarda la zona horaria del dispositivo del ADMIN que abre, para
+        # que el auto-cierre no dependa después del header de quien consulte
+        # (ver _auto_cerrar_si_vencida).
+        tz_offset=tz_offset,
         estado="abierto",
     )
     db.add(caja)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # El chequeo de arriba no alcanza contra dos requests simultáneos
+        # (doble clic del admin, dos pestañas): el índice único parcial de
+        # cierres_caja es lo que de verdad impide dos turnos abiertos. Acá
+        # solo se traduce ese choque al mismo mensaje legible.
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Ya hay un turno de caja abierto. Ciérralo antes de abrir otro.")
     db.refresh(caja)
 
     registrar_evento(

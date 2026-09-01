@@ -215,6 +215,57 @@ def migrate():
         elif cols_push:
             print("[OK] push_subscriptions ya usa usuario_id")
 
+        # cierres_caja.tz_offset: el auto-cierre de turnos vencidos calculaba
+        # "qué día es hoy" con el header X-TZ-Offset de QUIEN CONSULTA, y
+        # /caja/gate lo consulta cualquier rol — así que un mozo con un
+        # offset falso podía adelantar el "hoy" y forzar el cierre automático
+        # del turno que el admin tenía abierto. Ahora la zona horaria se
+        # captura del dispositivo del admin AL ABRIR y vive en el turno.
+        if cols_cierres := [row[1] for row in cursor.execute("PRAGMA table_info(cierres_caja)").fetchall()]:
+            if "tz_offset" not in cols_cierres:
+                print("Agregando columna 'tz_offset' a cierres_caja...")
+                cursor.execute("ALTER TABLE cierres_caja ADD COLUMN tz_offset INTEGER NOT NULL DEFAULT 0")
+                conn.commit()
+                print("[OK] Columna 'tz_offset' agregada")
+            else:
+                print("[OK] Columna 'tz_offset' ya existe")
+
+            # Índice único parcial: un solo turno ABIERTO por restaurante.
+            # Cierra la carrera del check-then-insert de POST /caja/abrir
+            # (doble clic o dos pestañas dejaban dos turnos abiertos, y las
+            # mismas ventas se contaban en los dos).
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND name='ix_cierres_caja_un_turno_abierto'"
+            )
+            if not cursor.fetchone():
+                # Si ya hay duplicados de antes, el índice no se puede crear:
+                # se cierran los sobrantes dejando el más reciente abierto.
+                cursor.execute("""
+                    SELECT cliente_id, COUNT(*) FROM cierres_caja
+                    WHERE estado='abierto' GROUP BY cliente_id HAVING COUNT(*) > 1
+                """)
+                for cliente_id, cuantos in cursor.fetchall():
+                    print(f"  Ojo: {cuantos} turnos abiertos en '{cliente_id}' — cerrando los antiguos")
+                    cursor.execute("""
+                        UPDATE cierres_caja SET estado='cerrado_automatico',
+                            razon_discrepancia='Cerrado por migración: había más de un turno abierto a la vez (bug de concurrencia). Revisar manualmente.'
+                        WHERE cliente_id=? AND estado='abierto' AND id NOT IN (
+                            SELECT id FROM cierres_caja WHERE cliente_id=? AND estado='abierto'
+                            ORDER BY abierto_en DESC LIMIT 1
+                        )
+                    """, (cliente_id, cliente_id))
+
+                print("Creando índice único de turno abierto en cierres_caja...")
+                cursor.execute(
+                    "CREATE UNIQUE INDEX ix_cierres_caja_un_turno_abierto "
+                    "ON cierres_caja (cliente_id) WHERE estado = 'abierto'"
+                )
+                conn.commit()
+                print("[OK] Índice único de turno abierto creado")
+            else:
+                print("[OK] Índice único de turno abierto ya existe")
+
         print("[OK] Migración completada")
     except Exception as e:
         print(f"[ERROR] Error en migración: {e}")
