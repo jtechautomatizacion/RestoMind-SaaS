@@ -1162,6 +1162,27 @@ body {
     background: var(--bg);
     color: var(--text);
     font-size: 13px;
+    /* Sin esto, el input reserva su propio ancho mínimo de contenido (el
+       texto dd/mm/aaaa + el ícono nativo del calendario) además del ancho
+       que le da el grid — en una fila de 3 columnas (Desde/Hasta/Aplicar)
+       eso empuja el total más allá del viewport en un celular angosto, y
+       "Aplicar" queda literalmente fuera de la tarjeta. min-width: 0 deja
+       que el input se encoja hasta el espacio que el grid le da de verdad. */
+    min-width: 0;
+}
+
+/* En pantallas angostas, tres columnas (Desde/Hasta/Aplicar) no entran con
+   el ancho mínimo real de un <input type="date"> nativo — el botón queda
+   empujado fuera de la tarjeta. Se pasa a 2 columnas para las fechas y
+   "Aplicar" ocupa su propia fila completa, en vez de competir por espacio. */
+@media (max-width: 480px) {
+    .date-range-inputs {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .date-range-inputs #btn-aplicar-filtro {
+        grid-column: 1 / -1;
+    }
 }
 
 .periodo-presets {
