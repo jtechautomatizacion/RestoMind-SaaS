@@ -11,9 +11,150 @@
          en cada carga (ruido en consola que tapa errores de verdad). -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23FF5A3C'/><text x='16' y='16' font-size='19' fill='%23fff' text-anchor='middle' dy='.34em' font-family='sans-serif' font-weight='800'>R</text></svg>">
     <title>RestoMind</title>
+
+    <!-- Splash de arranque. Va INLINE y ANTES de style.css a propósito: si
+         viviera en la hoja de estilos, no se pintaría hasta que esa hoja
+         termine de descargar y revalidar, que es justo el momento que el
+         splash existe para cubrir. Por eso los colores están escritos a
+         mano acá en vez de var(--bg)/var(--accent): esas variables se
+         definen en style.css, que todavía no cargó. Son los mismos valores
+         (--bg, --accent, --text-muted); si cambian allá, cambiarlos acá.
+
+         Solo se anima con transform y opacity, la regla de rendimiento que
+         ya trae el sistema de diseño (ver cabecera de style.css) — nada de
+         filter ni blur, que en gama baja cuestan repintado. -->
+    <style>
+        #splash {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 26px;
+            background: #F6F4F1;
+            /* Sin webfonts, igual que el resto de la app: en un celular de
+               gama baja con datos lentos, esperar a que baje una tipografía
+               para mostrar el splash es exactamente el problema que el
+               splash tenía que resolver. */
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            transition: opacity 0.35s ease;
+        }
+        #splash.oculto { opacity: 0; pointer-events: none; }
+
+        .splash-marca {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 14px;
+            color: #FF5A3C;
+        }
+        .splash-icono { width: 96px; height: 96px; }
+        .splash-nombre {
+            font-size: 34px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .splash-spinner { width: 54px; height: 54px; }
+        /* Rota el GRUPO entero, no cada punto: un solo elemento animado en
+           vez de doce. Las opacidades son fijas y forman la estela, así que
+           el navegador solo compone una rotación (barata en GPU). */
+        .splash-spinner-giro {
+            transform-origin: 32px 32px;
+            animation: splash-girar 1.1s steps(12, end) infinite;
+        }
+        @keyframes splash-girar { to { transform: rotate(360deg); } }
+
+        .splash-texto {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 2.5px;
+            color: #6B7280;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            #splash { background: #121212; }
+            .splash-marca { color: #FF6B4E; }
+            .splash-texto { color: #9CA3AF; }
+        }
+
+        /* Para quien pidió menos movimiento: el giro se reemplaza por un
+           latido suave — sigue comunicando "está cargando" sin rotación. */
+        @media (prefers-reduced-motion: reduce) {
+            .splash-spinner-giro {
+                animation: splash-latir 1.6s ease-in-out infinite;
+            }
+            @keyframes splash-latir { 50% { opacity: 0.35; } }
+        }
+    </style>
+
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
+    <div id="splash">
+        <div class="splash-marca">
+            <svg class="splash-icono" viewBox="0 0 64 64" fill="none" stroke="currentColor"
+                 stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <!-- Mesa: tablero, pie central y base -->
+                <path d="M20 28 H44"/>
+                <path d="M32 28 V46"/>
+                <path d="M25 46 H39"/>
+                <!-- Silla izquierda: respaldo, asiento, pata delantera -->
+                <path d="M9 41 V21 Q9 17 13 17"/>
+                <path d="M9 32 H17"/>
+                <path d="M17 32 V41"/>
+                <!-- Silla derecha (espejo) -->
+                <path d="M55 41 V21 Q55 17 51 17"/>
+                <path d="M47 32 H55"/>
+                <path d="M47 32 V41"/>
+            </svg>
+            <div class="splash-nombre">RestoMind</div>
+        </div>
+
+        <svg class="splash-spinner" viewBox="0 0 64 64" aria-hidden="true">
+            <g class="splash-spinner-giro" fill="#FF5A3C">
+                <circle cx="32" cy="10" r="3.2" opacity="1"/>
+                <circle cx="43" cy="12.9" r="3.2" opacity=".9"/>
+                <circle cx="51" cy="21" r="3.2" opacity=".8"/>
+                <circle cx="54" cy="32" r="3.2" opacity=".7"/>
+                <circle cx="51" cy="43" r="3.2" opacity=".6"/>
+                <circle cx="43" cy="51" r="3.2" opacity=".5"/>
+                <circle cx="32" cy="54" r="3.2" opacity=".42"/>
+                <circle cx="21" cy="51" r="3.2" opacity=".34"/>
+                <circle cx="12.9" cy="43" r="3.2" opacity=".28"/>
+                <circle cx="10" cy="32" r="3.2" opacity=".22"/>
+                <circle cx="12.9" cy="21" r="3.2" opacity=".16"/>
+                <circle cx="21" cy="12.9" r="3.2" opacity=".12"/>
+            </g>
+        </svg>
+
+        <div class="splash-texto">CARGANDO...</div>
+    </div>
+
+    <!-- Ocultar el splash vive acá, inline, y no dentro de app.js/auth.js:
+         si alguno de esos archivos falla al cargar, el splash taparía la
+         app para siempre y no habría forma ni de usarla ni de ver el error.
+         Mismo criterio que el bloque de ?reset de más abajo. -->
+    <script>
+        function ocultarSplash() {
+            const s = document.getElementById('splash');
+            if (!s) return;
+            s.classList.add('oculto');
+            // Se saca del DOM al terminar la transición: si quedara, sería
+            // una capa invisible por encima de toda la app interceptando
+            // toques (aunque tenga pointer-events:none, es una capa menos
+            // de la que preocuparse).
+            setTimeout(() => s.remove(), 400);
+        }
+
+        // Red de seguridad: pase lo que pase, a los 10 segundos el splash se
+        // va. Un splash eterno deja la app inutilizable Y sin forma de
+        // diagnosticar qué falló, que es peor que no tener splash.
+        setTimeout(ocultarSplash, 10000);
+    </script>
+
     <!-- Reset total + limpieza automática de sesión corrupta.
          Vive inline y ANTES de cargar cualquier .js a propósito: es la vía
          de escape cuando la app quedó rota (JS viejo cacheado, sesión
@@ -1019,7 +1160,13 @@
         if ('serviceWorker' in navigator && !enReset) {
             navigator.serviceWorker.register('/static/sw.js').catch(() => {});
         }
-        document.addEventListener('DOMContentLoaded', initAuth);
+        // .finally cubre los tres caminos de initAuth (sin sesión -> login,
+        // sesión válida -> app, sesión vencida -> login con aviso): el
+        // splash se va en cualquiera de ellos, y también si initAuth
+        // lanzara una excepción inesperada.
+        document.addEventListener('DOMContentLoaded', () => {
+            initAuth().finally(ocultarSplash);
+        });
     </script>
 </body>
 </html>
