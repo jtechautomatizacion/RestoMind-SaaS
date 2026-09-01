@@ -163,6 +163,44 @@ def test_varios_turnos_cerrados_el_mismo_dia_siguen_permitidos(test_client, test
     assert del_dia == 2
 
 
+# ---------- Serialización de fechas ----------
+
+def test_los_timestamps_salen_marcados_como_utc(test_client, test_cliente):
+    """La app guarda los instantes con datetime.utcnow() (naive, pero UTC).
+    Si la API los emite sin la marca 'Z', el navegador los lee como hora
+    LOCAL —así lo manda el estándar— y en Lima mostraba las 06:36 UTC como
+    si fueran las 06:36 de la mañana: cinco horas de más en cada fecha
+    visible. El dato viajaba bien; lo ambiguo era cómo leerlo, y por eso no
+    lo veía ningún test de backend."""
+    _abrir_caja(test_client)
+    cerrar = test_client.post('/api/caja/cerrar', json={"saldo_contado": 100.0})
+    assert cerrar.status_code == 200
+
+    cuerpo = cerrar.json()
+    assert cuerpo["abierto_en"].endswith("Z"), "el navegador leería este instante como hora local"
+    assert cuerpo["cerrado_en"].endswith("Z"), "el navegador leería este instante como hora local"
+
+
+def test_la_fecha_de_negocio_de_un_movimiento_no_lleva_marca_utc(test_client, test_cliente):
+    """La contracara: MovimientoInsumo.fecha es el DÍA al que corresponde el
+    movimiento (el admin puede fechar hoy una merma de ayer), guardado a
+    medianoche. Marcarlo como UTC lo correría un día hacia atrás en Lima —
+    el 01/09 a las 00:00 pasaría a mostrarse como 31/08."""
+    insumo = test_client.post('/api/insumos', json={
+        "nombre": "Pescado", "unidad": "kg", "cantidad_actual": 10, "cantidad_minima": 2,
+    }).json()
+    mov = test_client.post(f'/api/insumos/{insumo["id"]}/movimientos', json={
+        "tipo": "salida", "cantidad": 1, "razon": "merma", "fecha": "2026-09-01",
+    })
+    assert mov.status_code == 201
+
+    cuerpo = mov.json()
+    assert cuerpo["fecha"].startswith("2026-09-01"), "se corrió el día de la merma"
+    assert not cuerpo["fecha"].endswith("Z"), "una fecha de calendario no es un instante UTC"
+    # El instante en que se tipeó SÍ es UTC.
+    assert cuerpo["creado_en"].endswith("Z")
+
+
 def db_caja(test_db) -> CierreCaja:
     """El turno más reciente de este restaurante, releído de la BD."""
     test_db.expire_all()

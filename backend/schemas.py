@@ -1,10 +1,40 @@
 import re
 
-from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import List, Literal, Optional
-from datetime import date, datetime
+from pydantic import BaseModel, Field, PlainSerializer, field_validator, model_validator
+from typing import Annotated, List, Literal, Optional
+from datetime import date, datetime, timezone
 
 from backend.utils.roles import ROLES_STAFF, roles_de
+
+
+def _a_iso_utc(valor: datetime) -> str:
+    """Serializa un timestamp con la marca 'Z' explícita de UTC.
+
+    Toda la app guarda instantes con datetime.utcnow(): naive, pero en UTC.
+    Sin la marca, la API emitía '2026-09-01T06:36:27' y el navegador
+    interpreta un ISO sin zona como hora LOCAL (así lo manda el estándar),
+    de modo que mostraba las 06:36 UTC como si ya fueran las 06:36 de Lima
+    — cinco horas de más en cada fecha visible de la app. Ni el backend ni
+    los tests lo veían, porque el dato viajaba bien: lo único ambiguo era
+    cómo había que leerlo.
+
+    Se corrige acá y no en cada `new Date()` del frontend porque el contrato
+    de la API es el lugar correcto: cualquier cliente futuro (otra app, una
+    integración) hereda el arreglo sin repetir el mismo truco.
+    """
+    if valor.tzinfo is None:
+        valor = valor.replace(tzinfo=timezone.utc)
+    return valor.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+# Para INSTANTES (cuándo ocurrió algo, en la línea de tiempo real).
+#
+# NO usar en fechas de CALENDARIO del negocio — como MovimientoResponse.fecha,
+# que es "el día al que corresponde esta merma" y el admin puede fecharla
+# ayer. Esas se guardan a medianoche naive; marcarlas como UTC las correría
+# un día hacia atrás en cualquier zona al oeste de Greenwich (en Lima, el
+# 01/09 a las 00:00 pasaría a mostrarse como 31/08).
+UtcDatetime = Annotated[datetime, PlainSerializer(_a_iso_utc, return_type=str, when_used="json")]
 
 
 def _validar_roles_staff(roles: List[str]) -> List[str]:
@@ -32,6 +62,27 @@ def _validar_celular_peru(valor: str) -> str:
     limpio = re.sub(r"[\s-]", "", valor)
     if not re.fullmatch(r"9\d{8}", limpio):
         raise ValueError("El celular debe tener 9 dígitos y empezar con 9 (ej: 987654321)")
+    return limpio
+
+
+def _validar_email(valor: str) -> str:
+    """Formato de email razonable, en minúsculas y sin espacios alrededor.
+
+    No pretende cubrir todo el RFC 5322 (que admite rarezas que ningún
+    proveedor real acepta): busca atajar el caso que de verdad pasa, un
+    email mal tipeado al dar de alta un restaurante. Sin esta validación,
+    `admin_email` era un str suelto y cualquier cosa llegaba hasta el envío
+    SMTP; un destinatario inválido rebota, y una tasa alta de rebotes es de
+    las señales que usa Google para limitar la cuenta que envía.
+
+    Ojo: que el formato sea válido no garantiza que el dominio exista
+    (buensabor.pe pasa este filtro y no existe). Para eso haría falta una
+    consulta DNS de MX, que hoy no se hace — en desarrollo se evita el
+    problema no enviando nada (ver backend/email.py).
+    """
+    limpio = valor.strip().lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s.]+(\.[^@\s.]+)+", limpio):
+        raise ValueError("Email inválido (ej: nombre@dominio.com)")
     return limpio
 
 
@@ -100,7 +151,7 @@ class SuperAdminMe(BaseModel):
 
 class AuditLogResponse(BaseModel):
     id: int
-    timestamp: datetime
+    timestamp: UtcDatetime
     actor: str
     accion: str
     entidad: str
@@ -122,7 +173,7 @@ class ClienteConStats(BaseModel):
     direccion: Optional[str] = None
     pais: str
     estado: str
-    creado_en: datetime
+    creado_en: UtcDatetime
     num_usuarios: int
     num_platos: int
     num_mesas: int
@@ -143,6 +194,11 @@ class ClienteCreateRequest(BaseModel):
     admin_nombre: str = Field(..., min_length=1, max_length=100)
     admin_email: str = Field(..., min_length=1, max_length=150)
     admin_password: str = Field(..., min_length=6, max_length=200)
+
+    @field_validator("email", "admin_email")
+    @classmethod
+    def validar_emails(cls, v: str) -> str:
+        return _validar_email(v)
 
     @field_validator("telefono")
     @classmethod
@@ -187,6 +243,11 @@ class ClienteUpdateRequest(BaseModel):
     admin_nombre: str = Field(..., min_length=1, max_length=100)
     admin_email: str = Field(..., min_length=1, max_length=150)
     admin_password: Optional[str] = Field(default=None, max_length=200)
+
+    @field_validator("email", "admin_email")
+    @classmethod
+    def validar_emails(cls, v: str) -> str:
+        return _validar_email(v)
 
     @field_validator("telefono")
     @classmethod
@@ -285,7 +346,7 @@ class PlatoResponse(BaseModel):
     descripcion: Optional[str] = None
     imagen_url: Optional[str] = None
     estado: str
-    creado_en: datetime
+    creado_en: UtcDatetime
 
     class Config:
         from_attributes = True
@@ -331,7 +392,7 @@ class UsuarioResponse(BaseModel):
     # un solo valor exclusivo, nunca combinado: acá se ve como ['admin'].
     roles: List[str] = Field(default_factory=list)
     estado: str
-    creado_en: datetime
+    creado_en: UtcDatetime
 
     class Config:
         from_attributes = True
@@ -415,7 +476,7 @@ class MesaResponse(BaseModel):
     capacidad: int
     ubicacion: Optional[str] = None
     estado: str
-    creado_en: datetime
+    creado_en: UtcDatetime
     cuenta_actual: float = 0.0
 
     class Config:
@@ -459,7 +520,7 @@ class ComandaResponse(BaseModel):
     estado: str
     total_cuenta: float
     platos: List[ComandaPlatoResponse]
-    creado_en: datetime
+    creado_en: UtcDatetime
 
     class Config:
         from_attributes = True
@@ -480,7 +541,7 @@ class MonitorComandaItem(BaseModel):
     id: int
     numero_mesa: int
     estado: str
-    creado_en: datetime
+    creado_en: UtcDatetime
     minutos_transcurridos: int
     platos: List[MonitorPlatoItem]
 
@@ -512,7 +573,7 @@ class CompraResponse(BaseModel):
     fecha: str
     estado: str
     creado_por: Optional[str] = None
-    creado_en: datetime
+    creado_en: UtcDatetime
 
     class Config:
         from_attributes = True
@@ -573,7 +634,7 @@ class InsumoResponse(BaseModel):
     # fila entera cada vez que cambia el mínimo o la cantidad, con el riesgo
     # de que quede desincronizado. Se calcula al responder (ver routes/insumos.py).
     estado: str  # "ok" | "bajo" | "critico"
-    creado_en: datetime
+    creado_en: UtcDatetime
 
     class Config:
         from_attributes = True
@@ -622,7 +683,7 @@ class MovimientoResponse(BaseModel):
     saldo_despues: float
     fecha: datetime
     usuario_nombre: Optional[str] = None
-    creado_en: datetime
+    creado_en: UtcDatetime
     # El frontend lo usa para tachar la fila y esconder su botón de deshacer.
     revertido: bool = False
 
@@ -689,7 +750,7 @@ class CierreCajaResponse(BaseModel):
     id: int
     fecha: str
     saldo_inicial: float
-    abierto_en: datetime
+    abierto_en: UtcDatetime
     abierto_por: str
 
     ventas_cobradas: Optional[float] = None
@@ -702,7 +763,7 @@ class CierreCajaResponse(BaseModel):
     variacion_pct: Optional[float] = None
     razon_discrepancia: Optional[str] = None
 
-    cerrado_en: Optional[datetime] = None
+    cerrado_en: Optional[UtcDatetime] = None
     cerrado_por: Optional[str] = None
     estado: str
 
@@ -821,7 +882,7 @@ class FacturaResponse(BaseModel):
     archivo_local: Optional[str] = None
     estado: str
     error_mensaje: Optional[str] = None
-    creado_en: datetime
+    creado_en: UtcDatetime
     fecha_emision_local: Optional[str] = None
     hora_emision_local: Optional[str] = None
 
@@ -845,7 +906,7 @@ class FacturaListItem(BaseModel):
     numero_boleta: str
     total: float
     estado: str
-    creado_en: datetime
+    creado_en: UtcDatetime
 
 
 class FacturaPendienteItem(BaseModel):
@@ -857,7 +918,7 @@ class FacturaPendienteItem(BaseModel):
     total: float
     estado: str
     error_mensaje: Optional[str] = None
-    creado_en: datetime
+    creado_en: UtcDatetime
 
 
 class VentaSinBoletaItem(BaseModel):
@@ -867,7 +928,7 @@ class VentaSinBoletaItem(BaseModel):
     numero_mesa: int
     comanda_ids: List[int]
     total: float
-    creado_en: datetime
+    creado_en: UtcDatetime
 
 
 class FacturasPendientesResponse(BaseModel):
