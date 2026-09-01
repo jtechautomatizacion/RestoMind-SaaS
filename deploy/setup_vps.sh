@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 #
-# Bootstrap de un VPS Ubuntu 22.04 nuevo para RestoMind. Se corre UNA sola
+# Bootstrap de un VPS Ubuntu 24.04 nuevo para RestoMind. Se corre UNA sola
 # vez, como root o con sudo, recién estrenado el servidor.
+#
+# 24.04 (Noble) trae Python 3.12 de fábrica — el mismo con el que se
+# desarrolla — así que NO hace falta el PPA de deadsnakes que necesitaban
+# las versiones anteriores (22.04 trae 3.10; 20.04, 3.8). Una dependencia
+# externa menos en el arranque, y el servidor corre exactamente el mismo
+# intérprete que la máquina de desarrollo.
 #
 # No genera ningún secreto por vos: SECRET_KEY, credenciales SMTP y de
 # Firebase quedan como TODO en el .env final para que los completes a mano.
@@ -21,11 +27,21 @@ APP_DIR="/home/${APP_USER}/app"
 echo "==> Actualizando el sistema"
 apt update && apt upgrade -y
 
-echo "==> Instalando Python 3.11 (deadsnakes — Ubuntu 22.04 trae 3.10 de fábrica)"
-apt install -y software-properties-common
-add-apt-repository -y ppa:deadsnakes/ppa
-apt update
-apt install -y python3.11 python3.11-venv python3.11-dev
+echo "==> Instalando Python (el nativo del sistema: 3.12 en Ubuntu 24.04)"
+# Ubuntu separa venv y los headers en paquetes aparte del intérprete.
+apt install -y python3 python3-venv python3-dev
+
+# Guarda por si el servidor se aprovisionó con una versión anterior de
+# Ubuntu: CLAUDE.md exige 3.11+, y varias dependencias del proyecto no
+# instalan en 3.10 o menos. Mejor frenar acá, con el número a la vista,
+# que fallar a mitad del pip install con un error de compilación.
+PY_VERSION="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+if [ "$(printf '%s\n3.11\n' "${PY_VERSION}" | sort -V | head -1)" != "3.11" ]; then
+    echo "ERROR: este servidor trae Python ${PY_VERSION} y RestoMind necesita 3.11 o superior."
+    echo "       Reaprovisioná el VPS con Ubuntu 24.04 (trae 3.12) — ver deploy/RUNBOOK.md."
+    exit 1
+fi
+echo "    Python ${PY_VERSION} OK"
 
 echo "==> Instalando Nginx, certbot, git, build-essential, sqlite3, ufw"
 # build-essential + sqlite3: por si algún paquete de requirements.txt no
@@ -52,7 +68,7 @@ else
 fi
 
 echo "==> Creando entorno virtual e instalando dependencias"
-sudo -u "${APP_USER}" python3.11 -m venv "${APP_DIR}/venv"
+sudo -u "${APP_USER}" python3 -m venv "${APP_DIR}/venv"
 sudo -u "${APP_USER}" "${APP_DIR}/venv/bin/pip" install --upgrade pip
 sudo -u "${APP_USER}" "${APP_DIR}/venv/bin/pip" install -r "${APP_DIR}/requirements.txt"
 

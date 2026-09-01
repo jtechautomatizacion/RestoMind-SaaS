@@ -1,4 +1,4 @@
-# Runbook — VPS OpenClaw, Ubuntu 22.04, Miami
+# Runbook — VPS OpenClaw, Ubuntu 24.04, Miami
 
 Pasos concretos para este servidor específico. Para el checklist genérico
 de qué necesita cualquier despliegue (independiente del hosting), ver
@@ -21,6 +21,24 @@ PC del restaurante — este VPS no reemplaza esa pieza.
 
 ---
 
+## 0. Al aprovisionar el VPS: elegir Ubuntu Server 24.04 LTS
+
+Esto se decide UNA vez y no se cambia después sin reinstalar, así que
+conviene no equivocarse:
+
+- **Python 3.12 de fábrica**, el mismo que se usa para desarrollar. Sin él
+  habría que instalar el intérprete desde un PPA externo (deadsnakes), una
+  dependencia más en el arranque de cada servidor.
+- **Parches de seguridad hasta abril de 2029.** El soporte estándar de
+  20.04 terminó en abril de 2025: un servidor con datos financieros de
+  clientes no debería correr sin parches.
+- Elegir la variante **"Server ... Minimal"**, no "Cloud Micro": menos
+  paquetes instalados (menos superficie de ataque) pero conserva lo básico;
+  las imágenes ultra-recortadas a veces vienen sin `curl` ni `sudo`.
+
+Con 2 GB de RAM alcanza y sobra para esta app: RestoMind consume ~200 MB,
+Nginx ~20 MB y el sistema ~400 MB.
+
 ## 1. Bootstrap del servidor (una sola vez)
 
 ```bash
@@ -32,7 +50,8 @@ ssh root@TU_IP
 REPO_URL="https://github.com/tu-usuario/RestoMind-SaaS.git" bash setup_vps.sh
 ```
 
-Esto instala Python 3.11, Nginx, certbot, configura el firewall (ufw),
+Esto instala Python (el 3.12 nativo de 24.04, sin PPAs externos), Nginx,
+certbot, configura el firewall (ufw),
 crea el usuario `restomind` sin privilegios, clona el repo, arma el
 entorno virtual e instala dependencias, y prepara `/home/restomind/app/.env`
 con placeholders `TODO_*`.
@@ -50,7 +69,7 @@ ENVIRONMENT=production
 DEBUG=false
 
 # Generar UNO NUEVO, distinto al de desarrollo:
-# python3.11 -c "import secrets; print(secrets.token_urlsafe(48))"
+# python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 SECRET_KEY=<pegar acá>
 
 # El dominio real donde va a vivir el frontend (con https://).
