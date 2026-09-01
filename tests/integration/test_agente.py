@@ -83,6 +83,24 @@ def test_token_invalido_se_rechaza(test_client, token_agente):
     assert resp.status_code == 401
 
 
+def test_intentos_fallidos_repetidos_terminan_bloqueados(test_client, token_agente):
+    """Cada intento fallido obliga a un bcrypt.checkpw() contra CADA token
+    activo — deliberadamente caro. Sin límite, mandar intentos fallidos sin
+    parar es una vía de denegación de servicio: la misma protección que ya
+    tienen los tres logins de la app (ver backend/utils/rate_limit.py)."""
+    for _ in range(5):
+        resp = test_client.get("/api/agente/pendientes", headers=_headers("token-inventado"))
+        assert resp.status_code == 401
+
+    bloqueado = test_client.get("/api/agente/pendientes", headers=_headers("token-inventado"))
+    assert bloqueado.status_code == 429
+
+    # Y ni siquiera con el token BUENO se puede entrar mientras dure el
+    # bloqueo: el límite es por IP, no por token — igual que en los logins.
+    con_token_bueno = test_client.get("/api/agente/pendientes", headers=_headers(TOKEN_VALIDO))
+    assert con_token_bueno.status_code == 429
+
+
 def test_token_revocado_deja_de_funcionar(test_client, test_db, token_agente):
     """Es la razón principal de tener un token propio en vez de un JWT: un
     JWT no se puede revocar hasta que expire."""
