@@ -256,15 +256,15 @@
                             <form id="form-mesa" onsubmit="guardarMesa(event)">
                                 <div class="form-group">
                                     <label>Número de mesa</label>
-                                    <input type="number" id="mesa-numero" placeholder="9" min="1" required>
+                                    <input type="number" id="mesa-numero" inputmode="numeric" placeholder="9" min="1" required>
                                 </div>
                                 <div class="form-group">
                                     <label>Capacidad (personas)</label>
-                                    <input type="number" id="mesa-capacidad" placeholder="4" min="1" max="50" required>
+                                    <input type="number" id="mesa-capacidad" inputmode="numeric" placeholder="4" min="1" max="50" required>
                                 </div>
                                 <div class="form-group">
                                     <label>Ubicación (opcional)</label>
-                                    <input type="text" id="mesa-ubicacion" placeholder="Patio, Interior..." maxlength="50">
+                                    <input type="text" id="mesa-ubicacion" inputmode="text" autocapitalize="words" placeholder="Patio, Interior..." maxlength="50">
                                 </div>
                                 <button type="submit" class="btn btn-primary btn-block">
                                     Guardar
@@ -442,7 +442,7 @@
                                     </div>
                                     <div class="form-group">
                                         <label>Nombre</label>
-                                        <input type="text" id="plato-nombre" placeholder="Ej: Lomo Saltado" required maxlength="100">
+                                        <input type="text" id="plato-nombre" inputmode="text" autocapitalize="words" placeholder="Ej: Lomo Saltado" required maxlength="100">
                                     </div>
                                     <div class="form-group">
                                         <label>Categoría</label>
@@ -450,11 +450,11 @@
                                     </div>
                                     <div class="form-group">
                                         <label>Precio de venta (S/)</label>
-                                        <input type="number" id="plato-precio" placeholder="45.00" step="0.01" min="0.01" required>
+                                        <input type="number" id="plato-precio" inputmode="decimal" placeholder="45.00" step="0.01" min="0.01" required>
                                     </div>
                                     <div class="form-group">
                                         <label>Descripción (opcional)</label>
-                                        <textarea id="plato-descripcion" placeholder="Ingredientes principales, tamaño, acompañamiento..." maxlength="300"></textarea>
+                                        <textarea id="plato-descripcion" autocapitalize="sentences" placeholder="Ingredientes principales, tamaño, acompañamiento..." maxlength="300"></textarea>
                                     </div>
                                     <button type="submit" class="btn btn-primary btn-block">
                                         Guardar
@@ -501,7 +501,7 @@
                                         <button type="button" class="icono-opcion" data-icono="🍦" title="Helados">🍦</button>
                                     </div>
                                     <div class="form-inline-add">
-                                        <input type="text" id="categoria-nombre" placeholder="Nueva categoría, ej. Postres" maxlength="50" required>
+                                        <input type="text" id="categoria-nombre" inputmode="text" autocapitalize="words" placeholder="Nueva categoría, ej. Postres" maxlength="50" required>
                                         <button type="submit" class="btn btn-primary">Agregar</button>
                                     </div>
                                 </form>
@@ -554,7 +554,7 @@
                                 <form id="form-insumo" onsubmit="guardarInsumo(event)">
                                     <div class="form-group">
                                         <label>Insumo</label>
-                                        <input type="text" id="insumo-nombre" placeholder="Ej: Pescado fresco" required maxlength="60">
+                                        <input type="text" id="insumo-nombre" inputmode="text" autocapitalize="sentences" placeholder="Ej: Pescado fresco" required maxlength="60">
                                     </div>
                                     <div class="form-group">
                                         <label>Unidad</label>
@@ -572,11 +572,11 @@
                                     <div class="form-row">
                                         <div class="form-group">
                                             <label>Stock actual</label>
-                                            <input type="number" id="insumo-cantidad" placeholder="20" step="0.01" min="0" required>
+                                            <input type="number" id="insumo-cantidad" inputmode="decimal" placeholder="20" step="0.01" min="0" required>
                                         </div>
                                         <div class="form-group">
                                             <label>Stock mínimo</label>
-                                            <input type="number" id="insumo-minima" placeholder="8" step="0.01" min="0.01" required>
+                                            <input type="number" id="insumo-minima" inputmode="decimal" placeholder="8" step="0.01" min="0.01" required>
                                         </div>
                                     </div>
                                     <small class="form-hint">Te avisamos cuando el stock baje del mínimo.</small>
@@ -606,7 +606,7 @@
                                     <div class="form-group">
                                         <label>Cantidad</label>
                                         <div class="mov-cantidad-wrap">
-                                            <input type="number" id="movimiento-cantidad" placeholder="5" step="0.01" min="0.01" required autocomplete="off">
+                                            <input type="number" id="movimiento-cantidad" inputmode="decimal" placeholder="5" step="0.01" min="0.01" required autocomplete="off">
                                             <span id="movimiento-unidad" class="mov-unidad"></span>
                                         </div>
                                     </div>
@@ -655,7 +655,7 @@
                                 <form id="form-compra" onsubmit="guardarCompra(event)">
                                     <div class="form-group">
                                         <label>Descripción</label>
-                                        <input type="text" id="compra-descripcion" placeholder="Ej: Insumos de cocina" required maxlength="100">
+                                        <input type="text" id="compra-descripcion" inputmode="text" autocapitalize="sentences" placeholder="Ej: Insumos de cocina" required maxlength="100">
                                     </div>
                                     <div class="form-group">
                                         <label>Categoría</label>
@@ -668,7 +668,7 @@
                                     </div>
                                     <div class="form-group">
                                         <label>Monto (S/)</label>
-                                        <input type="number" id="compra-monto" placeholder="85.50" step="0.01" min="0.01" required>
+                                        <input type="number" id="compra-monto" inputmode="decimal" placeholder="85.50" step="0.01" min="0.01" required>
                                         <small id="compra-monto-hint" class="form-hint hidden">No editable. Cancela y crea uno nuevo si necesitas cambiar.</small>
                                     </div>
                                     <div class="form-group">
@@ -736,15 +736,15 @@
                             <form id="form-cerrar-caja" onsubmit="return false;">
                                 <div class="form-group">
                                     <label>Dinero contado en caja ahora (S/)</label>
-                                    <input type="number" id="caja-saldo-contado" step="0.01" min="0" required placeholder="0.00">
+                                    <input type="number" id="caja-saldo-contado" inputmode="decimal" step="0.01" min="0" required placeholder="0.00">
                                 </div>
                                 <div class="form-group">
                                     <label>Retiros personales del día (S/, opcional)</label>
-                                    <input type="number" id="caja-retiros" step="0.01" min="0" value="0">
+                                    <input type="number" id="caja-retiros" inputmode="decimal" step="0.01" min="0" value="0">
                                 </div>
                                 <div class="form-group">
                                     <label>Razón de discrepancia (opcional, si sabes por qué no cuadra)</label>
-                                    <textarea id="caja-razon-discrepancia" maxlength="300" placeholder="Ej: vuelto mal dado en mesa 3"></textarea>
+                                    <textarea id="caja-razon-discrepancia" autocapitalize="sentences" maxlength="300" placeholder="Ej: vuelto mal dado en mesa 3"></textarea>
                                 </div>
                                 <button type="button" class="btn btn-primary btn-block" onclick="confirmarCerrarCaja()">
                                     Validar y cerrar caja
@@ -764,7 +764,7 @@
                             <form id="form-abrir-caja" onsubmit="return false;">
                                 <div class="form-group">
                                     <label>Saldo inicial (S/)</label>
-                                    <input type="number" id="caja-saldo-inicial" step="0.01" min="0" required placeholder="0.00">
+                                    <input type="number" id="caja-saldo-inicial" inputmode="decimal" step="0.01" min="0" required placeholder="0.00">
                                 </div>
                                 <button type="button" class="btn btn-primary btn-block" onclick="confirmarAbrirCaja()">
                                     Abrir caja
@@ -849,7 +849,7 @@
                                 <form id="form-usuario" onsubmit="guardarUsuario(event)">
                                     <div class="form-group">
                                         <label>Nombre</label>
-                                        <input type="text" id="usuario-nombre" required maxlength="100">
+                                        <input type="text" id="usuario-nombre" inputmode="text" autocapitalize="words" required maxlength="100">
                                     </div>
                                     <!-- Nueva cuenta de Personal: el código de acceso lo genera el
                                          backend, no hay nada que escribir acá -->
