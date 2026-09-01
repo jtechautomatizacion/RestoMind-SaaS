@@ -1,9 +1,9 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
-**Versión MVP:** 2.9 — Notificaciones Push a Cocina (Firebase Cloud Messaging)
-**Implementado y probado:** ✅ 100% Autenticación + Seguridad + Facturación SUNAT SFS + Dashboard Financiero + Validador de Caja + **Notificaciones Push a jefe_cocina** (138/138 tests)
+**Versión MVP:** 3.0 — Inventario Básico (Movimientos de Insumo)
+**Implementado y probado:** ✅ 100% Autenticación + Seguridad + Facturación SUNAT SFS + Dashboard Financiero + Validador de Caja + Notificaciones Push + **Inventario con entradas/salidas manuales** (181/181 tests)
 **Última actualización:** 2026-08-31
-**[NUEVA] Notificaciones push a Cocina:** Firebase Cloud Messaging — avisa a jefe_cocina cuando entra una comanda, incluso con la app minimizada o cerrada (sin impresora). Admin es opt-in vía switch en Admin > Personal. Requiere configurar un proyecto Firebase (ver los 4 pasos debajo); sin él, la app funciona exactamente igual, solo sin avisos.
+**[NUEVA] Inventario Básico:** Entradas/salidas manuales de stock (sin acoplamiento con comandas). Admin registra entrada (compra) o salida (uso/merma/ajuste). Sistema calcula automáticamente estado (ok/bajo/crítico) basado en cantidad actual vs mínimo. Alertas solo al cruzar umbral (no en cada salida). Historial auditable con reversión sin borrar (contra-asiento). Ver sección "Inventario Básico" más abajo.
 
 > Este documento describe el diseño original (MVPv1). El estado real de la
 > implementación actual, bugs corregidos, features agregados y decisiones
@@ -34,9 +34,11 @@
 > - ✅ **[FIX] formatCompacto():** Ya no redondea falsos — 122.50 se muestra "122.50", no "123"; consistente con tabla de abajo y stat-tiles
 > - ✅ **[NUEVA] Validador de Caja:** Admin > Caja — apertura (saldo inicial) y cierre (saldo contado) diario, con cálculo automático de ventas/gastos del día y detección de discrepancias (cuadrado / leve / grave). Reporte imprimible tipo boleta (resultado grande, QR, firmas). Ver sección "Validador de Caja" más abajo.
 > - ✅ **[NUEVA] Notificaciones Push (Firebase Cloud Messaging):** Aviso a jefe_cocina cuando entra una comanda, incluso con app minimizada/cerrada. Admin opt-in vía switch. Requiere proyecto Firebase — 4 pasos en frontend/js/push-notifications.js líneas 14-23. Sin configurar, app funciona igual. Ver sección "Notificaciones Push" más abajo.
+> - ✅ **[NUEVA] Inventario Básico (Movimientos de Insumo):** Entradas/salidas manuales de stock. Desacoplado de comandas (el admin ajusta con lo que cuenta de verdad). Historial con reversión. Estado (ok/bajo/crítico) calculado según cantidad vs mínimo. Alertas solo al cruzar umbral. Ver sección "Inventario Básico" más abajo.
 >
 > **Pendiente (a futuro, no bloquea el flujo actual):**
 > - ⏳ **Comandas en PDF** — generación/impresión de comanda y cuenta en PDF, por configurar
+> - ⏳ **Recetas de platos** — ingredientes y proporciones para auto-actualizar stock al vender (depende de decisión sobre acoplamiento)
 
 > **Para análisis técnico COMPLETO del sistema:**  
 > → [`LOGIN_ANALYSIS.md`](LOGIN_ANALYSIS.md) — flujo de auth, tokens, permisos, seguridad  
@@ -1443,11 +1445,11 @@ desincronizarse.
 
 ---
 
-**Versión:** 2.9 (Notificaciones Push a Cocina + Validador de Caja)  
-**Estado:** ✅ **COMPLETAMENTE FUNCIONAL Y AUDITADO** — Autenticación, Facturación, Caja, Notificaciones Push probadas y operativas  
+**Versión:** 3.0 (Inventario Básico con Movimientos de Insumo)  
+**Estado:** ✅ **COMPLETAMENTE FUNCIONAL Y AUDITADO** — Autenticación, Facturación, Caja, Notificaciones Push, Inventario probados y operativos  
 **Última Actualización:** 2026-08-31  
-**Tests:** 138/138 pasando (sin fallos, sin warnings críticos)  
-**Cobertura:** Autenticación JWT dual + Rate limiting + Auditoría + Facturación SUNAT SFS + Dashboard Financiero + Validador de Caja (turnos múltiples) + Notificaciones Push (Firebase Cloud Messaging)
+**Tests:** 181/181 pasando (sin fallos, sin warnings críticos)  
+**Cobertura:** Autenticación JWT dual + Rate limiting + Auditoría + Facturación SUNAT SFS + Dashboard Financiero + Validador de Caja (turnos múltiples) + Notificaciones Push (Firebase Cloud Messaging) + Inventario Básico (movimientos manuales)
 
 ### ✅ Stack Completo Implementado
 
@@ -1483,6 +1485,18 @@ desincronizarse.
 - ✅ Switch opt-in para admin (Admin > Personal)
 - ✅ Requiere proyecto Firebase (4 pasos manuales en frontend/js/push-notifications.js)
 - ✅ Sin configurar, la app funciona igual — push es un plus
+
+**Inventario Básico (NUEVA):**
+- ✅ Entradas/salidas manuales de stock en Admin > Gastos (colapsable)
+- ✅ Modal de movimiento con tipo (entrada/salida), cantidad, razon (compra/uso/merma/ajuste/otro), fecha
+- ✅ Panel de historial lateral (no modal) con lista de movimientos ordenada DESC
+- ✅ Estado calculado (ok/bajo/crítico) basado en cantidad_actual vs cantidad_minima
+- ✅ Alertas de auditoría solo al cruzar el umbral bajo/crítico (no en cada movimiento)
+- ✅ Reversión sin borrar (contra-asiento): original queda tachado, se agrega movimiento inverso
+- ✅ Guarda contra doble-reversión (dos clicks no descuentan el doble)
+- ✅ Admin-only en escritura/reversión, lectura abierta (cocina ve el historial)
+- ✅ Multi-tenant aislado, cascade delete (eliminar insumo borra sus movimientos)
+- ✅ 24 tests verdes (CRUD movimiento, validaciones, atomicidad, auditoría, reversión)
 
 **Infraestructura:**
 - ✅ PWA con Service Worker (network-first para HTML/CSS/JS, cache-first estáticos)
