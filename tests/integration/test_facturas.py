@@ -10,11 +10,13 @@ Dos emisores posibles (backend.config.settings.emisor_facturacion):
   (backend.utils.facturacion_pe.generar_boleta) porque ahí no queremos
   pegarle a la red real en un test.
 
-En ambos casos, lo que se prueba es LA LÓGICA DE NEGOCIO de RestoMind (qué
-se guarda, qué se rechaza, el correlativo, el detalle copiado de la
-comanda real) — no la validez del formato .cab/.det en sí (ver el aviso
-en backend/utils/sfs_export.py: el mapa de campos es un placeholder hasta
-confirmarlo contra el manual real del Facturador).
+En ambos casos, lo que se prueba acá es LA LÓGICA DE NEGOCIO de RestoMind:
+qué se guarda, qué se rechaza, el correlativo, el detalle copiado de la
+comanda real.
+
+La ESTRUCTURA de los archivos planos (cuántos campos lleva cada uno y qué
+va en cada posición, según el Anexo I de SUNAT) se prueba aparte, en
+tests/unit/test_sfs_export.py.
 """
 
 import pytest
@@ -95,11 +97,14 @@ def test_generar_factura_escribe_cab_y_det_en_la_carpeta_configurada(
     # redondear cada uno por separado podía descuadrar el total en centavos).
     assert round(data["subtotal"] + data["igv"], 2) == data["total"]
 
+    # Son CUATRO archivos, no dos: el Anexo I los agrupa bajo "Archivos
+    # Obligatorios". Sin .tri (desglose de tributos) ni .ley (monto en
+    # letras) el comprobante está incompleto para SUNAT.
     nombre_esperado = "10200812234-03-B001-00000001"
     ruta_cab = sfs_dir / f"{nombre_esperado}.cab"
     ruta_det = sfs_dir / f"{nombre_esperado}.det"
-    assert ruta_cab.exists()
-    assert ruta_det.exists()
+    for extension in ("cab", "det", "tri", "ley"):
+        assert (sfs_dir / f"{nombre_esperado}.{extension}").exists(), f"falta el .{extension}"
     assert data["archivo_local"] == str(ruta_cab)
 
     contenido_det = ruta_det.read_text(encoding="latin-1")
@@ -107,9 +112,12 @@ def test_generar_factura_escribe_cab_y_det_en_la_carpeta_configurada(
     assert "90.00" not in contenido_det.split("|")[0]  # sanity: no quedó todo en un solo campo
 
 
-def test_generar_factura_cabecera_tiene_los_17_campos_en_el_orden_del_spec(
+def test_generar_factura_cabecera_tiene_los_18_campos_en_el_orden_del_spec(
     test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir
 ):
+    """Posiciones según el Anexo I de SUNAT (AnexosIyII_Formato1.3.xlsx,
+    hoja "Factura y boleta 2.1"). El índice de la lista es la posición del
+    Anexo menos uno."""
     comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
     resp = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids})
     assert resp.status_code == 201, resp.text
@@ -117,18 +125,20 @@ def test_generar_factura_cabecera_tiene_los_17_campos_en_el_orden_del_spec(
     ruta_cab = sfs_dir / "10200812234-03-B001-00000001.cab"
     campos = ruta_cab.read_text(encoding="latin-1").strip("\r\n").split("|")[:-1]  # último token: pipe final
 
-    assert len(campos) == 17
-    assert campos[0] == "0101"  # Tipo de operación
-    assert campos[3] == "0000"  # Código de domicilio fiscal
-    assert campos[4] == "0"  # Tipo doc cliente: Público General -> Varios
-    assert campos[5] == "00000000"  # Número de documento
-    assert campos[7] == "PEN"  # Moneda
-    assert campos[11] == "0.00"  # Total descuentos
-    assert campos[12] == "0.00"  # Otros cargos
-    assert campos[13] == "0.00"  # Total anticipos
-    assert campos[10] == campos[14] == "90.00"  # Total precio de venta == Importe total de la venta
-    assert campos[15] == "2.1"  # Versión UBL
-    assert campos[16] == "2.0"  # Versión de la estructura
+    assert len(campos) == 18
+    assert campos[0] == "0101"        # 1.  tipOperacion (venta interna)
+    assert campos[3] == ""            # 4.  fecVencimiento: una boleta no vence
+    assert campos[4] == "0000"        # 5.  codLocalEmisor
+    assert campos[5] == "0"           # 6.  tipDocUsuario: Público General -> Varios
+    assert campos[6] == "00000000"    # 7.  numDocUsuario
+    assert campos[8] == "PEN"         # 9.  tipMoneda
+    assert campos[12] == "0.00"       # 13. sumDescTotal
+    assert campos[13] == "0.00"       # 14. sumOtrosCargos
+    assert campos[14] == "0.00"       # 15. sumTotalAnticipos
+    # 12. sumPrecioVenta == 16. sumImpVenta
+    assert campos[11] == campos[15] == "90.00"
+    assert campos[16] == "2.1"        # 17. ublVersionId
+    assert campos[17] == "2.0"        # 18. customizationId
 
 
 def test_generar_factura_detalle_multiples_platos_cuadra_exacto_con_cabecera(
@@ -168,15 +178,17 @@ def test_generar_factura_detalle_multiples_platos_cuadra_exacto_con_cabecera(
     ]
     assert len(lineas_det) == 2
     for campos_linea in lineas_det:
-        assert len(campos_linea) == 12
-        assert campos_linea[0] == "NIU"
-        assert campos_linea[7] == "10"  # Código de afectación IGV: Gravado
+        assert len(campos_linea) == 36
+        assert campos_linea[0] == "NIU"   # 1.  codUnidadMedida
+        assert campos_linea[12] == "10"   # 13. tipAfeIGV: Gravado - Operación Onerosa
 
-    suma_valor_venta_lineas = round(sum(float(l[11]) for l in lineas_det), 2)
-    suma_igv_lineas = round(sum(float(l[6]) for l in lineas_det), 2)
+    # 35. mtoValorVentaItem y 9. mtoIgvItem, sumados sobre todas las líneas,
+    # tienen que dar exactamente lo que declara la cabecera.
+    suma_valor_venta_lineas = round(sum(float(l[34]) for l in lineas_det), 2)
+    suma_igv_lineas = round(sum(float(l[8]) for l in lineas_det), 2)
 
-    assert suma_valor_venta_lineas == float(campos_cab[9])  # Total valor de venta
-    assert suma_igv_lineas == float(campos_cab[8])  # Sumatoria de tributos
+    assert suma_valor_venta_lineas == float(campos_cab[10])  # 11. sumTotValVenta
+    assert suma_igv_lineas == float(campos_cab[9])           # 10. sumTotTributos
     assert data["total"] == 145.00
 
 
@@ -261,9 +273,9 @@ def test_documento_vacio_es_publico_general(test_client, cliente_con_ruc, test_p
     assert resp.status_code == 201
 
     campos = (sfs_dir / "10200812234-03-B001-00000001.cab").read_text(encoding="latin-1").split("|")
-    assert campos[4] == "0"  # Tipo doc: No domiciliado/Varios
-    assert campos[5] == "00000000"
-    assert campos[6] == "CLIENTES VARIOS"
+    assert campos[5] == "0"  # 6. tipDocUsuario: No domiciliado/Varios
+    assert campos[6] == "00000000"  # 7. numDocUsuario
+    assert campos[7] == "CLIENTES VARIOS"  # 8. rznSocialUsuario
 
 
 def test_documento_8_digitos_es_dni(test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir):
@@ -274,9 +286,9 @@ def test_documento_8_digitos_es_dni(test_client, cliente_con_ruc, test_platos, t
     assert resp.status_code == 201
 
     campos = (sfs_dir / "10200812234-03-B001-00000001.cab").read_text(encoding="latin-1").split("|")
-    assert campos[4] == "1"  # Tipo doc: DNI
-    assert campos[5] == "73081441"
-    assert campos[6] == "-"
+    assert campos[5] == "1"  # 6. tipDocUsuario: DNI
+    assert campos[6] == "73081441"  # 7. numDocUsuario
+    assert campos[7] == "-"  # 8. rznSocialUsuario
 
 
 def test_documento_11_digitos_es_ruc(test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir):
@@ -287,9 +299,9 @@ def test_documento_11_digitos_es_ruc(test_client, cliente_con_ruc, test_platos, 
     assert resp.status_code == 201
 
     campos = (sfs_dir / "10200812234-03-B001-00000001.cab").read_text(encoding="latin-1").split("|")
-    assert campos[4] == "6"  # Tipo doc: RUC
-    assert campos[5] == "20600055519"
-    assert campos[6] == "-"
+    assert campos[5] == "6"  # 6. tipDocUsuario: RUC
+    assert campos[6] == "20600055519"  # 7. numDocUsuario
+    assert campos[7] == "-"  # 8. rznSocialUsuario
 
 
 @pytest.mark.parametrize("documento, motivo", [
@@ -337,8 +349,8 @@ def test_documento_con_espacios_o_guiones_se_normaliza(
     assert resp.status_code == 201, resp.text
 
     campos = (sfs_dir / "10200812234-03-B001-00000001.cab").read_text(encoding="latin-1").split("|")
-    assert campos[4] == "1"  # DNI
-    assert campos[5] == "73081441"  # sin el guion
+    assert campos[5] == "1"  # 6. tipDocUsuario: DNI
+    assert campos[6] == "73081441"  # 7. numDocUsuario, sin el guion
 
 
 def test_borrar_cliente_no_deja_facturas_huerfanas(test_db, test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir):

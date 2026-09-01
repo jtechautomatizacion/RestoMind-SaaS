@@ -1,21 +1,55 @@
 """
-Exportador local para el Facturador SUNAT (SFS v1.3.2, oficial de la web
-de SUNAT) instalado en la PC de caja.
+Exportador local para el Facturador SUNAT (SFS), formato de archivos planos.
 
 Costo S/ 0: en vez de mandar la boleta por API a un proveedor de pago
 (ver backend/utils/facturacion_pe.py, que sigue existiendo para cuando
-convenga volver a esa opción), se escriben dos archivos de texto plano
-con formato de palotes ('|') en una carpeta que el Facturador SUNAT
-vigila. El propio Facturador —no RestoMind— es quien arma el XML UBL
-2.1, lo firma y lo manda a SUNAT.
+convenga volver a esa opción), se escriben archivos de texto plano con
+formato de palotes ('|') en una carpeta que el Facturador SUNAT vigila.
+El propio Facturador —no RestoMind— es quien arma el XML UBL 2.1, lo
+firma y lo manda a SUNAT.
 
-El orden de campos de CABECERA (17) y DETALLE (12) de acá abajo viene
-confirmado por el usuario contra el manual real del SFS v1.3.2 — no es
-un placeholder. Lo que SIGUE sin confirmar (el usuario no lo especificó):
-encoding exacto del archivo y si cada línea lleva '|' final — se dejaron
-las convenciones más comunes en formatos planos de SUNAT (Latin-1,
-pipe final), configurable/ajustable en un solo lugar si hace falta
-cambiarlas.
+FUENTE DE LA ESTRUCTURA
+-----------------------
+Los campos y su orden salen del Anexo I de SUNAT (el archivo
+docs/sunat/AnexosIyII_Formato1.3.xlsx, hoja "Factura y boleta 2.1"),
+leído campo por campo — no de una interpretación. Cada bloque de abajo
+lleva el número de campo del Anexo y el nombre de atributo que usa ahí,
+para que cualquiera pueda cotejarlo contra el mismo documento.
+
+SON CUATRO ARCHIVOS, NO DOS. El Anexo los agrupa bajo "*Archivos
+Obligatorios" y marca todos sus campos como M (mandatorio) para boleta:
+
+  .cab  18 campos   Cabecera del comprobante
+  .det  36 campos   Una línea por ítem
+  .tri   5 campos   Tributos generales (justifica "Sumatoria Tributos"
+                    de la cabecera)
+  .ley   2 campos   Leyendas; el "MONTO EN LETRAS" (código 1000) es
+                    obligatorio en todo comprobante
+
+POR QUÉ EL DETALLE LLEVA 36 CAMPOS Y NO 14
+------------------------------------------
+Los campos 8-14 son el bloque de IGV, y ahí termina lo que un restaurante
+realmente usa. Pero el Anexo sigue: 15-21 ISC, 22-27 Otros Tributos,
+28-33 ICBPER (bolsas plásticas), y recién después vienen los campos 34
+(mtoPrecioVentaUnitario) y 35 (mtoValorVentaItem), AMBOS obligatorios.
+
+En un archivo de palotes la POSICIÓN define el campo. Si se cortara en 14,
+los campos 34 y 35 nunca llegarían a su lugar y SUNAT rechazaría el
+comprobante. Por eso los bloques de ISC/Otros/ICBPER se emiten VACÍOS
+(un restaurante no los usa) pero CON sus separadores.
+
+DOS VALORES QUE CONVIENE COTEJAR CONTRA EL MANUAL DEL FACTURADOR
+----------------------------------------------------------------
+El Anexo define los campos pero no todos los detalles de serialización:
+  - el encoding del archivo (se usa settings.sfs_export_encoding,
+    latin-1 por defecto, la convención habitual de los planos de SUNAT)
+  - si cada línea lleva '|' final (se agrega; ver _linea)
+Ambos se cambian en un solo lugar si el Facturador los rechaza.
+
+La extensión va en minúsculas. El Anexo la escribe ".CAB", pero ahí todo
+el nombre está en mayúsculas como notación de placeholder
+(RRRRRRRRRRR-CC-XXXX-999999999.CAB), y el Facturador corre sobre Windows,
+cuyo sistema de archivos no distingue mayúsculas.
 
 Distinción importante de estado: escribir estos archivos NO significa que
 SUNAT aceptó el comprobante. Solo significa que RestoMind depositó la
@@ -32,6 +66,26 @@ from backend.config import settings
 
 IGV_TASA = 0.18
 
+# Valores de catálogo de SUNAT usados en cada comprobante. Salen del mismo
+# Anexo (hoja "Catálogos"); se nombran acá para que un cambio de catálogo
+# no obligue a cazar literales sueltos entre los campos.
+CAT51_VENTA_INTERNA = "0101"      # Catálogo 51: tipo de operación
+CAT5_IGV_ID = "1000"              # Catálogo 5: código de tributo IGV
+CAT5_IGV_NOMBRE = "IGV"           # Catálogo 5, columna "Nombre"
+CAT5_IGV_TIPO = "VAT"             # Catálogo 5, columna "Código internacional"
+CAT7_GRAVADO_ONEROSA = "10"       # Catálogo 7: afectación "Gravado - Operación Onerosa"
+CAT52_MONTO_EN_LETRAS = "1000"    # Catálogo 52: leyenda "Monto en Letras"
+UNIDAD_MEDIDA_ITEM = "NIU"        # Catálogo 3 (UN/ECE rec. 20): unidad de bien
+
+# Cantidad de campos de cada archivo, según el Anexo. Se usan para
+# verificar en tiempo de ejecución que ninguna línea salga corrida — un
+# campo de más o de menos desplaza todo lo que sigue y el comprobante se
+# rechaza sin un error que apunte a la causa.
+CAMPOS_CAB = 18
+CAMPOS_DET = 36
+CAMPOS_TRI = 5
+CAMPOS_LEY = 2
+
 
 class SfsExportError(Exception):
     """No se pudo escribir el archivo (carpeta no configurada/no existe,
@@ -44,6 +98,8 @@ class SfsExportError(Exception):
 class SfsExportResultado:
     archivo_cab: str
     archivo_det: str
+    archivo_tri: str
+    archivo_ley: str
 
 
 def _nombre_base(ruc_emisor: str, tipo_comprobante: str, serie: str, numero_correlativo: int) -> str:
@@ -60,13 +116,105 @@ def _monto(valor: float) -> str:
     return f"{round(valor, 2):.2f}"
 
 
-def _linea(*campos) -> str:
-    """Une campos con '|' y agrega un '|' final — convención común en los
-    formatos planos de SUNAT (ej. PLE). Sin confirmar contra el manual
-    específico del SFS v1.3.2: si tu Facturador rechaza el pipe final,
-    sacá el '+ "|"' de acá nomás — es el único lugar que lo agrega."""
-    return "|".join(str(c) for c in campos) + "|"
+def _linea(*campos, esperados: int) -> str:
+    """Une campos con '|' y agrega un '|' final.
 
+    `esperados` no es decorativo: si un bloque de campos queda corrido (uno
+    de más o de menos), todo lo que sigue cae en la posición equivocada y
+    SUNAT rechaza el comprobante con un error que no apunta a la causa.
+    Mejor reventar acá, con el número de campos a la vista.
+    """
+    if len(campos) != esperados:
+        raise SfsExportError(
+            f"Se armó una línea con {len(campos)} campos y el formato exige "
+            f"{esperados} — revisar contra el Anexo I de SUNAT."
+        )
+    return "|".join("" if c is None else str(c) for c in campos) + "|"
+
+
+# ============ MONTO EN LETRAS (archivo .ley) ============
+
+_UNIDADES = (
+    "", "UNO", "DOS", "TRES", "CUATRO", "CINCO", "SEIS", "SIETE", "OCHO", "NUEVE",
+    "DIEZ", "ONCE", "DOCE", "TRECE", "CATORCE", "QUINCE", "DIECISÉIS", "DIECISIETE",
+    "DIECIOCHO", "DIECINUEVE", "VEINTE", "VEINTIUNO", "VEINTIDÓS", "VEINTITRÉS",
+    "VEINTICUATRO", "VEINTICINCO", "VEINTISÉIS", "VEINTISIETE", "VEINTIOCHO", "VEINTINUEVE",
+)
+_DECENAS = ("", "", "VEINTE", "TREINTA", "CUARENTA", "CINCUENTA", "SESENTA", "SETENTA", "OCHENTA", "NOVENTA")
+_CENTENAS = (
+    "", "CIENTO", "DOSCIENTOS", "TRESCIENTOS", "CUATROCIENTOS", "QUINIENTOS",
+    "SEISCIENTOS", "SETECIENTOS", "OCHOCIENTOS", "NOVECIENTOS",
+)
+_NOMBRE_MONEDA = {"PEN": "SOLES", "USD": "DÓLARES AMERICANOS"}
+
+
+def _apocopar(texto: str) -> str:
+    """"UNO" pasa a "UN" delante de un sustantivo masculino (MIL, MILLONES):
+    se dice "VEINTIÚN MIL", no "VEINTIUNO MIL". Sin esto el monto en letras
+    queda mal escrito en un documento tributario."""
+    if texto.endswith("VEINTIUNO"):
+        return texto[: -len("VEINTIUNO")] + "VEINTIÚN"
+    if texto.endswith("UNO"):
+        return texto[:-3] + "UN"
+    return texto
+
+
+def _menor_a_cien(n: int) -> str:
+    if n < 30:
+        return _UNIDADES[n]
+    decena, unidad = divmod(n, 10)
+    if unidad == 0:
+        return _DECENAS[decena]
+    return f"{_DECENAS[decena]} Y {_UNIDADES[unidad]}"
+
+
+def _menor_a_mil(n: int) -> str:
+    # 100 exacto es "CIEN"; de 101 en adelante es "CIENTO ..." — una de las
+    # irregularidades del español que un f-string genérico se come.
+    if n == 100:
+        return "CIEN"
+    centena, resto = divmod(n, 100)
+    partes = []
+    if centena:
+        partes.append(_CENTENAS[centena])
+    if resto:
+        partes.append(_menor_a_cien(resto))
+    return " ".join(partes)
+
+
+def _entero_a_letras(n: int) -> str:
+    if n == 0:
+        return "CERO"
+    partes = []
+    millones, resto = divmod(n, 1_000_000)
+    if millones:
+        partes.append("UN MILLÓN" if millones == 1 else f"{_apocopar(_entero_a_letras(millones))} MILLONES")
+    miles, unidades = divmod(resto, 1000)
+    if miles:
+        # 1000 es "MIL" a secas, nunca "UN MIL".
+        partes.append("MIL" if miles == 1 else f"{_apocopar(_menor_a_mil(miles))} MIL")
+    if unidades:
+        partes.append(_menor_a_mil(unidades))
+    return " ".join(partes)
+
+
+def monto_en_letras(monto: float, moneda: str = "PEN") -> str:
+    """Importe escrito en palabras, en el formato que usan los comprobantes
+    peruanos: "SON CIENTO VEINTITRÉS CON 50/100 SOLES".
+
+    Es obligatorio en todo comprobante (leyenda 1000 del Catálogo 52), y va
+    en el archivo .ley.
+    """
+    # Se pasa a centavos enteros ANTES de separar, para que un float como
+    # 123.50 (que en binario es 123.50000000000001) no termine dando 49
+    # centavos por truncamiento.
+    total_centavos = int(round(monto * 100))
+    entero, centavos = divmod(abs(total_centavos), 100)
+    nombre = _NOMBRE_MONEDA.get(moneda, moneda)
+    return f"SON {_entero_a_letras(entero)} CON {centavos:02d}/100 {nombre}"
+
+
+# ============ ARCHIVO .cab (18 campos) ============
 
 def _construir_cabecera(
     *,
@@ -78,28 +226,34 @@ def _construir_cabecera(
     moneda: str,
     subtotal: float,  # Total valor de venta (sin IGV)
     igv: float,  # Sumatoria de tributos
-    total: float,  # Total precio de venta / Importe total de la venta
+    total: float,  # Importe total de la venta
 ) -> str:
     return _linea(
-        "0101",                            # 1.  Tipo de operación: venta interna
-        fecha_emision,                     # 2.  Fecha de emisión
-        hora_emision,                      # 3.  Hora de emisión
-        "0000",                            # 4.  Código de domicilio fiscal (principal)
-        tipo_documento_comprador,          # 5.  Tipo de documento del cliente
-        numero_documento_comprador,        # 6.  Número de documento del cliente
-        nombre_comprador,                  # 7.  Apellidos y nombres / razón social del cliente
-        moneda,                            # 8.  Tipo de moneda
-        _monto(igv),                       # 9.  Sumatoria de tributos
-        _monto(subtotal),                  # 10. Total valor de venta
-        _monto(total),                     # 11. Total precio de venta
-        "0.00",                            # 12. Total descuentos (sin soporte de descuentos aún)
-        "0.00",                            # 13. Sumatoria de otros cargos
-        "0.00",                            # 14. Total anticipos
-        _monto(total),                     # 15. Importe total de la venta
-        "2.1",                             # 16. Versión UBL
-        "2.0",                             # 17. Versión de la estructura del documento
+        CAT51_VENTA_INTERNA,        # 1.  tipOperacion
+        fecha_emision,              # 2.  fecEmision
+        hora_emision,               # 3.  horEmision
+        "",                         # 4.  fecVencimiento — vacío: una boleta de
+                                    #     restaurante se paga en el momento, no
+                                    #     tiene vencimiento (campo condicional).
+        "0000",                     # 5.  codLocalEmisor (domicilio fiscal principal)
+        tipo_documento_comprador,   # 6.  tipDocUsuario
+        numero_documento_comprador, # 7.  numDocUsuario
+        nombre_comprador,           # 8.  rznSocialUsuario
+        moneda,                     # 9.  tipMoneda
+        _monto(igv),                # 10. sumTotTributos
+        _monto(subtotal),           # 11. sumTotValVenta
+        _monto(total),              # 12. sumPrecioVenta
+        "0.00",                     # 13. sumDescTotal (sin soporte de descuentos aún)
+        "0.00",                     # 14. sumOtrosCargos
+        "0.00",                     # 15. sumTotalAnticipos
+        _monto(total),              # 16. sumImpVenta
+        "2.1",                      # 17. ublVersionId
+        "2.0",                      # 18. customizationId
+        esperados=CAMPOS_CAB,
     )
 
+
+# ============ ARCHIVO .det (36 campos) ============
 
 def _desglosar_linea(cantidad: int, subtotal_con_igv: float) -> tuple:
     """Descompone el subtotal (con IGV) de UNA línea en valor de venta + IGV,
@@ -114,10 +268,10 @@ def _desglosar_linea(cantidad: int, subtotal_con_igv: float) -> tuple:
 
 
 def _construir_detalle_lineas(*, detalles: List[dict], subtotal_cabecera: float, igv_cabecera: float) -> List[str]:
-    """Una línea por plato. Al final, ajusta la ÚLTIMA línea si la suma de
-    "Valor de venta del ítem"/"Monto de tributo" de todas las líneas no
-    cuadra centavo a centavo con los totales de la cabecera — un redondeo
-    por línea independiente puede desviarse un céntimo del total ya
+    """Una línea de 36 campos por plato. Al final, ajusta la ÚLTIMA línea si
+    la suma de "Valor de venta del ítem"/"Monto de tributo" de todas las
+    líneas no cuadra centavo a centavo con los totales de la cabecera — un
+    redondeo por línea independiente puede desviarse un céntimo del total ya
     redondeado, y el Facturador valida que cabecera y detalle sumen igual."""
     calculadas = []  # (item, valor_venta_item, igv_item, valor_unitario_sin_igv)
     for item in detalles:
@@ -133,24 +287,84 @@ def _construir_detalle_lineas(*, detalles: List[dict], subtotal_cabecera: float,
             calculadas[-1][1] = round(calculadas[-1][1] + diff_valor_venta, 2)
             calculadas[-1][2] = round(calculadas[-1][2] + diff_igv, 2)
 
+    porcentaje_igv = f"{IGV_TASA * 100:.2f}"
+
     lineas = []
     for item, valor_venta_item, igv_item, valor_unitario_sin_igv in calculadas:
         lineas.append(_linea(
-            "NIU",                                          # 1.  Unidad de medida
-            item["cantidad"],                                # 2.  Cantidad
-            item["plato_id"],                                # 3.  Código de producto (ID interno)
-            "-",                                              # 4.  Código de producto SUNAT
-            item["descripcion"],                             # 5.  Descripción del plato
-            _monto(valor_unitario_sin_igv),                  # 6.  Valor unitario por ítem (sin IGV)
-            _monto(igv_item),                                # 7.  Sumatoria de tributos por ítem
-            "10",                                             # 8.  Código de afectación IGV: Gravado
-            _monto(igv_item),                                # 9.  Monto de tributo por ítem
-            "-",                                              # 10. Tipo de sistema de ISC
-            _monto(item["precio_unitario"]),                 # 11. Precio unitario por ítem (con IGV)
-            _monto(valor_venta_item),                        # 12. Valor de venta del ítem
+            UNIDAD_MEDIDA_ITEM,              # 1.  codUnidadMedida
+            item["cantidad"],                # 2.  ctdUnidadItem
+            item["plato_id"],                # 3.  codProducto (id interno del plato)
+            "",                              # 4.  codProductoSUNAT (condicional, sin usar)
+            item["descripcion"],             # 5.  desItem
+            _monto(valor_unitario_sin_igv),  # 6.  mtoValorUnitario (sin IGV)
+            _monto(igv_item),                # 7.  sumTotTributosItem
+
+            # --- Bloque IGV (campos 8-14), "Mandatorio en conjunto" ---
+            CAT5_IGV_ID,                     # 8.  codTriIGV
+            _monto(igv_item),                # 9.  mtoIgvItem
+            _monto(valor_venta_item),        # 10. mtoBaseIgvItem
+            CAT5_IGV_NOMBRE,                 # 11. nomTributoIgvItem
+            CAT5_IGV_TIPO,                   # 12. codTipTributoIgvItem
+            CAT7_GRAVADO_ONEROSA,            # 13. tipAfeIGV
+            porcentaje_igv,                  # 14. porIgvItem
+
+            # --- Bloque ISC (15-21): vacío, un restaurante no vende bienes
+            #     afectos al Impuesto Selectivo al Consumo. Los separadores
+            #     igual tienen que estar: si no, los campos 34 y 35 (que sí
+            #     son obligatorios) caerían en la posición equivocada.
+            "", "", "", "", "", "", "",
+
+            # --- Bloque Otros Tributos 9999 (22-27): vacío ---
+            "", "", "", "", "", "",
+
+            # --- Bloque ICBPER 7152 (28-33): vacío. Es el impuesto a las
+            #     bolsas plásticas; si algún día se cobran bolsas, se llena
+            #     este bloque en vez de dejarlo en blanco.
+            "", "", "", "", "", "",
+
+            _monto(item["precio_unitario"]),  # 34. mtoPrecioVentaUnitario (con IGV)
+            _monto(valor_venta_item),         # 35. mtoValorVentaItem
+            "",                               # 36. mtoValorReferencialUnitario
+                                              #     (condicional: solo ítems gratuitos)
+            esperados=CAMPOS_DET,
         ))
     return lineas
 
+
+# ============ ARCHIVO .tri (5 campos) ============
+
+def _construir_tributos_lineas(*, subtotal: float, igv: float) -> List[str]:
+    """Tributos generales del comprobante: una línea por tipo de tributo.
+
+    Es lo que justifica el campo "Sumatoria Tributos" de la cabecera. Un
+    restaurante solo tiene IGV, así que sale una sola línea; el día que
+    haya operaciones exoneradas o inafectas, van como líneas adicionales
+    con su propio código de Catálogo 5.
+    """
+    return [_linea(
+        CAT5_IGV_ID,       # 1. ideTributo
+        CAT5_IGV_NOMBRE,   # 2. nomTributo
+        CAT5_IGV_TIPO,     # 3. codTipTributo
+        _monto(subtotal),  # 4. mtoBaseImponible
+        _monto(igv),       # 5. mtoTributo
+        esperados=CAMPOS_TRI,
+    )]
+
+
+# ============ ARCHIVO .ley (2 campos) ============
+
+def _construir_leyendas_lineas(*, total: float, moneda: str) -> List[str]:
+    """Leyendas del comprobante. La 1000 ("Monto en Letras") es obligatoria
+    en todos, y es la única que aplica a una boleta de restaurante."""
+    return [_linea(
+        CAT52_MONTO_EN_LETRAS,             # 1. codLeyenda
+        monto_en_letras(total, moneda),    # 2. desLeyenda
+        esperados=CAMPOS_LEY,
+    )]
+
+
+# ============ ESCRITURA ============
 
 def exportar_comprobante(
     *,
@@ -170,20 +384,16 @@ def exportar_comprobante(
     nombre_comprador: Optional[str] = None,
     moneda: str = "PEN",
 ) -> SfsExportResultado:
-    """Escribe {nombre}.cab y {nombre}.det en settings.sfs_export_dir.
+    """Escribe los cuatro archivos del comprobante en settings.sfs_export_dir.
 
-    razon_social_emisor no se usa en el cuerpo de ninguno de los dos
-    archivos (el spec de SFS v1.3.2 no lo pide — el Facturador ya conoce
-    los datos del emisor porque están configurados en la instalación local
-    del propio software, se identifica solo por el RUC en el nombre del
-    archivo). Se recibe igual para no romper la firma de _emitir() en
-    routes/facturas.py, que es compartida con el emisor facturacion_pe
+    razon_social_emisor no se usa en el cuerpo de ninguno de los archivos
+    (el Facturador ya conoce al emisor por su propia configuración); se
+    mantiene en la firma, que es compartida con el emisor facturacion_pe
     (que sí lo necesita, porque ahí SÍ hay que declarar quién emite).
 
     Lanza SfsExportError si la carpeta no está configurada, no existe, o
-    falla la escritura — nunca escribe "a medias" (si falla el .det
-    después de escribir el .cab, se borra el .cab, para que el Facturador
-    nunca vea una cabecera sin su detalle).
+    falla la escritura — nunca deja un comprobante escrito a medias (ver
+    la limpieza más abajo).
     """
     if not settings.sfs_export_dir:
         raise SfsExportError(
@@ -199,8 +409,6 @@ def exportar_comprobante(
         )
 
     nombre_base = _nombre_base(ruc_emisor, tipo_comprobante, serie, numero_correlativo)
-    ruta_cab = carpeta / f"{nombre_base}.cab"
-    ruta_det = carpeta / f"{nombre_base}.det"
 
     contenido_cab = _construir_cabecera(
         fecha_emision=fecha_emision,
@@ -212,28 +420,49 @@ def exportar_comprobante(
         subtotal=subtotal,
         igv=igv,
         total=total,
-    )
-    lineas_det = _construir_detalle_lineas(detalles=detalles, subtotal_cabecera=subtotal, igv_cabecera=igv)
-    contenido_det = "\r\n".join(lineas_det) + "\r\n"
+    ) + "\r\n"
+    contenido_det = "\r\n".join(
+        _construir_detalle_lineas(detalles=detalles, subtotal_cabecera=subtotal, igv_cabecera=igv)
+    ) + "\r\n"
+    contenido_tri = "\r\n".join(_construir_tributos_lineas(subtotal=subtotal, igv=igv)) + "\r\n"
+    contenido_ley = "\r\n".join(_construir_leyendas_lineas(total=total, moneda=moneda)) + "\r\n"
 
     encoding = settings.sfs_export_encoding
 
+    # El orden importa: el .cab va ÚLTIMO. El Facturador vigila la carpeta y
+    # dispara cuando aparece la cabecera, así que si esta se escribiera
+    # primero podría levantar el comprobante antes de que existan su detalle,
+    # sus tributos o sus leyendas. Escribiendo los complementos primero, para
+    # cuando el .cab aparece ya está todo en su lugar.
+    #
     # newline="" desactiva la traducción automática de fin de línea que
     # write_text hace en modo texto (en Windows, "\n" -> "\r\n"): sin esto,
     # el "\r\n" que ya se arma a mano en cada línea termina duplicado en
     # "\r\r\n", y el Facturador (o cualquier parser que espere CRLF puro)
     # ve líneas rotas.
-    try:
-        ruta_cab.write_text(contenido_cab + "\r\n", encoding=encoding, newline="")
-    except OSError as exc:
-        raise SfsExportError(f"No se pudo escribir {ruta_cab.name}: {exc}") from exc
+    a_escribir = [
+        (carpeta / f"{nombre_base}.det", contenido_det),
+        (carpeta / f"{nombre_base}.tri", contenido_tri),
+        (carpeta / f"{nombre_base}.ley", contenido_ley),
+        (carpeta / f"{nombre_base}.cab", contenido_cab),
+    ]
 
-    try:
-        ruta_det.write_text(contenido_det, encoding=encoding, newline="")
-    except OSError as exc:
-        # No dejar un .cab huérfano: el Facturador podría levantarlo sin
-        # su detalle si justo escanea la carpeta en este instante.
-        ruta_cab.unlink(missing_ok=True)
-        raise SfsExportError(f"No se pudo escribir {ruta_det.name}: {exc}") from exc
+    escritos = []
+    for ruta, contenido in a_escribir:
+        try:
+            ruta.write_text(contenido, encoding=encoding, newline="")
+            escritos.append(ruta)
+        except OSError as exc:
+            # Todo o nada: un comprobante incompleto en la carpeta es peor
+            # que ninguno, porque el Facturador podría levantarlo igual y
+            # emitir algo mal formado.
+            for previo in escritos:
+                previo.unlink(missing_ok=True)
+            raise SfsExportError(f"No se pudo escribir {ruta.name}: {exc}") from exc
 
-    return SfsExportResultado(archivo_cab=str(ruta_cab), archivo_det=str(ruta_det))
+    return SfsExportResultado(
+        archivo_cab=str(carpeta / f"{nombre_base}.cab"),
+        archivo_det=str(carpeta / f"{nombre_base}.det"),
+        archivo_tri=str(carpeta / f"{nombre_base}.tri"),
+        archivo_ley=str(carpeta / f"{nombre_base}.ley"),
+    )

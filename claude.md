@@ -24,11 +24,11 @@
 > - ✅ **[NUEVA] Tabla de auditoría:** Registro persistente de logins y cambios administrativos
 > - ✅ **[NUEVA] Cascade delete:** Eliminar cliente limpia todas sus categorías (antes quedaban huérfanas)
 > - ✅ **[NUEVA] Rediseño UI 3D:** ícono de mesa con relieve (gradientes + sombra), cajitas de texto con glow al enfocar, nav inferior con píldora animada — pensado para PWA, sin costo extra de rendimiento (ver sección "Rediseño Visual" más abajo)
-> - ✅ **[NUEVA] Facturación SUNAT (SFS v1.3.2):** Exportador local de boletas (.cab/.det) para Facturador SUNAT
+> - ✅ **[NUEVA] Facturación SUNAT:** Exportador local de boletas para el Facturador SUNAT — CUATRO archivos planos (.cab 18 campos / .det 36 / .tri 5 / .ley 2), con la estructura leída campo por campo del Anexo I de SUNAT (`docs/sunat/AnexosIyII_Formato1.3.xlsx`, hoja "Factura y boleta 2.1")
 > - ✅ **[NUEVA] Validación de RUC:** Prefijo 10 o 20 requerido; rechaza tipeos antes de cobrar (frontend) y después (backend)
 > - ✅ **[NUEVA] Admin > Boletas:** Pantalla de recuperación de boletas con error o nunca emitidas; reintento/emisión de cero
 > - ✅ **[BUG FIX] Edición de restaurante:** PATCH /superadmin/clientes/{id} fallaba 100% de las veces sin cambiar contraseña (schema contradictorio); separado ClienteUpdateRequest
-> - ✅ **[MEJORA] Orden de operaciones:** Commit de correlativo ANTES de escribir .cab/.det para evitar race conditions bajo concurrencia
+> - ✅ **[MEJORA] Orden de operaciones:** Commit de correlativo ANTES de escribir los archivos, para evitar race conditions bajo concurrencia. El `.cab` se escribe ÚLTIMO de los cuatro: el Facturador dispara al ver la cabecera, así que sus complementos ya deben existir
 > - ✅ **[NUEVA] Dashboard Financiero Completo:** Tabla detallada de ganancias diarias, Top 5 platos, colores consistentes (teal ventas/rojo gastos en gráfico + leyenda), etiquetas de barras con montos exactos (sin redondeo falso)
 > - ✅ **[NUEVA] Tabla de Ganancias por Día:** Fecha / Ventas / Gastos / Ganancia / Margen %, orden DESC (más reciente primero), filas coloreadas según ganancia (verde positivo/rojo negativo), responsive (oculta Gastos y Margen en móvil ≤480px)
 > - ✅ **[FIX] formatCompacto():** Ya no redondea falsos — 122.50 se muestra "122.50", no "123"; consistente con tabla de abajo y stat-tiles
@@ -1491,7 +1491,7 @@ desincronizarse.
 **Financiero:**
 - ✅ Dashboard de ganancias diarias (ventas/gastos/ganancia/margen %)
 - ✅ Top 5 platos más vendidos con gráficos
-- ✅ Facturación SUNAT (boletas .cab/.det) con SFS v1.3.2
+- ✅ Facturación SUNAT (boletas .cab/.det/.tri/.ley) según el Anexo I de SUNAT
 - ✅ Validación de RUC (prefijo 10/20 requerido)
 - ✅ Recuperación de boletas no emitidas
 
