@@ -65,6 +65,9 @@ def listar_insumos(
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
 ):
+    # Lectura abierta a propósito (a diferencia de las escrituras de abajo,
+    # que sí son admin-only): saber qué hay en stock le sirve a la cocina
+    # durante el turno. Ver test_insumos_requieren_rol_admin.
     insumos = db.query(Insumo).filter(Insumo.cliente_id == cliente_id).order_by(Insumo.nombre).all()
     return [_serializar(i) for i in insumos]
 

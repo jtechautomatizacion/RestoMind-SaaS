@@ -148,20 +148,35 @@ def login_staff(payload: LoginStaffRequest, request: Request, db: Session = Depe
 def me(
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
-    usuario_email: str = Depends(get_usuario_actual),
+    identidad: str = Depends(get_usuario_actual),
 ):
     """
     Para que el frontend valide un token guardado en localStorage al abrir
     la app (¿sigue siendo válido? ¿el usuario sigue activo?) sin tener que
     decodificar el JWT él mismo ni volver a pedir la contraseña.
+
+    Busca por email O celular porque el 'sub' del token vale una cosa u otra
+    según el tipo de cuenta: el EMAIL para el admin, pero el CÓDIGO DE
+    ACCESO para el staff (ver login_staff arriba), que además tiene
+    email=NULL. Con el filtro solo por email, este endpoint devolvía 401 a
+    TODO el personal: entraban bien, y la siguiente recarga de la página los
+    expulsaba al login con "Tu sesión expiró" (initAuth en
+    frontend/js/auth.js llama acá al arrancar). Es el mismo criterio que ya
+    usaban /usuarios/me y el registro de tokens push.
     """
-    usuario = db.query(Usuario).filter(Usuario.email == usuario_email, Usuario.cliente_id == cliente_id).first()
+    usuario = db.query(Usuario).filter(
+        Usuario.cliente_id == cliente_id,
+        (Usuario.email == identidad) | (Usuario.celular == identidad),
+    ).first()
     if not usuario:
         raise HTTPException(status_code=401, detail="Sesión inválida")
 
     cliente = db.query(Cliente).filter(Cliente.id == cliente_id).first()
     return UsuarioMe(
-        email=usuario.email,
+        # El staff no tiene email: se muestra su nombre, igual que hace
+        # login_staff, para que el header de la app no quede vacío tras
+        # recargar.
+        email=usuario.email or usuario.nombre,
         nombre=usuario.nombre,
         rol=usuario.rol,
         roles=["admin"] if usuario.rol == "admin" else roles_de(usuario.rol),

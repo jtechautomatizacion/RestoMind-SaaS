@@ -126,6 +126,10 @@ def listar_movimientos(
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
 ):
+    # Lectura abierta a propósito (las escrituras de abajo sí son
+    # admin-only): en cocina sirve saber qué se sacó del almacén. Ver
+    # test_movimientos_escritura_admin_only_lectura_abierta.
+    #
     # Valida de paso que el insumo sea de este cliente: sin esto, un id de
     # otro restaurante devolvería una lista vacía (200) en vez de 404,
     # confirmando que el insumo no existe... o que no es tuyo.
