@@ -12,7 +12,7 @@ así que un token de restaurante no puede usarse acá aunque sea válido).
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -134,6 +134,7 @@ def _slug(texto: str) -> str:
 @router.post("/superadmin/clientes", response_model=ClienteConStats, status_code=201)
 def crear_cliente(
     payload: ClienteCreateRequest,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     superadmin_email: str = Depends(get_superadmin_email),
 ):
@@ -178,12 +179,14 @@ def crear_cliente(
         entidad_id=cliente_id, cliente_id=cliente_id, detalle=f"admin: {admin_email}",
     )
 
-    # Enviar email de bienvenida con credenciales (no bloquea si falla)
-    enviar_email_credenciales(
+    # Email de bienvenida en segundo plano: smtplib es una llamada de red
+    # bloqueante y no tiene por qué demorar el alta del restaurante. Va sin
+    # la contraseña a propósito (ver backend/email.py).
+    background.add_task(
+        enviar_email_credenciales,
         destinatario=admin_email,
         nombre_admin=payload.admin_nombre,
         email_login=admin_email,
-        password=payload.admin_password,
         nombre_restaurante=payload.nombre,
     )
 
@@ -229,6 +232,7 @@ def cambiar_estado_cliente(
 def editar_cliente(
     cliente_id: str,
     payload: ClienteUpdateRequest,
+    background: BackgroundTasks,
     db: Session = Depends(get_db),
     superadmin_email: str = Depends(get_superadmin_email),
 ):
@@ -282,13 +286,16 @@ def editar_cliente(
         detalle=f"email_admin_cambio: {email_admin_cambio}",
     )
 
-    # Si cambió el email del admin, reenviar credenciales
+    # Si cambió el email del admin, avisarle a la dirección nueva. Antes se
+    # mandaba `password or "***"`, así que cuando el superadmin no tocaba la
+    # contraseña el admin recibía un correo diciendo literalmente que su
+    # contraseña era "***". Ahora ningún correo lleva contraseña.
     if email_admin_cambio:
-        enviar_email_credenciales(
+        background.add_task(
+            enviar_email_credenciales,
             destinatario=new_admin_email,
             nombre_admin=admin.nombre,
             email_login=new_admin_email,
-            password=payload.admin_password or "***",  # Si no cambió password, no la reenviamos
             nombre_restaurante=cliente.nombre,
         )
 

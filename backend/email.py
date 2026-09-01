@@ -1,38 +1,70 @@
 """
 Envío de emails via SMTP (Gmail).
+
+Dos reglas de seguridad que conviene no perder de vista:
+
+1. NUNCA se manda una contraseña por email. El correo queda para siempre en
+   la bandeja del destinatario y en "Enviados" del remitente, viaja entre
+   servidores sin cifrado extremo a extremo, y —lo que se ve poco— si el
+   mensaje REBOTA, el aviso de rebote incluye una copia del original: la
+   contraseña termina también en la bandeja de quien envió. Además no
+   aportaba nada: el superadmin ESCRIBE esa contraseña en el formulario al
+   dar de alta el restaurante, así que ya la conoce y puede comunicarla por
+   donde prefiera. Era riesgo puro sin beneficio.
+
+2. Fuera de producción no se envía nada de verdad: se registra en el log.
+   Dar de alta restaurantes de prueba con dominios inventados
+   (carlos@buensabor.pe) generaba rebotes reales contra la cuenta de Gmail,
+   y una tasa alta de rebotes es una de las señales que usa Google para
+   limitar o suspender el envío de una cuenta. En desarrollo no hay ninguna
+   razón para tocar la red.
 """
 
+import logging
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 from backend.config import settings
 
+logger = logging.getLogger(__name__)
+
 
 def enviar_email_credenciales(
     destinatario: str,
     nombre_admin: str,
     email_login: str,
-    password: str,
     nombre_restaurante: str,
 ) -> bool:
     """
-    Envía email de bienvenida con credenciales de acceso.
+    Envía el email de bienvenida con el usuario de acceso — NO la contraseña
+    (ver regla 1 en el docstring del módulo): esa la comunica el superadmin
+    por el canal que elija.
 
-    Returns: True si se envió exitosamente, False si falló (pero no bloquea la creación del restaurante)
+    Returns: True si se envió, False si no (SMTP sin configurar, entorno de
+    desarrollo, o error de envío). Nunca lanza: que falle un correo no puede
+    tumbar el alta de un restaurante.
     """
     if not settings.smtp_user or not settings.smtp_password:
-        # SMTP no configurado — skip silenciosamente
+        # SMTP no configurado — no es un error, simplemente no hay envío.
+        return False
+
+    # En desarrollo se registra en el log en vez de enviar: los restaurantes
+    # de prueba suelen tener dominios inventados, y cada uno de esos rebotes
+    # cuenta contra la reputación de la cuenta que envía (ver regla 2).
+    if settings.environment != "production":
+        logger.info(
+            "[EMAIL] (no enviado: entorno '%s') Bienvenida para %s <%s> — restaurante '%s'",
+            settings.environment, nombre_admin, destinatario, nombre_restaurante,
+        )
         return False
 
     try:
-        # Crear mensaje
         msg = MIMEMultipart("alternative")
         msg["Subject"] = f"Acceso a RestoMind — {nombre_restaurante}"
         msg["From"] = f"{settings.smtp_from_name} <{settings.smtp_from_email}>"
         msg["To"] = destinatario
 
-        # HTML del email
         html = f"""
         <html>
             <body style="font-family: Arial, sans-serif; color: #333;">
@@ -42,9 +74,12 @@ def enviar_email_credenciales(
                     <p>Se ha creado tu cuenta de administrador para <strong>{nombre_restaurante}</strong>.</p>
 
                     <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                        <h3 style="margin-top: 0;">Tus credenciales de acceso:</h3>
-                        <p><strong>Email:</strong> <code style="background: #e0e0e0; padding: 4px 8px; border-radius: 4px;">{email_login}</code></p>
-                        <p><strong>Contraseña:</strong> <code style="background: #e0e0e0; padding: 4px 8px; border-radius: 4px;">{password}</code></p>
+                        <h3 style="margin-top: 0;">Tu usuario de acceso:</h3>
+                        <p><code style="background: #e0e0e0; padding: 4px 8px; border-radius: 4px;">{email_login}</code></p>
+                        <p style="margin-bottom: 0; color: #666; font-size: 14px;">
+                            La contraseña te la entrega por separado quien creó tu cuenta.
+                            Nunca la enviamos por correo.
+                        </p>
                     </div>
 
                     <p>
@@ -55,7 +90,7 @@ def enviar_email_credenciales(
 
                     <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
                     <p style="color: #999; font-size: 12px;">
-                        Por tu seguridad, no compartas estas credenciales. Si no solicitaste este acceso, contacta al administrador del sistema.
+                        Si no solicitaste este acceso, contacta al administrador del sistema.
                     </p>
                 </div>
             </body>
@@ -64,8 +99,7 @@ def enviar_email_credenciales(
 
         msg.attach(MIMEText(html, "html"))
 
-        # Conectar a Gmail y enviar
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as server:
             server.starttls()
             server.login(settings.smtp_user, settings.smtp_password)
             server.send_message(msg)
@@ -73,6 +107,5 @@ def enviar_email_credenciales(
         return True
 
     except Exception as e:
-        # Log del error (en producción, usar logging module)
-        print(f"[ERROR] No se pudo enviar email a {destinatario}: {str(e)}")
+        logger.error("[EMAIL] No se pudo enviar a %s: %s", destinatario, e)
         return False
