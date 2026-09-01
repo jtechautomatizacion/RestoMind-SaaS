@@ -33,20 +33,25 @@ async function refreshCaja() {
 }
 
 function _resumenEstadoCaja(estadoTexto) {
+    // Textos en lenguaje simple a propósito: esta app la usa gente que
+    // recién está aprendiendo a manejar un negocio, no contadores. "Caja
+    // cuadrada" y "no cuadró" son las frases que cualquier persona que
+    // maneja una caja ya usa todos los días — "discrepancia" es una
+    // palabra de auditor que hay que pararse a pensar qué significa.
     if (estadoTexto === 'cuadrado') {
         return { icono: '✅', titulo: 'Caja cuadrada', clase: 'caja-banner-cuadrada' };
     }
     if (estadoTexto === 'discrepancia_leve') {
-        return { icono: '⚠️', titulo: 'Discrepancia menor', clase: 'caja-banner-leve' };
+        return { icono: '⚠️', titulo: 'No cuadró (diferencia chica)', clase: 'caja-banner-leve' };
     }
     if (estadoTexto === 'cerrado_automatico') {
         // El admin nunca la cerró; el sistema la cerró solo al día siguiente
         // para no bloquear Mesas/Cocina indefinidamente (ver CLAUDE.md,
         // sección Validador de Caja). saldo_contado = saldo_esperado porque
         // no hubo conteo físico real — hay que revisarla a mano.
-        return { icono: '⏰', titulo: 'Cierre automático (sin conteo real)', clase: 'caja-banner-leve' };
+        return { icono: '⏰', titulo: 'Se cerró sola (falta contar el dinero)', clase: 'caja-banner-leve' };
     }
-    return { icono: '❌', titulo: 'Discrepancia grave', clase: 'caja-banner-grave' };
+    return { icono: '❌', titulo: 'No cuadró (diferencia grande)', clase: 'caja-banner-grave' };
 }
 
 function renderCaja(estadoCaja) {
@@ -205,7 +210,7 @@ function renderHistorialCaja(historial) {
             <div class="admin-item">
                 <div class="admin-item-info">
                     <h4>${icono} ${formatDate(c.fecha)}${hora ? ` · ${hora}` : ''}</h4>
-                    <p>${titulo} · Diferencia: ${signo}${formatCurrency(c.diferencia)}</p>
+                    <p>${titulo} · ${signo}${formatCurrency(c.diferencia)}</p>
                 </div>
                 <div class="admin-item-actions">
                     <button class="icon-btn" title="Ver reporte" onclick="reimprimirCierreHistorial(${c.id})">${ICON_EDIT}</button>

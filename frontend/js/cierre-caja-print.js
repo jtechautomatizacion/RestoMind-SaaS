@@ -43,12 +43,12 @@ function generarReporteCierreCaja(cierre, negocio) {
         colorTexto = "#16A34A"; // Verde
     } else if (esDiscrepanciaLeve) {
         estadoEmoji = "⚠️";
-        estadoTexto = "DISCREPANCIA MENOR";
+        estadoTexto = "NO CUADRÓ (DIFERENCIA CHICA)";
         claseFondo = "discrepancia-leve";
         colorTexto = "#F59E0B"; // Naranja
     } else {
         estadoEmoji = "❌";
-        estadoTexto = "DISCREPANCIA GRAVE";
+        estadoTexto = "NO CUADRÓ (DIFERENCIA GRANDE)";
         claseFondo = "discrepancia-grave";
         colorTexto = "#DC2626"; // Rojo
     }
@@ -404,7 +404,7 @@ function generarReporteCierreCaja(cierre, negocio) {
 
             ${razon_discrepancia ? `
             <div class="razon-discrepancia">
-                <div class="razon-discrepancia-label">Razón de discrepancia</div>
+                <div class="razon-discrepancia-label">¿Por qué no cuadró?</div>
                 <div class="razon-discrepancia-texto">${escapeHtml(razon_discrepancia)}</div>
             </div>
             ` : ''}
