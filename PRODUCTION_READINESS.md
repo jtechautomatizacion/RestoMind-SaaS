@@ -4,6 +4,11 @@ Este documento es independiente del proveedor de hosting: sirve igual si
 terminás en un VPS con Nginx, Railway, Render, o cualquier otro. Repásalo
 antes de apuntar un dominio real a esta app con datos de clientes reales.
 
+**¿Desplegando en un VPS Ubuntu con Nginx?** → los pasos concretos, con
+scripts listos, están en [`deploy/RUNBOOK.md`](deploy/RUNBOOK.md). Este
+documento es el checklist de fondo (qué necesita la app, sea cual sea el
+hosting); el runbook es la receta paso a paso para ese caso específico.
+
 **Contraseña mínima:** queda intencionalmente en 6 caracteres por ahora
 (decisión explícita del dueño del proyecto para acelerar su propio QA).
 Subir ese mínimo es la única pieza de seguridad de login pendiente — el
@@ -26,6 +31,8 @@ Estos puntos hacen que la app **directamente no arranque** si falta algo:
 - [x] Cabeceras de seguridad en toda respuesta (`backend/middleware.py`):
   `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`,
   `Content-Security-Policy`, y `Strict-Transport-Security` cuando detecta HTTPS
+- [x] SQLite en modo WAL (`backend/database.py`) — lectores y escritor no se
+  bloquean entre sí; se activa solo, sin configuración
 
 ## ⚙️ Variables de entorno que SÍ tenés que cambiar
 

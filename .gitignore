@@ -9,6 +9,11 @@ __pycache__/
 instance/
 restomind.db
 restomind.db.backup-*
+# Con modo WAL activado (backend/database.py) SQLite mantiene estos dos
+# archivos auxiliares junto al .db mientras el proceso está corriendo —
+# runtime, no algo para versionar, igual que el .db mismo.
+restomind.db-shm
+restomind.db-wal
 # Logs del servidor de desarrollo (uvicorn escribe stdout y stderr por
 # separado). Son artefactos de ejecución local, no del repo — y un traceback
 # puede llevar rutas o datos de la BD real.
