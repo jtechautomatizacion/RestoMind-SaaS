@@ -1,8 +1,9 @@
 """
 Registro de tokens push (Firebase Cloud Messaging). Cualquier usuario
-autenticado puede registrar el suyo; solo reciben avisos los roles de
-ROLES_NOTIFICABLES (ver utils/push_notifications.py), porque hoy el único
-aviso implementado es "llegó una comanda nueva".
+autenticado puede registrar el suyo; solo reciben avisos las cuentas con
+rol jefe_cocina (o admin, opt-in) — ver _tokens_a_notificar() en
+utils/push_notifications.py — porque hoy el único aviso implementado es
+"llegó una comanda nueva".
 """
 
 from fastapi import APIRouter, Depends

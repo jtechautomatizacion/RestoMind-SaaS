@@ -30,6 +30,7 @@ from backend.schemas import (
 )
 from backend.utils.auditoria import registrar_evento
 from backend.utils.security import validar_admin
+from backend.utils.roles import serializar_roles
 
 router = APIRouter()
 
@@ -131,7 +132,7 @@ def crear_staff(
         celular=codigo_acceso,
         email=None,  # Staff NO tiene email
         password_hash=hash_password(payload.password),
-        rol=payload.rol,
+        rol=serializar_roles(payload.roles),
     )
     db.add(usuario)
     db.commit()
@@ -139,7 +140,7 @@ def crear_staff(
 
     registrar_evento(
         db, actor=usuario_actual, accion="crear_staff", entidad="usuario",
-        entidad_id=usuario.id, cliente_id=cliente_id, detalle=f"rol: {usuario.rol}",
+        entidad_id=usuario.id, cliente_id=cliente_id, detalle=f"roles: {usuario.rol}",
     )
 
     return usuario
@@ -246,6 +247,17 @@ def editar_usuario(
         raise HTTPException(status_code=400, detail="No puedes cambiar tu email")
     if "celular" in datos and usuario.celular:  # Es staff
         raise HTTPException(status_code=400, detail="No puedes cambiar tu celular")
+
+    # 'roles' (lista) es el campo real para editar los permisos de una
+    # cuenta de personal — reemplaza el set completo de roles de esa
+    # cuenta (no lo suma al anterior). No es una columna de Usuario, así
+    # que se serializa a CSV en 'rol' y se saca de 'datos' antes del loop
+    # genérico de abajo (setattr(usuario, 'roles', ...) fallaría).
+    roles_nuevos = datos.pop("roles", None)
+    if roles_nuevos is not None:
+        if usuario.rol == "admin":
+            raise HTTPException(status_code=400, detail="No se pueden asignar roles de personal a una cuenta de administrador")
+        datos["rol"] = serializar_roles(roles_nuevos)
 
     for campo, valor in datos.items():
         setattr(usuario, campo, valor)

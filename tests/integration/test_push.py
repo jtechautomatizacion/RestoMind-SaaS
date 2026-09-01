@@ -39,7 +39,7 @@ def _crear_staff(test_client, nombre, rol):
     """Crea una cuenta de staff como lo hace la app de verdad: sin email,
     con código de acceso generado por el backend. Devuelve (usuario_id, codigo)."""
     resp = test_client.post('/api/usuarios/staff', json={
-        "nombre": nombre, "password": "secreta123", "rol": rol,
+        "nombre": nombre, "password": "secreta123", "roles": [rol],
     })
     assert resp.status_code == 201, resp.text
     return resp.json()["id"], resp.json()["celular"]
@@ -136,6 +136,29 @@ def test_varios_dispositivos_reciben_en_un_solo_envio(test_client, test_db, test
 
     mock_send.assert_called_once()
     assert sorted(mock_msg.call_args.kwargs["tokens"]) == sorted([TOKEN_A, TOKEN_B])
+
+
+def test_cuenta_con_varios_roles_recibe_por_tener_jefe_cocina(test_client, test_db, test_cliente, test_platos, test_mesas):
+    """Restaurante con poco personal: una cuenta cubre cajero Y cocina a la
+    vez. Debe recibir el aviso igual que un jefe_cocina 'puro' — el filtro
+    de push es "¿tiene jefe_cocina entre sus roles?", no "¿es EXACTAMENTE
+    jefe_cocina?"."""
+    resp = test_client.post('/api/usuarios/staff', json={
+        "nombre": "Ana Multitarea", "password": "secreta123", "roles": ["cajero", "jefe_cocina"],
+    })
+    codigo = resp.json()["celular"]
+    assert sorted(resp.json()["roles"]) == ["cajero", "jefe_cocina"]
+
+    _cliente_como(test_client, codigo)
+    test_client.post('/api/push/registrar', json={"token": TOKEN_A})
+
+    with patch('backend.utils.push_notifications._obtener_firebase_app', return_value=object()), \
+         _mock_firebase() as mock_send, \
+         patch('firebase_admin.messaging.MulticastMessage') as mock_msg:
+        assert _crear_comanda(test_client, test_platos).status_code == 201
+
+    mock_send.assert_called_once()
+    assert mock_msg.call_args.kwargs["tokens"] == [TOKEN_A]
 
 
 # ---------- Robustez: nunca romper la comanda ----------

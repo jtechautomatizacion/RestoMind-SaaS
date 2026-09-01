@@ -12,11 +12,13 @@ function soloDigitos(event) {
     event.target.value = event.target.value.replace(/\D/g, '');
 }
 
-// Qué pestañas puede ver cada rol. Sin login todavía, el rol se elige una
-// vez por dispositivo (el celular del mozo, el de caja, etc.) y queda
-// guardado en localStorage — cuando exista autenticación real, esto se
-// reemplaza por el rol que devuelva el login, pero la lógica de abajo
-// (aplicarPermisosRol) no cambia.
+// Qué pestañas puede ver cada rol. Una cuenta de personal puede tener
+// VARIOS roles a la vez (ej. cajero + jefe_cocina, cuando el restaurante
+// tiene poco personal — ver backend/utils/roles.py) — estado.roles es
+// siempre un array, y las pestañas visibles son la UNIÓN de las de todos
+// sus roles (ver tabsPermitidas()). Sin login todavía, el rol se elige una
+// vez por dispositivo (el celular del mozo, el de caja, etc.) con el
+// selector manual — eso sigue siendo un solo rol a la vez, ver elegirRol().
 const ROLES_PERMITIDOS = {
     admin: ['mozo', 'cocina', 'dashboard', 'admin'],
     mozo: ['mozo'],
@@ -31,19 +33,34 @@ const ROL_LABELS = {
     cajero: 'Cajero',
 };
 
-function getRolGuardado() {
-    return localStorage.getItem('restomind_rol') || 'admin';
+function getRolesGuardados() {
+    try {
+        const guardado = JSON.parse(localStorage.getItem('restomind_roles') || 'null');
+        if (Array.isArray(guardado) && guardado.length) return guardado;
+    } catch (_) { /* localStorage corrupto o formato viejo — usar default */ }
+    return ['admin'];
 }
 
 const estado = {
     clienteId: null, // Se completa en auth.js al validar la sesión
-    usuario: null,   // { email, nombre, rol, cliente_id, cliente_nombre }
-    rol: getRolGuardado(),
+    usuario: null,   // { email, nombre, roles, cliente_id, cliente_nombre }
+    roles: getRolesGuardados(),
     platos: [],
     mesas: [],
     currentTab: 'mozo',
     cajaAbierta: null // null = aún no se consultó; ver refreshCajaGate()
 };
+
+// Unión de pestañas permitidas por TODOS los roles activos de la cuenta —
+// no la primera que matchee. Con roles=['cajero','jefe_cocina'] esto
+// devuelve ['mozo','cocina']: la persona ve Mesas (en modo cajero, sin
+// poder agregar pedidos — ver mozo.js) Y Cocina, desde un solo dispositivo.
+function tabsPermitidas() {
+    const roles = estado.roles.length ? estado.roles : ['mozo'];
+    const set = new Set();
+    roles.forEach(r => (ROLES_PERMITIDOS[r] || []).forEach(t => set.add(t)));
+    return [...set];
+}
 
 // ============ API CLIENT ============
 
@@ -290,7 +307,7 @@ function aplicarGateCaja() {
     // El botón "Ir a Caja" solo tiene sentido para quien puede abrirla.
     ['btn-ir-abrir-caja-mozo', 'btn-ir-abrir-caja-cocina'].forEach(id => {
         const btn = document.getElementById(id);
-        if (btn) btn.classList.toggle('hidden', estado.rol !== 'admin');
+        if (btn) btn.classList.toggle('hidden', !estado.roles.includes('admin'));
     });
 }
 
@@ -302,22 +319,23 @@ function irAAbrirCaja() {
 // ============ ROLES ============
 
 function aplicarPermisosRol() {
-    const permitidas = ROLES_PERMITIDOS[estado.rol] || ROLES_PERMITIDOS.mozo;
+    const permitidas = tabsPermitidas();
 
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.classList.toggle('hidden', !permitidas.includes(btn.dataset.tab));
     });
 
     const badge = document.getElementById('rol-badge');
-    if (badge) badge.textContent = ROL_LABELS[estado.rol] || estado.rol;
+    if (badge) badge.textContent = estado.roles.map(r => ROL_LABELS[r] || r).join(' + ');
 
     // Solo el Admin puede crear/editar/eliminar mesas — el mozo y el
     // cajero solo las usan.
     const btnGestionMesas = document.getElementById('btn-gestionar-mesas');
-    if (btnGestionMesas) btnGestionMesas.classList.toggle('hidden', estado.rol !== 'admin');
+    if (btnGestionMesas) btnGestionMesas.classList.toggle('hidden', !estado.roles.includes('admin'));
 
-    // Si la pestaña visible ya no está permitida para este rol, cambia a
-    // la primera que sí lo esté (ej: cambio de Admin a Mozo estando en Cocina).
+    // Si la pestaña visible ya no está permitida para ninguno de los roles
+    // activos, cambia a la primera que sí lo esté (ej: cambio de Admin a
+    // Mozo estando en Cocina).
     if (!permitidas.includes(estado.currentTab)) {
         cambiarTab(permitidas[0]);
     }
@@ -325,8 +343,10 @@ function aplicarPermisosRol() {
     if (typeof renderMesas === 'function' && estado.currentTab === 'mozo') renderMesas();
 
     // Cocina es el único rol al que le sirve un aviso incluso con la app
-    // minimizada (mozo/admin ya están mirando la pantalla al operar).
-    if (estado.rol === 'jefe_cocina' && typeof activarNotificacionesCocina === 'function') {
+    // minimizada (mozo/admin ya están mirando la pantalla al operar). Se
+    // activa si jefe_cocina está entre los roles de la cuenta, aunque no
+    // sea el único (ej. cajero + jefe_cocina).
+    if (estado.roles.includes('jefe_cocina') && typeof activarNotificacionesCocina === 'function') {
         activarNotificacionesCocina();
     }
 }
@@ -339,9 +359,13 @@ function cerrarModalRol() {
     document.getElementById('modal-rol').classList.add('hidden');
 }
 
+// Selector manual de dispositivo compartido (sin login individual) — a
+// diferencia de una cuenta real, acá se elige UN solo rol a la vez: es el
+// "modo" en el que opera este celular ahora mismo, no el conjunto de
+// permisos de una persona.
 function elegirRol(rol) {
-    localStorage.setItem('restomind_rol', rol);
-    estado.rol = rol;
+    localStorage.setItem('restomind_roles', JSON.stringify([rol]));
+    estado.roles = [rol];
     aplicarPermisosRol();
     cerrarModalRol();
     showToast(`Dispositivo configurado como ${ROL_LABELS[rol]}`, 'success');

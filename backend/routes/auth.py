@@ -19,6 +19,7 @@ from backend.models import Cliente, Usuario, SuperAdmin
 from backend.schemas import LoginRequest, LoginResponse, UsuarioMe, LoginStaffRequest
 from backend.utils.auditoria import registrar_evento
 from backend.utils.rate_limit import limpiar_intentos_login, registrar_login_fallido, verificar_intentos_login
+from backend.utils.roles import roles_de
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -56,6 +57,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
                     email=superadmin.email,
                     nombre=superadmin.nombre,
                     rol="superadmin",
+                    roles=["superadmin"],
                     cliente_id="superadmin",
                     cliente_nombre="Panel General",
                 ),
@@ -89,6 +91,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
             email=usuario.email,
             nombre=usuario.nombre,
             rol=usuario.rol,
+            roles=["admin"] if usuario.rol == "admin" else roles_de(usuario.rol),
             cliente_id=usuario.cliente_id,
             cliente_nombre=cliente.nombre,
             cliente_ruc=cliente.ruc,
@@ -130,6 +133,7 @@ def login_staff(payload: LoginStaffRequest, request: Request, db: Session = Depe
             email=usuario.nombre,  # Mostrar nombre en lugar de email para staff
             nombre=usuario.nombre,
             rol=usuario.rol,
+            roles=["admin"] if usuario.rol == "admin" else roles_de(usuario.rol),
             cliente_id=usuario.cliente_id,
             cliente_nombre=cliente.nombre,
             cliente_ruc=cliente.ruc,
@@ -160,6 +164,7 @@ def me(
         email=usuario.email,
         nombre=usuario.nombre,
         rol=usuario.rol,
+        roles=["admin"] if usuario.rol == "admin" else roles_de(usuario.rol),
         cliente_id=usuario.cliente_id,
         cliente_nombre=cliente.nombre if cliente else "",
         cliente_ruc=cliente.ruc if cliente else None,

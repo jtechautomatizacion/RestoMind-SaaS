@@ -25,13 +25,7 @@ from sqlalchemy.orm import Session
 from backend.config import settings
 from backend.database import SessionLocal
 from backend.models import PushSubscription, Usuario
-
-# Roles que reciben el aviso de comanda nueva. jefe_cocina es el motivo del
-# feature; admin es opt-in (el switch de Admin > Personal crea/borra su token,
-# ver frontend/js/push-notifications.js). No hay columna de "preferencia"
-# aparte: la fila en PushSubscription YA ES el opt-in, una sola fuente de
-# verdad que no puede desincronizarse de los tokens reales.
-ROLES_NOTIFICABLES = ("jefe_cocina", "admin")
+from backend.utils.roles import tiene_rol
 
 # Si la inicialización de Firebase falla (corte de red justo en el primer
 # envío, credenciales que todavía no se montaron), se reintenta pasado este
@@ -76,18 +70,27 @@ def _obtener_firebase_app():
 def _tokens_a_notificar(db: Session, cliente_id: str) -> list:
     """Tokens de este restaurante cuyos dueños deben recibir el aviso.
     El join es por usuario_id (FK), nunca por el 'sub' del JWT — ver el
-    docstring de PushSubscription en models.py."""
+    docstring de PushSubscription en models.py.
+
+    El filtro de rol se hace en Python (no con Usuario.rol.in_() a nivel
+    SQL): una cuenta de staff puede combinar varios roles a la vez (ej.
+    cajero + jefe_cocina, guardados como CSV en Usuario.rol — ver
+    backend/utils/roles.py), así que "tiene jefe_cocina" ya no es una
+    igualdad exacta. La cantidad de filas por restaurante es chica, así que
+    filtrar en Python después del join no tiene costo real."""
     filas = (
-        db.query(PushSubscription.token)
+        db.query(PushSubscription.token, Usuario.rol)
         .join(Usuario, Usuario.id == PushSubscription.usuario_id)
         .filter(
             PushSubscription.cliente_id == cliente_id,
-            Usuario.rol.in_(ROLES_NOTIFICABLES),
             Usuario.estado == "activo",
         )
         .all()
     )
-    return [fila[0] for fila in filas]
+    return [
+        token for token, rol in filas
+        if rol == "admin" or tiene_rol(rol, "jefe_cocina")
+    ]
 
 
 def _purgar_tokens_invalidos(db: Session, tokens: list) -> None:

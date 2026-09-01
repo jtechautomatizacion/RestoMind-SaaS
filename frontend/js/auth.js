@@ -165,14 +165,16 @@ function aplicarUsuarioDeSesion(usuario) {
     estado.clienteId = usuario.cliente_id;
     estado.usuario = usuario;
 
-    // El rol de una cuenta real manda sobre el selector manual del
+    // Los roles de una cuenta real mandan sobre el selector manual del
     // dispositivo (el botón redondo del header): si Pedro se loguea como
     // mozo, el celular pasa a comportarse como el de un mozo automáticamente,
     // sin que nadie tenga que tocar el selector. Este último queda como
     // respaldo para el caso "seguimos con un celular compartido sin cuentas
     // individuales", no como la fuente de verdad cuando sí hay login real.
-    localStorage.setItem('restomind_rol', usuario.rol);
-    estado.rol = usuario.rol;
+    // usuario.roles es siempre un array (puede tener más de un rol — ver
+    // backend/utils/roles.py) incluso cuando venía de un login viejo.
+    localStorage.setItem('restomind_roles', JSON.stringify(usuario.roles));
+    estado.roles = usuario.roles;
 
     const nombreCliente = document.getElementById('nombre-cliente-header');
     if (nombreCliente) nombreCliente.textContent = usuario.cliente_nombre;

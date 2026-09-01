@@ -29,14 +29,19 @@ function renderMesas() {
         return;
     }
 
-    // El cajero solo cobra: las mesas libres no le sirven de nada, así que
-    // se muestran apagadas y sin acción (evita toques accidentales que
-    // confundan "cobrar" con "tomar pedido").
-    const esCajero = estado.rol === 'cajero';
+    // Restringido a "solo cobra" cuando la cuenta tiene cajero pero NO
+    // mozo/admin entre sus roles — las mesas libres no le sirven de nada,
+    // así que se muestran apagadas y sin acción (evita toques accidentales
+    // que confundan "cobrar" con "tomar pedido"). Una cuenta con AMBOS
+    // roles (cajero + mozo) sí puede tomar pedidos nuevos — el "solo cobra"
+    // es una restricción de cajero en solitario, no de tener cajero.
+    const soloCobra = estado.roles.includes('cajero')
+        && !estado.roles.includes('mozo')
+        && !estado.roles.includes('admin');
 
     estado.mesas.forEach(mesa => {
         const btn = document.createElement('button');
-        const deshabilitada = esCajero && mesa.estado !== 'ocupada';
+        const deshabilitada = soloCobra && mesa.estado !== 'ocupada';
         btn.className = `mesa-btn ${mesa.estado} ${deshabilitada ? 'mesa-btn-inactiva' : ''}`;
 
         const detalleHtml = mesa.estado === 'ocupada'
@@ -77,8 +82,12 @@ function renderMesas() {
 }
 
 function abrirMesa(mesa) {
-    if (estado.rol === 'cajero') {
-        // El cajero nunca toma pedidos, solo abre la cuenta para cobrar.
+    const soloCobra = estado.roles.includes('cajero')
+        && !estado.roles.includes('mozo')
+        && !estado.roles.includes('admin');
+    if (soloCobra) {
+        // Solo cajero (sin mozo/admin) nunca toma pedidos, solo abre la
+        // cuenta para cobrar.
         if (mesa.estado === 'ocupada') abrirCuentaMesa(mesa);
         return;
     }
@@ -303,8 +312,11 @@ function marcarMesaOcupadaLocal(numeroMesa, montoAgregado) {
 async function abrirCuentaMesa(mesa) {
     mesaActual = mesa;
     document.getElementById('modal-cuenta-title').textContent = `Mesa ${mesa.numero}`;
-    // El cajero cobra, no toma pedidos adicionales.
-    document.getElementById('btn-agregar-pedido').classList.toggle('hidden', estado.rol === 'cajero');
+    // Solo cajero (sin mozo/admin) cobra, no toma pedidos adicionales.
+    const soloCobra = estado.roles.includes('cajero')
+        && !estado.roles.includes('mozo')
+        && !estado.roles.includes('admin');
+    document.getElementById('btn-agregar-pedido').classList.toggle('hidden', soloCobra);
     // Sin esto, el DNI/RUC tipeado para la mesa anterior quedaría precargado
     // acá y terminaría en la boleta de un cliente distinto.
     document.getElementById('cuenta-documento').value = '';
