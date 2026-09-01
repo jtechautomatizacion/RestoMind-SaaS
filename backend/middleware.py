@@ -45,13 +45,20 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Los dos hosts de Google son EXCLUSIVAMENTE para Firebase Cloud
         # Messaging (notificaciones push a cocina, ver
         # frontend/js/push-notifications.js y sw.js):
-        #   - www.gstatic.com  → de ahí se sirve el SDK de Firebase, tanto en
-        #     la página (<script src>) como dentro del Service Worker
-        #     (importScripts). Sin esto el navegador bloquea la carga y el
-        #     push queda muerto en silencio: la app funciona, pero cocina
-        #     nunca recibe el aviso de comanda nueva.
+        #   - www.gstatic.com  → de ahí se sirve el SDK de Firebase.
         #   - *.googleapis.com → las llamadas que el SDK hace para registrar
         #     el dispositivo y recibir mensajes (fcm/firebaseinstallations).
+        #
+        # www.gstatic.com está en connect-src ADEMÁS de en script-src, y no
+        # es un descuido: el Service Worker lo carga con importScripts(), y
+        # Chrome valida esa carga contra connect-src, no contra script-src
+        # (una particularidad real de cómo Chrome aplica CSP dentro de un
+        # Service Worker — el mensaje de error en consola dice literalmente
+        # "violates ... connect-src", aunque sea un .js). Con solo
+        # script-src, el SDK cargaba bien en la página normal pero fallaba
+        # siempre dentro del Service Worker — que es justo donde hace falta
+        # para que el push llegue con la app minimizada.
+        #
         # Se listan host por host a propósito, en vez de abrir "https:"
         # entero: si mañana se cuela un script de otro origen, sigue
         # bloqueado.
@@ -60,7 +67,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "script-src 'self' 'unsafe-inline' https://www.gstatic.com; "
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: blob:; "
-            "connect-src 'self' https://fcm.googleapis.com "
+            "connect-src 'self' https://www.gstatic.com https://fcm.googleapis.com "
             "https://firebaseinstallations.googleapis.com "
             "https://firebaseremoteconfig.googleapis.com; "
             "worker-src 'self'; "

@@ -31,8 +31,20 @@ def test_csp_permite_cargar_firebase_para_notificaciones_push(test_client):
     registrar su token. No lo atrapó ningún test porque solo se verificaba
     que el header existiera, no que permitiera lo que la app necesita."""
     csp = test_client.get('/health').headers["content-security-policy"]
-    assert "https://www.gstatic.com" in csp, "el SDK de Firebase no podría cargar"
+    assert "script-src 'self' 'unsafe-inline' https://www.gstatic.com" in csp, \
+        "el SDK de Firebase no podría cargar en la página normal"
     assert "https://fcm.googleapis.com" in csp, "el registro del token push fallaría"
+
+    # www.gstatic.com tiene que estar TAMBIÉN en connect-src, no solo en
+    # script-src: dentro del Service Worker el SDK se carga con
+    # importScripts(), y Chrome valida esa carga contra connect-src, no
+    # contra script-src (una particularidad real de cómo Chrome aplica CSP
+    # a un Service Worker). Con solo script-src, el SDK cargaba bien en la
+    # página normal pero fallaba siempre dentro del Service Worker — que es
+    # justo donde hace falta para que el push llegue con la app minimizada.
+    connect_src = next(p for p in csp.split(";") if p.strip().startswith("connect-src"))
+    assert "https://www.gstatic.com" in connect_src, \
+        "el SDK de Firebase no podría cargar DENTRO del Service Worker (importScripts)"
 
 
 def test_csp_sigue_bloqueando_origenes_de_terceros(test_client):
