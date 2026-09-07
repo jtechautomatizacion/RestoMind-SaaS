@@ -732,6 +732,17 @@ class DashboardResumen(BaseModel):
 
 class AbrirCajaRequest(BaseModel):
     saldo_inicial: float = Field(..., ge=0, le=100000)
+    # Opcional: sin esto, el historial solo distingue turnos por hora
+    # ("Turno 2 de hoy"). Con un restaurante que abre mañana/tarde/noche,
+    # una etiqueta es más rápida de leer que calcular mentalmente a qué
+    # hora empezó cada uno.
+    nombre_turno: Optional[str] = Field(default=None, max_length=50)
+
+    @field_validator("nombre_turno")
+    @classmethod
+    def _vacio_a_none(cls, v):
+        v = (v or "").strip()
+        return v or None
 
 
 class CerrarCajaRequest(BaseModel):
@@ -752,6 +763,7 @@ class CierreCajaResponse(BaseModel):
     saldo_inicial: float
     abierto_en: UtcDatetime
     abierto_por: str
+    nombre_turno: Optional[str] = None
 
     ventas_cobradas: Optional[float] = None
     gastos_efectivo: Optional[float] = None

@@ -853,7 +853,7 @@
                             <div class="caja-banner caja-banner-abierta">
                                 <span class="caja-banner-icon">🟢</span>
                                 <div>
-                                    <div class="caja-banner-title">Caja abierta</div>
+                                    <div class="caja-banner-title" data-slot="banner-titulo-abierta">Caja abierta</div>
                                     <div class="caja-banner-sub" data-slot="abierta-desde"></div>
                                 </div>
                             </div>
@@ -906,6 +906,15 @@
                                 <div class="form-group">
                                     <label>Saldo inicial (S/)</label>
                                     <input type="number" id="caja-saldo-inicial" inputmode="decimal" step="0.01" min="0" required placeholder="0.00">
+                                </div>
+                                <div class="form-group">
+                                    <label>Turno (opcional)</label>
+                                    <select id="caja-nombre-turno">
+                                        <option value="">Sin nombre</option>
+                                        <option value="Mañana">Mañana</option>
+                                        <option value="Tarde">Tarde</option>
+                                        <option value="Noche">Noche</option>
+                                    </select>
                                 </div>
                                 <button type="button" class="btn btn-primary btn-block" onclick="confirmarAbrirCaja()">
                                     Abrir caja

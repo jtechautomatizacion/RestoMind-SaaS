@@ -282,6 +282,7 @@ def abrir_caja(
         saldo_inicial=payload.saldo_inicial,
         abierto_en=datetime.utcnow(),
         abierto_por=usuario_actual,
+        nombre_turno=payload.nombre_turno,
         # Se guarda la zona horaria del dispositivo del ADMIN que abre, para
         # que el auto-cierre no dependa después del header de quien consulte
         # (ver _auto_cerrar_si_vencida).
@@ -302,7 +303,8 @@ def abrir_caja(
 
     registrar_evento(
         db, actor=usuario_actual, accion="abrir_caja", entidad="cierre_caja",
-        entidad_id=caja.id, cliente_id=cliente_id, detalle=f"saldo_inicial: {payload.saldo_inicial}",
+        entidad_id=caja.id, cliente_id=cliente_id,
+        detalle=f"saldo_inicial: {payload.saldo_inicial}, turno: {payload.nombre_turno or 'sin nombre'}",
     )
 
     return caja

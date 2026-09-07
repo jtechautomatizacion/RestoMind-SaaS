@@ -437,6 +437,11 @@ class CierreCaja(Base):
     saldo_inicial = Column(Float, nullable=False)
     abierto_en = Column(DateTime, default=datetime.utcnow, nullable=False)
     abierto_por = Column(String, nullable=False)  # email del admin
+    # Etiqueta opcional ("Mañana", "Tarde", "Noche") para distinguir turnos
+    # en el historial a simple vista, sin calcular a qué hora empezó cada
+    # uno. Sin ella (turnos viejos, o quien no la usa), el frontend cae de
+    # vuelta a "Turno N de hoy" — ver GET /caja/estado.
+    nombre_turno = Column(String, nullable=True)
     # Zona horaria del restaurante, capturada del dispositivo del ADMIN al
     # abrir el turno. El auto-cierre de turnos vencidos necesita saber qué
     # día local es "hoy", y antes lo tomaba del header X-TZ-Offset de quien

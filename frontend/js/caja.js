@@ -65,6 +65,11 @@ function renderCaja(estadoCaja) {
 
         const desde = new Date(caja.abierto_en).toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' });
         nodo.querySelector('[data-slot="abierta-desde"]').textContent = `Desde ${desde}`;
+        // Con nombre, "Caja abierta" pasa a "Turno Mañana"; sin nombre,
+        // queda el título genérico que ya trae la plantilla.
+        if (caja.nombre_turno) {
+            nodo.querySelector('[data-slot="banner-titulo-abierta"]').textContent = `Turno ${caja.nombre_turno}`;
+        }
         nodo.querySelector('[data-slot="ventas-ahora"]').textContent = formatCurrency(estadoCaja.ventas_hasta_ahora);
         nodo.querySelector('[data-slot="gastos-ahora"]').textContent = formatCurrency(estadoCaja.gastos_hasta_ahora);
 
@@ -92,9 +97,12 @@ function renderCaja(estadoCaja) {
             .toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
         nodo.querySelector('[data-slot="esperado"]').textContent = formatCurrency(caja.saldo_esperado);
         nodo.querySelector('[data-slot="contado"]').textContent = formatCurrency(caja.saldo_contado);
-        if (estadoCaja.turnos_hoy > 1) {
-            nodo.querySelector('[data-slot="turnos-hoy"]').textContent =
-                ` · Turno ${estadoCaja.turnos_hoy} de hoy`;
+        if (caja.nombre_turno || estadoCaja.turnos_hoy > 1) {
+            // Con nombre, se prioriza sobre el conteo genérico: "Turno
+            // Mañana" dice más que "Turno 1 de hoy".
+            nodo.querySelector('[data-slot="turnos-hoy"]').textContent = caja.nombre_turno
+                ? ` · Turno ${caja.nombre_turno}`
+                : ` · Turno ${estadoCaja.turnos_hoy} de hoy`;
             nodo.querySelector('[data-slot="turnos-hoy"]').classList.remove('hidden');
         }
 
@@ -108,6 +116,7 @@ function renderCaja(estadoCaja) {
 async function confirmarAbrirCaja() {
     const input = document.getElementById('caja-saldo-inicial');
     const saldo = parseFloat(input.value);
+    const nombreTurno = document.getElementById('caja-nombre-turno').value || null;
 
     if (isNaN(saldo) || saldo < 0) {
         showToast('Ingresa un saldo inicial válido', 'warning');
@@ -115,7 +124,7 @@ async function confirmarAbrirCaja() {
     }
 
     try {
-        await api.post('/caja/abrir', { saldo_inicial: saldo });
+        await api.post('/caja/abrir', { saldo_inicial: saldo, nombre_turno: nombreTurno });
         showToast('Caja abierta', 'success');
         await refreshCaja();
         // Desbloquea Mesas/Cocina de inmediato — sin esto el mozo vería el
@@ -206,10 +215,11 @@ function renderHistorialCaja(historial) {
         const hora = c.cerrado_en
             ? new Date(c.cerrado_en).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })
             : '';
+        const turno = c.nombre_turno ? ` · ${escapeHtml(c.nombre_turno)}` : '';
         return `
             <div class="admin-item">
                 <div class="admin-item-info">
-                    <h4>${icono} ${formatDate(c.fecha)}${hora ? ` · ${hora}` : ''}</h4>
+                    <h4>${icono} ${formatDate(c.fecha)}${hora ? ` · ${hora}` : ''}${turno}</h4>
                     <p>${titulo} · ${signo}${formatCurrency(c.diferencia)}</p>
                 </div>
                 <div class="admin-item-actions">

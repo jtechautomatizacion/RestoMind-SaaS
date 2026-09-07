@@ -216,6 +216,38 @@ def test_la_fecha_de_negocio_de_un_movimiento_no_lleva_marca_utc(test_client, te
     assert cuerpo["creado_en"].endswith("Z")
 
 
+# ---------- Turnos con nombre ----------
+
+def test_el_nombre_del_turno_es_opcional(test_client, test_cliente):
+    """Sin nombre, el turno se abre igual — la etiqueta es una comodidad,
+    no un requisito (turnos viejos y quien no la usa no deben romperse)."""
+    resp = _abrir_caja(test_client, saldo=100.0)
+    assert resp.status_code == 201
+    assert resp.json()["nombre_turno"] is None
+
+
+def test_el_nombre_del_turno_viaja_hasta_el_historial(test_client, test_cliente):
+    abierto = test_client.post('/api/caja/abrir', json={
+        "saldo_inicial": 100.0, "nombre_turno": "Mañana",
+    })
+    assert abierto.status_code == 201
+    assert abierto.json()["nombre_turno"] == "Mañana"
+
+    cerrado = test_client.post('/api/caja/cerrar', json={"saldo_contado": 100.0})
+    assert cerrado.json()["nombre_turno"] == "Mañana"
+
+    historial = test_client.get('/api/caja/historial').json()
+    assert historial[0]["nombre_turno"] == "Mañana"
+
+
+def test_un_nombre_de_turno_de_solo_espacios_se_guarda_como_ninguno(test_client, test_cliente):
+    resp = test_client.post('/api/caja/abrir', json={
+        "saldo_inicial": 100.0, "nombre_turno": "   ",
+    })
+    assert resp.status_code == 201
+    assert resp.json()["nombre_turno"] is None
+
+
 def db_caja(test_db) -> CierreCaja:
     """El turno más reciente de este restaurante, releído de la BD."""
     test_db.expire_all()

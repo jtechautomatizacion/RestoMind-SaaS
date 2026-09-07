@@ -1042,6 +1042,13 @@ tiene resolución suficiente para ubicar un gasto dentro de un turno
 específico. La tabla `cierres_caja` NO tiene `UniqueConstraint(cliente_id,
 fecha)` — varios turnos comparten fecha a propósito.
 
+**Nombre de turno (opcional):** `POST /caja/abrir` acepta `nombre_turno`
+(`"Mañana"`/`"Tarde"`/`"Noche"`, hasta 50 caracteres, o vacío). Es solo una
+etiqueta para leer el historial más rápido — sin ella, la app sigue
+distinguiendo turnos por conteo (`"Turno 2 de hoy"`), como siempre. No
+participa en ninguna validación: dos turnos con el mismo nombre, o sin
+nombre, son igual de válidos que antes.
+
 ### Mesas y Cocina exigen caja abierta HOY (gate)
 
 Sin caja abierta, no hay saldo inicial contra el cual reconciliar lo que

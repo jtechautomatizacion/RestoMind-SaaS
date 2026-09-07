@@ -283,6 +283,19 @@ def migrate():
             else:
                 print("[OK] Columna 'descargado_en' ya existe")
 
+        # cierres_caja.nombre_turno: etiqueta opcional ("Mañana"/"Tarde"/
+        # "Noche") para distinguir turnos en el historial sin calcular a
+        # qué hora empezó cada uno. Turnos ya cerrados quedan en NULL — el
+        # frontend cae de vuelta a "Turno N de hoy" cuando no hay etiqueta.
+        if cols_cierres_nombre := [row[1] for row in cursor.execute("PRAGMA table_info(cierres_caja)").fetchall()]:
+            if "nombre_turno" not in cols_cierres_nombre:
+                print("Agregando columna 'nombre_turno' a cierres_caja...")
+                cursor.execute("ALTER TABLE cierres_caja ADD COLUMN nombre_turno TEXT")
+                conn.commit()
+                print("[OK] Columna 'nombre_turno' agregada")
+            else:
+                print("[OK] Columna 'nombre_turno' ya existe")
+
         print("[OK] Migración completada")
     except Exception as e:
         print(f"[ERROR] Error en migración: {e}")

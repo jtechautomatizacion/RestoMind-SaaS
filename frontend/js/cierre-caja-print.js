@@ -17,6 +17,7 @@
 function generarReporteCierreCaja(cierre, negocio) {
     const {
         saldo_inicial,
+        nombre_turno,
         ventas_cobradas,
         gastos_efectivo,
         retiros_personales,
@@ -353,7 +354,7 @@ function generarReporteCierreCaja(cierre, negocio) {
         <div class="header">
             <div class="logo-restaurante">🍽️</div>
             <div class="nombre-restaurante">${escapeHtml(negocio?.nombre || 'Mi Restaurante')}</div>
-            <div class="fecha-hora">${fechaFormato} • ${horaFormato}</div>
+            <div class="fecha-hora">${fechaFormato} • ${horaFormato}${nombre_turno ? ` • Turno ${escapeHtml(nombre_turno)}` : ''}</div>
         </div>
 
         <!-- RESULTADO GRANDE -->
