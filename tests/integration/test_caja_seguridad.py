@@ -71,18 +71,26 @@ def test_un_mozo_no_puede_forzar_el_cierre_de_la_caja_del_admin(test_client, tes
 def test_el_auto_cierre_sigue_funcionando_con_un_turno_de_ayer(test_client, test_cliente, test_db):
     """Contracara: blindar el auto-cierre contra el header NO puede haberlo
     roto. Un turno que de verdad quedó de ayer se sigue cerrando solo — si
-    no, Mesas y Cocina quedarían bloqueadas todo el día siguiente."""
-    _abrir_caja(test_client, saldo=100.0, tz_offset=300)
+    no, Mesas y Cocina quedarían bloqueadas todo el día siguiente.
 
-    # Se envejece el turno: se lo manda a ayer, como si el admin se hubiera
-    # olvidado de cerrar anoche.
-    caja = db_caja(test_db)
-    ayer = (datetime.utcnow() - timedelta(days=1))
-    caja.fecha = ayer.date().isoformat()
-    caja.abierto_en = ayer
-    test_db.commit()
+    Reloj congelado por el mismo motivo que el resto del archivo: "ayer" en
+    UTC crudo y "hoy" en hora de Lima (UTC-5) NO son siempre el mismo
+    desfase de un día — en la ventana 00:00-05:00 UTC caen en la MISMA
+    fecha de calendario, y el turno "envejecido" por el test terminaba sin
+    verse vencido de verdad. Sin el reloj fijo, este test pasaba o fallaba
+    según la hora a la que se corriera la suite."""
+    with patch('backend.routes.caja.datetime', _RelojCongelado):
+        _abrir_caja(test_client, saldo=100.0, tz_offset=300)
 
-    test_client.get('/api/caja/gate', headers={"X-TZ-Offset": "300"})
+        # Se envejece el turno: se lo manda a ayer, como si el admin se
+        # hubiera olvidado de cerrar anoche.
+        caja = db_caja(test_db)
+        ayer = _AHORA_FIJO - timedelta(days=1)
+        caja.fecha = ayer.date().isoformat()
+        caja.abierto_en = ayer
+        test_db.commit()
+
+        test_client.get('/api/caja/gate', headers={"X-TZ-Offset": "300"})
 
     caja = db_caja(test_db)
     assert caja.estado == "cerrado_automatico"
@@ -149,14 +157,21 @@ def test_la_bd_impide_dos_turnos_abiertos_aunque_se_salte_la_validacion(test_cli
 
 def test_varios_turnos_cerrados_el_mismo_dia_siguen_permitidos(test_client, test_cliente, test_db):
     """El índice es PARCIAL (solo sobre estado='abierto') justamente para no
-    romper los turnos múltiples por día — mañana y tarde comparten fecha."""
-    assert _abrir_caja(test_client, saldo=100.0).status_code == 201
-    cerrar = test_client.post('/api/caja/cerrar', json={"saldo_contado": 100.0})
-    assert cerrar.status_code == 200
+    romper los turnos múltiples por día — mañana y tarde comparten fecha.
 
-    assert _abrir_caja(test_client, saldo=80.0).status_code == 201, "no se pudo abrir el segundo turno del día"
+    Reloj congelado: `caja.fecha` la calcula el backend en hora LOCAL
+    (utcnow - tz_offset), no en UTC crudo. Comparar contra
+    datetime.utcnow().date() sin ajustar por el offset fallaba en la
+    ventana 00:00-05:00 UTC, donde el día UTC ya avanzó pero el de Lima
+    (UTC-5) todavía no — el mismo desfase que ya rompía el test vecino."""
+    with patch('backend.routes.caja.datetime', _RelojCongelado):
+        assert _abrir_caja(test_client, saldo=100.0).status_code == 201
+        cerrar = test_client.post('/api/caja/cerrar', json={"saldo_contado": 100.0})
+        assert cerrar.status_code == 200
 
-    hoy = datetime.utcnow().date().isoformat()
+        assert _abrir_caja(test_client, saldo=80.0).status_code == 201, "no se pudo abrir el segundo turno del día"
+
+    hoy = _AHORA_FIJO.date().isoformat()
     del_dia = test_db.query(CierreCaja).filter(
         CierreCaja.cliente_id == TEST_CLIENTE_ID, CierreCaja.fecha == hoy,
     ).count()
