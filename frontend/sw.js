@@ -7,7 +7,7 @@
  * la versión vieja hasta cerrar todas las pestañas).
  */
 
-const CACHE_NAME = 'restomind-v36';
+const CACHE_NAME = 'restomind-v37';
 const STATIC_ASSETS = [
     '/static/index.html',
     '/static/css/style.css',

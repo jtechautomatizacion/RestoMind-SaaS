@@ -33,6 +33,29 @@ function limpiarSesion() {
 }
 
 /**
+ * Vuelve a pedir los datos de la sesión al servidor y los aplica, sin
+ * cerrar sesión ni pedir la contraseña de nuevo.
+ *
+ * Hace falta cuando algo del RESTAURANTE cambia en caliente y el resto de
+ * la app lo lee desde la sesión guardada — hoy, el interruptor de
+ * facturación (`cliente_usar_sunat`), que mira mozo.js al cobrar para
+ * decidir si emitir boleta. Sin esto, activarlo no surtiría efecto hasta
+ * el próximo login.
+ */
+async function refrescarSesionDesdeServidor() {
+    try {
+        const usuario = await api.get('/auth/me');
+        guardarSesion(getToken(), usuario);
+        aplicarUsuarioDeSesion(usuario);
+        return usuario;
+    } catch (_) {
+        // Que falle el refresco no debe cerrar la sesión: el token sigue
+        // siendo válido y la app sigue usable con los datos que ya tenía.
+        return null;
+    }
+}
+
+/**
  * Reset total (sesión + Service Worker + Cache Storage). La limpieza real
  * vive inline en index.html bajo el flag ?reset — acá solo se navega hasta
  * ahí. Es a propósito: esa versión corre antes que cualquier .js, así que

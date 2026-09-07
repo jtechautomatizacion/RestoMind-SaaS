@@ -1241,11 +1241,59 @@ async function refreshBoletasPendientes() {
     const container = document.getElementById('admin-boletas-list');
     if (!container) return;
 
+    refreshSwitchUsarSunat();
+
     try {
         const data = await api.get('/facturas/pendientes');
         renderBoletasPendientes(data);
     } catch (err) {
         container.innerHTML = `<p class="empty-hint">No se pudo cargar: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
+/**
+ * Estado del interruptor de facturación. La fuente de verdad es el
+ * servidor, no la sesión guardada: el RUC lo carga el superadmin, así que
+ * puede aparecer sin que este admin vuelva a loguearse.
+ */
+async function refreshSwitchUsarSunat() {
+    const check = document.getElementById('switch-usar-sunat');
+    const hint = document.getElementById('sunat-switch-hint');
+    if (!check) return;
+
+    try {
+        const cfg = await api.get('/configuracion');
+        check.checked = cfg.usar_sunat;
+        // Sin RUC el interruptor no puede prenderse — se deshabilita y se
+        // dice POR QUÉ, en vez de dejarlo muerto sin explicación.
+        check.disabled = !cfg.tiene_ruc;
+        if (!cfg.tiene_ruc) {
+            hint.textContent = 'Primero hay que cargar el RUC del restaurante. Pídeselo a quien te dio de alta el sistema.';
+        } else if (cfg.usar_sunat) {
+            hint.textContent = `Emitiendo con RUC ${cfg.ruc}. Cada cobro genera su boleta.`;
+        } else {
+            hint.textContent = 'Actívalo cuando tengas el Facturador SUNAT listo. Mientras esté apagado, cobras normal y sin avisos de boleta.';
+        }
+    } catch (_) {
+        // Un fallo acá no debe romper la pantalla de Boletas entera.
+    }
+}
+
+async function onToggleUsarSunat(event) {
+    const activar = event.target.checked;
+    try {
+        const cfg = await api.patch('/configuracion', { usar_sunat: activar });
+        showToast(cfg.usar_sunat ? 'Boletas activadas' : 'Boletas desactivadas', 'success');
+        // La sesión guardada lleva cliente_usar_sunat, y es lo que mira el
+        // mozo al cobrar para decidir si emitir. Sin refrescarla, el cambio
+        // no surte efecto hasta el próximo login.
+        await refrescarSesionDesdeServidor();
+        await refreshBoletasPendientes();
+    } catch (err) {
+        // Volver el switch a donde estaba: dejarlo mostrando "activado"
+        // cuando el backend lo rechazó sería mentir sobre el estado real.
+        event.target.checked = !activar;
+        showToast(err.message || 'No se pudo cambiar', 'error');
     }
 }
 

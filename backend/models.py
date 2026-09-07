@@ -48,6 +48,20 @@ class Cliente(Base):
     razon_social = Column(String, nullable=True)
     direccion = Column(String, nullable=True)  # Domicilio fiscal, para el encabezado de tickets/boletas
 
+    # ¿Este restaurante emite boletas electrónicas desde RestoMind?
+    #
+    # Antes esto se deducía de "tiene RUC o no", y eso mezclaba dos cosas
+    # distintas: tener RUC es un dato tributario del negocio; emitir boletas
+    # desde ESTA app es una decisión operativa. Un restaurante con RUC que
+    # factura por otro medio (o que todavía no configuró su Facturador)
+    # recibía un toast rojo en CADA cobro —"la boleta NO se emitió"— y se le
+    # llenaba Admin > Boletas de pendientes que nadie iba a emitir nunca.
+    #
+    # Default False a propósito: un restaurante nuevo vende desde el primer
+    # día y configura SUNAT después, no al revés. Solo puede ponerse en True
+    # si hay RUC cargado (lo valida PATCH /clientes/configuracion).
+    usar_sunat = Column(Boolean, default=False, nullable=False)
+
     # Correlativo de boletas (serie B001), incrementado atómicamente al
     # generar cada Factura. Vive acá y no como MAX(numero_correlativo)
     # calculado al vuelo porque esta app corre en un solo proceso uvicorn

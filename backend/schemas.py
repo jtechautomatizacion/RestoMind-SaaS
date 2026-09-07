@@ -119,6 +119,10 @@ class UsuarioMe(BaseModel):
     # aparte (ver frontend/js/print.js) — el mozo los tiene disponibles
     # desde que abre sesión, igual que cliente_nombre ya funcionaba.
     cliente_ruc: Optional[str] = None
+    # El frontend lo usa para NO intentar emitir boleta en un restaurante
+    # que no factura desde acá — sin esto le salía un toast rojo en cada
+    # cobro (ver generarBoletaTrasCobro en frontend/js/mozo.js).
+    cliente_usar_sunat: bool = False
     cliente_razon_social: Optional[str] = None
     cliente_direccion: Optional[str] = None
     cliente_email: Optional[str] = None
@@ -982,3 +986,17 @@ class AgentePingResponse(BaseModel):
     cliente_id: str
     cliente_nombre: str
     pendientes: int
+
+
+# ============ CONFIGURACIÓN DEL RESTAURANTE (admin) ============
+
+class ConfiguracionUpdateRequest(BaseModel):
+    usar_sunat: bool
+
+
+class ConfiguracionResponse(BaseModel):
+    usar_sunat: bool
+    # El frontend lo usa para explicar POR QUÉ el interruptor está
+    # deshabilitado, en vez de dejarlo muerto sin decir nada.
+    tiene_ruc: bool
+    ruc: Optional[str] = None

@@ -28,9 +28,16 @@ from backend.utils.facturacion_pe import FacturacionPeError, FacturacionPeResult
 @pytest.fixture
 def cliente_con_ruc(test_db, test_cliente):
     """El fixture test_cliente no trae RUC — la mayoría de tests de facturas
-    lo necesitan configurado (es la primera validación del endpoint)."""
+    lo necesitan configurado (es la primera validación del endpoint).
+
+    usar_sunat=True porque este fixture representa un restaurante que SÍ
+    emite desde RestoMind: tener RUC y emitir son dos cosas distintas (ver
+    tests/integration/test_configuracion.py), y los endpoints de
+    recuperación de boletas solo aplican al que emite. Es el mismo criterio
+    que usó la migración con los clientes que ya existían."""
     test_cliente.ruc = "10200812234"
     test_cliente.razon_social = "Pollería Fogones"
+    test_cliente.usar_sunat = True
     test_db.commit()
     return test_cliente
 

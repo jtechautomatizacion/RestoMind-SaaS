@@ -449,6 +449,15 @@ def listar_pendientes(
     # financiero que el Dashboard — mismo criterio, mismo candado.
     validar_admin(db, usuario, cliente_id)
 
+    # Un restaurante que no emite desde acá NO tiene ventas "pendientes de
+    # boleta": tiene ventas, a secas. Sin este corte, cada cobro se sumaba
+    # a una lista de pendientes que crecía para siempre y que nadie iba a
+    # resolver nunca — ruido que además esconde un pendiente de verdad el
+    # día que sí se active la facturación.
+    cliente_actual = db.query(Cliente).filter(Cliente.id == cliente_id).first()
+    if not cliente_actual or not cliente_actual.usar_sunat:
+        return FacturasPendientesResponse(facturas_con_error=[], ventas_sin_boleta=[])
+
     facturas_con_error = [
         FacturaPendienteItem(
             id=f.id,

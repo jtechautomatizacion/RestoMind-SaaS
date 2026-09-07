@@ -325,6 +325,10 @@ async function abrirCuentaMesa(mesa) {
     // Sin esto, el DNI/RUC tipeado para la mesa anterior quedaría precargado
     // acá y terminaría en la boleta de un cliente distinto.
     document.getElementById('cuenta-documento').value = '';
+    // Pedirle el documento al cliente no tiene sentido en un restaurante
+    // que no emite boletas desde acá: ese dato no iría a ningún lado.
+    document.getElementById('cuenta-documento-grupo').classList.toggle(
+        'hidden', !(estado.usuario && estado.usuario.cliente_usar_sunat));
 
     try {
         const comandas = await api.get(`/comandas?numero_mesa=${mesa.numero}`);
@@ -456,12 +460,20 @@ async function cobrarMesaActual() {
     // si no una llamada admin-only que el backend rechaza con 403.
     if (puedeVer('dashboard') && typeof refreshDashboard === 'function') refreshDashboard();
 
+    // Solo si este restaurante emite boletas desde RestoMind. Antes se
+    // intentaba SIEMPRE, así que uno que todavía no configuró SUNAT recibía
+    // un toast rojo ("la boleta NO se emitió") en CADA cobro, y se le
+    // llenaba Admin > Boletas de pendientes que nadie iba a emitir nunca.
+    // Se vende desde el día uno; SUNAT se configura después.
+    //
     // Sin await a propósito: la boleta se genera en paralelo, de fondo,
     // exactamente igual que el ticket de cocina en print.js no bloquea la
     // comanda. generarBoletaTrasCobro nunca deja escapar una excepción
     // (su propio try/catch resuelve todos los casos con un toast), así que
     // no dejar de esperarla acá no genera una promesa rechazada sin manejar.
-    generarBoletaTrasCobro(resultado, documento);
+    if (estado.usuario && estado.usuario.cliente_usar_sunat) {
+        generarBoletaTrasCobro(resultado, documento);
+    }
 }
 
 // Best-effort: si el Facturador local no está configurado, la carpeta no
