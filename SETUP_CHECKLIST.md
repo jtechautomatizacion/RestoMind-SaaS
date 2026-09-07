@@ -386,8 +386,12 @@ tests/
 cd "d:\Cartera de proyectos\RestoMind-SaaS"
 ./venv/Scripts/activate            # Windows
 pip install -r requirements.txt    # si falta algo
-uvicorn backend.app:app --reload --host 0.0.0.0 --port 8000
+uvicorn backend.app:app --reload --reload-dir backend --reload-dir frontend --host 0.0.0.0 --port 8000
 ```
+
+> Los `--reload-dir` evitan que el vigilante recorra `.venv` (~12.000
+> archivos que nunca cambian). Sin ellos, en Windows el servidor termina
+> cayéndose solo tras varias horas con `WinError 10055` — ver README.md.
 
 - App (PWA), un restaurante: `http://localhost:8000/static/index.html` → pide login
 - **Panel General (todos tus restaurantes)**: `http://localhost:8000/static/superadmin.html`

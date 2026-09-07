@@ -36,10 +36,19 @@ cp .env.example .env
 ### 4. Ejecutar servidor backend
 
 ```bash
-uvicorn backend.app:app --reload --host 0.0.0.0 --port 8000
+uvicorn backend.app:app --reload --reload-dir backend --reload-dir frontend --host 0.0.0.0 --port 8000
 ```
 
 El backend está disponible en: `http://localhost:8000`
+
+> **Los `--reload-dir` no son opcionales en Windows.** Sin ellos, el
+> vigilante de `--reload` recorre TODO el proyecto en cada ciclo — unos
+> 16.000 archivos, de los cuales ~12.000 están dentro de `.venv` y nunca
+> cambian. Tras varias horas de trabajo eso agota los handles del sistema
+> y el servidor muere con `WinError 1450` / `WinError 10055` ("recursos
+> insuficientes"), que desde el navegador se ve como un simple "Sin
+> conexión" sin explicar la causa. Acotándolo a `backend` y `frontend`,
+> vigila solo el código que de verdad editás.
 Documentación API (Swagger): `http://localhost:8000/docs`
 
 ### 5. Abrir frontend
