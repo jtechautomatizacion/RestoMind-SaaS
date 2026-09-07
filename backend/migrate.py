@@ -6,15 +6,44 @@ y hacer email nullable para permitir staff sin email.
 import sqlite3
 from pathlib import Path
 
-DB_PATH = "restomind.db"
+from backend.config import settings
+
+
+def _ruta_bd() -> str:
+    """Ruta del archivo SQLite, sacada de DATABASE_URL.
+
+    Antes esto era la constante "restomind.db" hardcodeada, y eso silenciaba
+    migraciones de la peor forma posible: si DATABASE_URL apuntaba a otra
+    ruta (el VPS, una copia para pruebas), migrate() abría un archivo
+    distinto del que la app iba a usar — o no encontraba ninguno y devolvía
+    "BD no existe todavía" sin migrar nada, mientras la app arrancaba contra
+    una base con columnas viejas y reventaba en la primera consulta.
+
+    Devuelve "" si DATABASE_URL no es SQLite: las migraciones de este
+    archivo usan sintaxis específica de SQLite (PRAGMA table_info, recrear
+    tablas) y no aplican a otro motor.
+    """
+    url = settings.database_url
+    if not url.startswith("sqlite"):
+        return ""
+    # sqlite:///./restomind.db -> ./restomind.db ; sqlite:////abs/ruta.db -> /abs/ruta.db
+    return url.split("///", 1)[-1] if "///" in url else ""
+
 
 def migrate():
     """Ejecutar migraciones necesarias."""
-    if not Path(DB_PATH).exists():
+    db_path = _ruta_bd()
+    if not db_path:
+        print("[OK] DATABASE_URL no es SQLite, se omiten las migraciones de este archivo")
+        return
+
+    if not Path(db_path).exists():
+        # Base nueva: create_all() la crea completa, con todas las columnas
+        # que estas migraciones agregarían. No hay nada que migrar.
         print("[OK] BD no existe todavía, se creará automáticamente")
         return
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
     try:
@@ -295,6 +324,23 @@ def migrate():
                 print("[OK] Columna 'nombre_turno' agregada")
             else:
                 print("[OK] Columna 'nombre_turno' ya existe")
+
+        # clientes.usar_sunat: si este restaurante emite boletas desde
+        # RestoMind. Los que ya existen arrancan en 0 (False) EXCEPTO los que
+        # ya tienen RUC cargado: esos venían emitiendo con el
+        # comportamiento anterior ("hay RUC -> se emite"), y ponerlos en
+        # False les apagaría la facturación de un día para el otro sin que
+        # nadie lo pida. Preservar lo que estaban haciendo es lo correcto.
+        if cols_clientes := [row[1] for row in cursor.execute("PRAGMA table_info(clientes)").fetchall()]:
+            if "usar_sunat" not in cols_clientes:
+                print("Agregando columna 'usar_sunat' a clientes...")
+                cursor.execute("ALTER TABLE clientes ADD COLUMN usar_sunat BOOLEAN NOT NULL DEFAULT 0")
+                cursor.execute("UPDATE clientes SET usar_sunat = 1 WHERE ruc IS NOT NULL AND ruc != ''")
+                migrados = cursor.rowcount
+                conn.commit()
+                print(f"[OK] Columna 'usar_sunat' agregada ({migrados} con RUC quedaron emitiendo)")
+            else:
+                print("[OK] Columna 'usar_sunat' ya existe")
 
         print("[OK] Migración completada")
     except Exception as e:
