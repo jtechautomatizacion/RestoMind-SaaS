@@ -1417,6 +1417,10 @@ async function emitirBoletaPendiente(comandaIds) {
 // tiene sentido pedirle el certificado a alguien cuyo RUC todavía no validó.
 
 let sunatDatosFiscales = null;   // { ruc, razon_social, direccion_fiscal }
+// Razón social que el superadmin ya cargó al dar de alta el restaurante. Si
+// existe, el paso 1 no consulta el padrón: ese dato es más confiable y ya
+// está en el servidor.
+let sunatRazonSocialGuardada = '';
 
 function abrirActivacionSunat() {
     const panel = document.getElementById('sunat-activacion');
@@ -1427,6 +1431,10 @@ function abrirActivacionSunat() {
     // Si el restaurante ya tiene RUC cargado (lo puso el superadmin al darlo
     // de alta), se precarga: el admin no tiene por qué volver a tipearlo.
     api.get('/configuracion').then(cfg => {
+        sunatRazonSocialGuardada = (cfg.razon_social || '').trim();
+        if (cfg.direccion_fiscal) {
+            document.getElementById('sunat-direccion').value = cfg.direccion_fiscal;
+        }
         if (cfg.ruc) {
             document.getElementById('sunat-ruc').value = cfg.ruc;
             validarRucEmpresa();
@@ -1451,6 +1459,7 @@ function cerrarActivacionSunat() {
     const panel = document.getElementById('sunat-activacion');
     if (panel) panel.classList.add('hidden');
     sunatDatosFiscales = null;
+    sunatRazonSocialGuardada = '';
     // Las claves NO se dejan en el DOM: si el admin cancela, no tiene por qué
     // quedar una contraseña escrita en un input de una pantalla abierta.
     ['sunat-cert-clave', 'sunat-sol-clave', 'sunat-cert'].forEach(id => {
@@ -1481,41 +1490,87 @@ async function validarRucEmpresa() {
         return;
     }
 
+    // Si el superadmin ya cargó la razón social al dar de alta el
+    // restaurante, NO hace falta consultar nada: ese dato es más confiable
+    // que el padrón y ya está en el servidor. Consultar igual ataría la
+    // activación a 1,6 GB de padrón para averiguar algo que ya se sabe.
+    if (sunatRazonSocialGuardada) {
+        mostrarDatosFiscales(sunatRazonSocialGuardada, false);
+        pintar(info, 'Datos fiscales ya registrados', 'ok');
+        return;
+    }
+
     boton.disabled = true;
     pintar(info, 'Buscando en SUNAT...', 'buscando');
     try {
         const datos = await api.get(`/documento/${ruc}`);
 
-        if (!datos.encontrado) {
-            // No es un error del admin: puede ser un RUC recién inscrito o
-            // una copia del padrón sin actualizar. Pero para ACTIVAR sí hace
-            // falta la razón social, así que acá no se puede seguir.
-            pintar(info, 'No figura en el padrón de SUNAT. Revisá el número; si es correcto, pedí que registren la razón social.', 'aviso');
+        if (datos.encontrado) {
+            mostrarDatosFiscales(datos.nombre, false);
+            pintar(
+                info,
+                datos.puede_facturarse === false
+                    ? (datos.advertencia || 'Revisá el estado de tu RUC en SUNAT.')
+                    : 'RUC verificado',
+                datos.puede_facturarse === false ? 'aviso' : 'ok'
+            );
             return;
         }
 
-        document.getElementById('sunat-razon-social').value = datos.nombre;
-        encontrados.classList.remove('hidden');
-
-        if (datos.puede_facturarse === false) {
-            // Se avisa pero NO se bloquea: el estado del padrón puede estar
-            // desactualizado, y quien sabe si su RUC está al día es el dueño.
-            pintar(info, datos.advertencia || 'Revisá el estado de tu RUC en SUNAT.', 'aviso');
-        } else {
-            pintar(info, 'RUC verificado', 'ok');
-        }
+        // No está en el padrón. NO es un callejón sin salida: puede ser un
+        // RUC recién inscrito, o el RUC 20000000001 del ambiente de pruebas,
+        // que es ficticio y no va a figurar nunca. Se deja escribir la razón
+        // social a mano y se sigue.
+        mostrarDatosFiscales('', true);
+        pintar(info, 'No figura en el padrón. Escribí la razón social a mano.', 'neutro');
     } catch (err) {
-        pintar(info, err.message || 'No se pudo consultar el RUC', 'aviso');
+        // 503 = el padrón todavía no está construido (son 1,6 GB y varios
+        // minutos). Eso NO puede impedir activar la facturación: es un dato
+        // de comodidad, no un requisito. Mismo camino que "no encontrado".
+        const sinPadron = err.status === 503;
+        mostrarDatosFiscales('', true);
+        pintar(
+            info,
+            sinPadron
+                ? 'El padrón de SUNAT no está instalado en este servidor. Escribí la razón social a mano.'
+                : (err.message || 'No se pudo consultar. Escribí la razón social a mano.'),
+            'neutro'
+        );
     } finally {
         boton.disabled = false;
     }
 }
+
+/**
+ * Muestra los datos fiscales del paso 1.
+ *
+ * `editable` decide si la razón social se puede escribir: viene del padrón
+ * (no editable, es el dato oficial) o la tiene que poner el admin (editable,
+ * porque no hay de dónde sacarla). Un campo que se ve igual en los dos casos
+ * haría que alguien intente corregir el oficial y no pase nada.
+ */
+function mostrarDatosFiscales(razonSocial, editable) {
+    const campo = document.getElementById('sunat-razon-social');
+    const encontrados = document.getElementById('sunat-datos-encontrados');
+
+    campo.value = razonSocial || '';
+    campo.readOnly = !editable;
+    campo.placeholder = editable ? 'Tal como figura en tu ficha RUC' : '';
+    encontrados.classList.remove('hidden');
+    if (editable && !razonSocial) campo.focus();
+}
+
 
 function confirmarDatosFiscales() {
     const ruc = document.getElementById('sunat-ruc').value.trim();
     const razon = document.getElementById('sunat-razon-social').value.trim();
     const direccion = document.getElementById('sunat-direccion').value.trim();
 
+    if (!razon) {
+        showToast('Falta la razón social', 'warning');
+        document.getElementById('sunat-razon-social').focus();
+        return;
+    }
     if (!direccion) {
         showToast('Falta la dirección fiscal', 'warning');
         document.getElementById('sunat-direccion').focus();
@@ -1568,6 +1623,10 @@ async function vincularConSunat() {
     datos.append('sol_usuario', solUsuario);
     datos.append('sol_clave', solClave);
     datos.append('direccion_fiscal', sunatDatosFiscales.direccion_fiscal);
+    // Solo sirve cuando el padrón no pudo resolver el RUC (no instalado, o
+    // un RUC que no figura — como el 20000000001 de pruebas). El backend la
+    // ignora si ya tiene una guardada.
+    datos.append('razon_social_manual', sunatDatosFiscales.razon_social);
 
     boton.disabled = true;
     boton.textContent = 'Vinculando...';

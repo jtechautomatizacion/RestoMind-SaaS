@@ -147,7 +147,7 @@ pytest --cov=backend tests/
 
 1. **Leer:** `claude.md` → Entiende requerimientos
 2. **Setup:** `python -m venv venv && pip install -r requirements.txt`
-3. **Run:** `uvicorn backend.app:app --reload`
+3. **Run:** `uvicorn backend.app:app --reload --reload-dir backend --reload-dir frontend` (los `--reload-dir` no son opcionales en Windows — ver la nota más arriba en este mismo README)
 4. **Code:** Crea modelos (database.py) → schemas (schemas.py) → routes (routes/*.py)
 5. **Test:** `pytest tests/`
 

@@ -180,13 +180,14 @@ RUC_VALIDO = "10200812234"
 
 def _activar(test_client, pfx=PFX_FALSO, password="clave-secreta",
              sol_usuario=SOL_USUARIO, sol_clave=SOL_CLAVE,
-             ruc=RUC_VALIDO, direccion="Av. Lima 123"):
+             ruc=RUC_VALIDO, direccion="Av. Lima 123", razon_social=None):
     return test_client.post(
         "/api/configuracion/subir-certificado",
         files={"file": ("certificado.pfx", pfx, "application/x-pkcs12")},
         data={
             "ruc": ruc, "password": password, "direccion_fiscal": direccion,
             "sol_usuario": sol_usuario, "sol_clave": sol_clave,
+            **({"razon_social_manual": razon_social} if razon_social is not None else {}),
         },
     )
 
@@ -348,3 +349,93 @@ def test_al_activar_quedan_bloqueados_los_datos_fiscales(
     # tipeo en un callejón sin salida.
     test_client.patch("/api/configuracion", json={"usar_sunat": False})
     assert test_client.get("/api/configuracion").json()["datos_fiscales_bloqueados"] is False
+
+
+def test_sin_padron_instalado_se_puede_activar_igual(
+    test_client, test_db, test_cliente, certs_tmp, monkeypatch
+):
+    """
+    El padrón son 1,6 GB y varios minutos de carga. Que no esté no puede
+    impedir activar la facturación: es un dato de comodidad, no un requisito.
+
+    Antes esto era un callejón sin salida — el formulario consultaba el
+    padrón, recibía 503 y no dejaba avanzar, aunque el backend ni siquiera
+    necesitaba ese dato.
+    """
+    from backend.config import settings
+    from backend.utils.padron import cerrar_conexion_del_hilo
+
+    cerrar_conexion_del_hilo()
+    monkeypatch.setattr(settings, "padron_db_path", "/no/existe/padron.db")
+    test_cliente.ruc = RUC_VALIDO          # sin razón social guardada
+    test_db.commit()
+
+    resp = _activar(test_client, razon_social="CEVICHERIA EL PUERTO SAC")
+
+    assert resp.status_code == 200, resp.text
+    test_db.refresh(test_cliente)
+    assert test_cliente.usar_sunat is True
+    assert test_cliente.razon_social == "CEVICHERIA EL PUERTO SAC"
+
+
+def test_el_RUC_FICTICIO_de_BETA_se_puede_activar(
+    test_client, test_db, test_cliente, certs_tmp, padron_vacio
+):
+    """
+    20000000001 es el RUC del ambiente de pruebas de SUNAT: es FICTICIO y no
+    figura en el padrón real — ni va a figurar nunca, por más veces que se
+    cargue el archivo.
+
+    Sin poder escribir la razón social a mano, el tenant de pruebas no se
+    podría activar jamás y no habría forma de probar contra BETA.
+    """
+    test_cliente.ruc = "20000000001"
+    test_cliente.razon_social = None
+    test_db.commit()
+
+    resp = _activar(test_client, ruc="20000000001",
+                    razon_social="EMPRESA DE PRUEBAS SUNAT")
+
+    assert resp.status_code == 200, resp.text
+    test_db.refresh(test_cliente)
+    assert test_cliente.usar_sunat is True
+
+
+def test_sin_razon_social_por_ningun_lado_se_rechaza_pidiendola(
+    test_client, test_db, test_cliente, certs_tmp, padron_vacio
+):
+    """SUNAT no acepta un comprobante sin razón social del emisor, así que
+    no se puede inventar. El mensaje invita a escribirla."""
+    test_cliente.ruc = RUC_VALIDO
+    test_cliente.razon_social = None
+    test_db.commit()
+
+    resp = _activar(test_client, razon_social="")
+
+    assert resp.status_code == 400
+    assert "razón social" in resp.json()["detail"]
+    # No se escribió NINGÚN certificado. Se mira la carpeta del tenant y no
+    # el directorio entero: padron_vacio comparte tmp_path y deja su propio
+    # archivo ahí, que no tiene nada que ver con esto.
+    assert not (certs_tmp / test_cliente.id).exists()
+
+
+@pytest.fixture
+def padron_vacio(tmp_path, monkeypatch):
+    """Un padrón REAL pero sin el RUC buscado — distinto de 'no instalado'."""
+    import sqlite3
+
+    from backend.config import settings
+    from backend.utils.padron import cerrar_conexion_del_hilo
+
+    ruta = tmp_path / "padron.db"
+    conn = sqlite3.connect(ruta)
+    conn.execute("CREATE TABLE padron (ruc TEXT, nombre TEXT, estado TEXT, condicion TEXT)")
+    conn.execute("CREATE UNIQUE INDEX idx_ruc ON padron(ruc)")
+    conn.commit()
+    conn.close()
+
+    cerrar_conexion_del_hilo()
+    monkeypatch.setattr(settings, "padron_db_path", str(ruta))
+    yield ruta
+    cerrar_conexion_del_hilo()

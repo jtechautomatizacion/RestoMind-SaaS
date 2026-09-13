@@ -1710,6 +1710,142 @@ de cada restaurante, y NO vienen de una fuente pública. Aislamiento por
 
 Ver `docs/PADRON_RUC.md`.
 
+## 🩹 TROUBLESHOOTING: Caída de entorno v4.0
+
+**Contexto:** con `sunat_cloud` (v4.0) el arranque local depende de más
+variables de entorno que antes (`SUNAT_SERVICE_URL`, `SUNAT_SERVICE_TOKEN`,
+además de las de siempre). Esta sección documenta qué falla, por qué, y
+qué NO hacer para arreglarlo — el "arreglo rápido" obvio (poner un default
+inseguro en el código) es exactamente lo que una auditoría anterior de
+esta misma app corrigió a propósito (ver "Endurecimiento para una futura
+auditoría" más arriba).
+
+### Diagnóstico rápido
+
+```bash
+# 1) ¿El backend importa/arranca solo?
+python -c "from backend.app import app; print('OK')"
+
+# 2) ¿Qué archivo de BD está usando de verdad?
+grep DATABASE_URL .env || echo "sin DATABASE_URL -> sqlite:///./restomind.db (RELATIVA al cwd)"
+
+# 3) ¿Las columnas de v4.0 están en la BD que se está mirando?
+python -c "
+import sqlite3
+con = sqlite3.connect('restomind.db')
+cols = [r[1] for r in con.execute('PRAGMA table_info(clientes)')]
+for c in ('emite_facturas','factura_correlativo_actual','usar_sunat'):
+    print(c, '->', 'OK' if c in cols else 'FALTA — correr backend/migrate.py')
+"
+
+# 4) Uvicorn en primer plano, para ver el traceback completo si muere al arrancar.
+#    --reload-dir NO es opcional en Windows (ver punto (e) más abajo).
+python -m uvicorn backend.app:app --reload --reload-dir backend --reload-dir frontend
+```
+
+### Causas reales encontradas (no hipotéticas — verificadas en este repo)
+
+**a) `SECRET_KEY` ausente → la app rechaza arrancar (fail-fast a propósito).**
+`backend/config.py` declara `secret_key: str` SIN default. Sin ella,
+`Settings()` lanza `ValidationError` y el servidor no sube. Esto es
+intencional (ver "Endurecimiento para una futura auditoría", punto 1) y
+está protegido por `test_settings_falla_sin_secret_key` — **no se debe
+poner un default en el código, ni siquiera condicionado a
+`ENVIRONMENT=="development"`**: ese `if` vive para siempre en el código de
+producción y el día que la variable de entorno falte ahí (typo, `.env` mal
+copiado, contenedor sin volumen montado) el servidor emitiría JWT
+firmados con un secreto público en vez de negarse a arrancar. La solución
+correcta es siempre la misma: poner `SECRET_KEY` en el `.env` local
+(gitignored), nunca en el código.
+
+**b) `SUNAT_SERVICE_TOKEN` ausente → dos síntomas distintos, no confundirlos:**
+- Si falta en el `.env` de la RAÍZ del repo (el que lee `docker compose`),
+  `docker-compose.yml` usa `${SUNAT_SERVICE_TOKEN:?Falta ... en el .env}` —
+  **`docker compose up` se niega a levantar el contenedor**, con ese
+  mensaje exacto. No es un bug de la app, es el `:?` de compose haciendo
+  su trabajo.
+- Si falta solo en el proceso que corre RestoMind (`sunat_service_token:
+  str = ""` en `config.py`, con default vacío), **el backend arranca
+  igual** — el error recién aparece cuando alguien intenta cobrar con
+  boleta/factura y `emitir_boleta`/`emitir_factura` (`backend/utils/sunat_cloud.py`)
+  lanza `SunatCloudError`. Si el servidor "se cae" al cobrar y no al
+  arrancar, es esto, no un problema de arranque.
+
+**c) `SUNAT_MODE`/`SUNAT_SOAP_TIMEOUT` en el `.env` de RestoMind rompen el
+backend.** Estas dos variables las lee el CONTENEDOR `sunat-service` (su
+propio `os.getenv` en `sunat-service/app.py`), no `backend/config.py`. Como
+`Settings` usa `extra_forbidden` (rechaza variables desconocidas — ver el
+comentario en `config.py` sobre por qué es así a propósito), si estas dos
+llaves aparecen en el mismo `.env` que carga el backend, `Settings()` falla
+con `Extra inputs are not permitted`. `docker-compose.yml` ya las
+defaultea (`${SUNAT_MODE:-beta}`, `${SUNAT_SOAP_TIMEOUT:-30}`), así que
+**no hace falta declararlas en ningún `.env` para desarrollo** — si algún
+día hace falta cambiarlas, van en un `.env` separado que se le pase a
+`docker compose` con `--env-file`, nunca en el `.env` de RestoMind.
+
+**e) `--reload` sin acotar tumba el servidor solo, después de varias horas
+— el síntoma exacto de "no puedo entrar a mi ambiente de dev".** Ya
+documentado y arreglado una vez (commit `10debb3`), pero la corrección no
+había llegado a los tres lugares donde este repo da el comando de arranque
+— `README.md` (dos veces) y este mismo archivo tenían el `uvicorn --reload`
+viejo, sin `--reload-dir`. Si copiaste el comando de alguno de esos
+lugares antes de esta corrección, es la causa más probable de lo que
+estás viendo:
+- Sin `--reload-dir backend --reload-dir frontend`, el vigilante de
+  `--reload` recorre TODO el proyecto en cada ciclo — ~16.500 archivos,
+  ~12.400 de ellos dentro de `.venv` (que nunca cambian). En Windows esto
+  agota los handles del sistema tras varias horas: `WinError 1450`
+  ("recursos insuficientes del sistema") o `WinError 10055`.
+- **Desde el navegador esto se ve como "Sin conexión"**, no como un error
+  claro — el Service Worker (`sw.js`) responde 503 cuando no logra
+  alcanzar al backend, así que parece un problema de red o del navegador
+  en vez de "el proceso de uvicorn murió".
+- **Verificar:** si el proceso de Python de tu servidor ya no aparece
+  corriendo (Task Manager, o `Get-Process python` en PowerShell) pero el
+  navegador sigue con la pestaña abierta, es esto. Reiniciar con el
+  comando correcto (con `--reload-dir`) no vuelve a pasar en la misma
+  sesión, porque ahora solo vigila ~200 archivos de `backend/`+`frontend/`.
+- **No pasa en producción:** `deploy/restomind.service` corre uvicorn SIN
+  `--reload` (no hace falta recargar código en el VPS), así que esto es
+  puramente un problema del entorno de desarrollo en Windows.
+
+**d) Ruta relativa de SQLite.** `database_url` por default es
+`sqlite:///./restomind.db` — relativa al directorio desde el que se
+lanza el proceso. Si `uvicorn`/`systemd` arranca desde un `cwd` distinto al
+que tiene el `.db` real (o al que apunta el `.env` del VPS), la app y
+`backend/migrate.py` terminan mirando dos archivos distintos: la migración
+dice "hecha" y la consulta real falla con "no such column". Esto ya pasó
+una vez (commit `aff8637`, corregido para que `migrate.py` respete
+`DATABASE_URL` en vez de una ruta hardcodeada) — si vuelve a aparecer,
+confirmar `pwd` + `ls *.db` desde el mismo directorio del `ExecStart` de
+`deploy/restomind.service`.
+
+### Cómo se evitó, en este repo, sin tocar `config.py`
+
+El `.env` local de desarrollo tenía `SECRET_KEY` pero le faltaban las tres
+variables de `sunat_cloud` (arrastraba configuración del emisor viejo
+`sfs_local`, eliminado en v4.0). Se completó el `.env` (no el código) con
+`SUNAT_SERVICE_URL=http://127.0.0.1:8100` y un `SUNAT_SERVICE_TOKEN`
+generado localmente (`secrets.token_urlsafe(32)`) — el mismo valor que
+`docker-compose.yml` exige para el contenedor, porque ambos leen el mismo
+`.env` de la raíz. `SUNAT_MODE`/`SUNAT_SOAP_TIMEOUT` se dejaron FUERA de
+ese archivo por la razón (c) de arriba. Con eso, `python -m pytest -q`
+corre 304/304 en verde sin ningún cambio en `backend/config.py`.
+
+### Qué NO hacer (ya se evaluó y se descartó)
+
+- ❌ Default de `SECRET_KEY`/`SUNAT_SERVICE_TOKEN` en `config.py`, aunque
+  sea "solo para dev": el `if ENVIRONMENT == "dev"` es exactamente el tipo
+  de código que sobrevive al entorno para el que se escribió.
+- ❌ Aflojar `extra_forbidden` en `Settings` para que tolere
+  `SUNAT_MODE`/`SUNAT_SOAP_TIMEOUT`: ese chequeo existe para que un `.env`
+  con una variable mal escrita falle alto y claro, no en silencio (ver el
+  comentario en `config.py` junto a `sfs_export_dir`/`sfs_export_encoding`,
+  que se dejaron declaradas —pero sin uso— por la misma razón inversa: no
+  romper un `.env` viejo).
+
+---
+
 ## 📝 NOTAS PARA EL DESARROLLADOR
 
 **Importante:**

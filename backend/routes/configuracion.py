@@ -98,6 +98,14 @@ async def subir_certificado(
     # innecesaria, y baja la base de ~2,5 GB a ~1,6 GB). Así que la dirección
     # fiscal la aporta el propio restaurante, que obviamente la conoce.
     direccion_fiscal: str = Form(default=""),
+    # Salida para cuando el padrón local no puede resolver el RUC: no está
+    # construido todavía (son 1,6 GB), o el RUC no figura ahí.
+    #
+    # El caso que lo vuelve obligatorio: el RUC 20000000001 del ambiente BETA
+    # es FICTICIO — no existe en el padrón real y no va a existir nunca, por
+    # más veces que se cargue. Sin este campo, el tenant de pruebas no se
+    # puede activar jamás.
+    razon_social_manual: str = Form(default=""),
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
     usuario: str = Depends(get_usuario_actual),
@@ -152,19 +160,23 @@ async def subir_certificado(
             ),
         )
 
+    # Orden: lo que ya está guardado, después el padrón, y por último lo que
+    # el admin escribió a mano. Lo guardado manda porque el superadmin lo
+    # cargó al dar de alta el restaurante — es la fuente más confiable, y
+    # además evita depender de 1,6 GB de padrón para algo que ya se sabe.
     razon_social = (cliente.razon_social or "").strip()
     if not razon_social:
         contribuyente = _buscar_en_padron(ruc)
-        if contribuyente is None:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"No encontramos el RUC {ruc} en el padrón de SUNAT. "
-                    "Revisá el número, o pedí que registren la razón social y "
-                    "la dirección fiscal del restaurante antes de continuar."
-                ),
-            )
-        razon_social = contribuyente.nombre
+        razon_social = contribuyente.nombre if contribuyente else razon_social_manual.strip()
+
+    if not razon_social:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"No encontramos el RUC {ruc} en el padrón de SUNAT. "
+                "Revisá el número, o escribí la razón social a mano para continuar."
+            ),
+        )
 
     # ---- Los archivos se validan ANTES de escribir ninguno ----
     contenido_pfx = await file.read()
