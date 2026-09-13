@@ -131,6 +131,7 @@ const api = {
         if (!resp.ok) {
             let detail = `Error ${resp.status}`;
             let codigo = null;
+            let factura = null;
             try {
                 const body = await resp.json();
                 detail = extraerMensajeError(body, detail);
@@ -141,11 +142,18 @@ const api = {
                 // frágil, y encima se rompe al reescribir el texto.
                 if (body && body.detail && typeof body.detail === 'object') {
                     codigo = body.detail.codigo || null;
+                    // /facturas/generar devuelve la Factura YA GUARDADA
+                    // dentro del error (502). Se conserva para poder
+                    // imprimir el comprobante de contingencia sin volver a
+                    // pedirle nada al servidor — que es justo lo que puede
+                    // estar caído.
+                    factura = body.detail.factura || null;
                 }
             } catch (_) { /* respuesta sin JSON */ }
             const error = new Error(detail);
             error.status = resp.status;
             if (codigo) error.codigoNegocio = codigo;
+            if (factura) error.factura = factura;
             throw error;
         }
         if (resp.status === 204) return null;
@@ -185,6 +193,7 @@ const api = {
         if (!resp.ok) {
             let detail = `Error ${resp.status}`;
             let codigo = null;
+            let factura = null;
             try {
                 const body = await resp.json();
                 detail = extraerMensajeError(body, detail);
@@ -195,11 +204,18 @@ const api = {
                 // frágil, y encima se rompe al reescribir el texto.
                 if (body && body.detail && typeof body.detail === 'object') {
                     codigo = body.detail.codigo || null;
+                    // /facturas/generar devuelve la Factura YA GUARDADA
+                    // dentro del error (502). Se conserva para poder
+                    // imprimir el comprobante de contingencia sin volver a
+                    // pedirle nada al servidor — que es justo lo que puede
+                    // estar caído.
+                    factura = body.detail.factura || null;
                 }
             } catch (_) { /* respuesta sin JSON */ }
             const error = new Error(detail);
             error.status = resp.status;
             if (codigo) error.codigoNegocio = codigo;
+            if (factura) error.factura = factura;
             throw error;
         }
         return resp.json();

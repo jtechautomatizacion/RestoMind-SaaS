@@ -175,9 +175,27 @@ def _a_invoice(req: EmitirRequest) -> InvoiceInput:
 
 
 def _nombre_archivo(req: EmitirRequest) -> str:
-    """SUNAT exige exactamente RUC-TIPO-SERIE-CORRELATIVO; el correlativo va
-    con ceros a la izquierda hasta 8 dígitos."""
-    return f"{req.emisor.numero_doc}-{req.tipo_documento}-{req.serie}-{req.numero:08d}"
+    """
+    RUC-TIPO-SERIE-CORRELATIVO, con el correlativo TAL CUAL, sin rellenar
+    con ceros.
+
+    El relleno a 8 dígitos parecía lo correcto y rompía TODAS las emisiones
+    con el error 1036 de SUNAT:
+
+        "Número de documento en el nombre del archivo no coincide con el
+         consignado en el contenido del XML
+         (nodo: Invoice/cbc:ID valor: B001-28)"
+
+    SUNAT compara el nombre del archivo contra el `cbc:ID` del XML y exige
+    que sean idénticos. La plantilla de sunat-py escribe
+    `<cbc:ID>{{ serie }}-{{ numero }}</cbc:ID>` —sin relleno— así que un
+    archivo llamado `...-B001-00000028` contra un XML que dice `B001-28`
+    nunca podía coincidir.
+
+    El número lo manda el XML, no este nombre: si algún día la plantilla
+    cambiara el formato, esto tiene que seguirla.
+    """
+    return f"{req.emisor.numero_doc}-{req.tipo_documento}-{req.serie}-{req.numero}"
 
 
 def _dir_cliente(cliente_id: str) -> Path:

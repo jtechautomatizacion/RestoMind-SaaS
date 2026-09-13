@@ -748,6 +748,24 @@ async function generarBoletaTrasCobro(resultadoCobro, documento, nombreManual) {
             return;
         }
 
+        // IMPRESIÓN DE CONTINGENCIA.
+        //
+        // El backend devuelve la Factura YA GUARDADA dentro del error, así
+        // que hay con qué imprimir sin volver a pedirle nada al servidor —
+        // que es justo lo que puede estar caído.
+        //
+        // No se hace esperar al comensal: la venta está cobrada y
+        // registrada en la caja. El papel dice exactamente en qué estado
+        // quedó el comprobante (ver _pieSegunEstado en print.js): "en
+        // proceso de transmisión" si está pendiente, o "documento interno"
+        // si SUNAT lo rechazó — porque un rechazado NO es una boleta y
+        // decir lo contrario dejaría al cliente sin comprobante creyendo
+        // que lo tiene.
+        let impreso = false;
+        if (err.factura && typeof imprimirBoletaContingencia === 'function') {
+            impreso = await imprimirBoletaContingencia(err.factura);
+        }
+
         // No se promete reintento automático: la cola offline
         // (frontend/js/offline.js) cubre SOLO comandas nuevas, no facturas.
         // Decir "se genera sola al volver la señal" sería mentirle al cajero
@@ -755,7 +773,12 @@ async function generarBoletaTrasCobro(resultadoCobro, documento, nombreManual) {
         const detalle = err instanceof NetworkError
             ? 'se cortó la conexión'
             : err.message;
-        showToast(`Cobro OK, pero el comprobante NO se emitió (${detalle}). Emítelo desde Admin.`, 'error');
+        showToast(
+            impreso
+                ? `Cobro OK. Ticket impreso; el comprobante quedó pendiente en Admin > Boletas (${detalle}).`
+                : `Cobro OK, pero el comprobante NO se emitió (${detalle}). Emítelo desde Admin.`,
+            impreso ? 'warning' : 'error'
+        );
     }
 }
 

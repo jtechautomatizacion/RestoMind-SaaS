@@ -1385,7 +1385,20 @@ async function reintentarBoleta(facturaId) {
         if (typeof imprimirBoletaVenta === 'function') imprimirBoletaVenta(factura);
         await refreshBoletasPendientes();
     } catch (err) {
-        showToast(err.message || 'No se pudo emitir la boleta', 'error');
+        // Mismo criterio que al cobrar: si el backend devolvió la Factura
+        // dentro del error, hay con qué imprimir sin depender del servidor.
+        // Acá el comensal ya se fue, pero el restaurante necesita el papel
+        // para su propio control mientras regulariza.
+        let impreso = false;
+        if (err.factura && typeof imprimirBoletaContingencia === 'function') {
+            impreso = await imprimirBoletaContingencia(err.factura);
+        }
+        showToast(
+            impreso
+                ? `Sigue pendiente (${err.message}). Se imprimió el comprobante de contingencia.`
+                : (err.message || 'No se pudo emitir la boleta'),
+            impreso ? 'warning' : 'error'
+        );
         await refreshBoletasPendientes();
     }
 }

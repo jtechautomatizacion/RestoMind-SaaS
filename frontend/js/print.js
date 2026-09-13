@@ -202,7 +202,7 @@ function _imprimirHTML(html) {
  *  - Link de verificación del comprobante: pertenece a otro proveedor;
  *    no hay uno propio para inventar acá.
  */
-function _ticketBoletaHTML(factura, cajeroNombre) {
+function _ticketBoletaHTML(factura, cajeroNombre, contingencia) {
     const filas = factura.detalles.map(item => `
         <tr>
             <td class="nombre">${escapeHtml(item.descripcion)}</td>
@@ -281,13 +281,69 @@ function _ticketBoletaHTML(factura, cajeroNombre) {
         <div class="total"><span>Total Venta:</span><span>S/ ${factura.total.toFixed(2)}</span></div>
     </div>
     <div class="footer">
-        <div>Representación impresa de la boleta de venta electrónica</div>
+        ${_pieSegunEstado(factura, contingencia)}
         <div>GRACIAS POR SU COMPRA Y PREFERENCIA</div>
         <div>NO SE ACEPTAN CAMBIOS NI DEVOLUCIONES</div>
     </div>
 </body>
 </html>`;
 }
+
+/**
+ * El pie del tique dice LA VERDAD sobre el estado del comprobante.
+ *
+ * Son tres situaciones distintas y no se pueden imprimir igual:
+ *
+ *   1. ACEPTADO por SUNAT  -> es la representación impresa de una boleta.
+ *   2. PENDIENTE de envío  -> el comprobante es válido, solo no llegó
+ *      todavía (SUNAT caída, sin red). "En proceso de transmisión" es
+ *      cierto, y esta impresión de contingencia es práctica estándar.
+ *   3. RECHAZADO por SUNAT -> el comprobante NO EXISTE para SUNAT. Decirle
+ *      al comensal "en proceso de transmisión" sería falso: no está en
+ *      transmisión, fue rechazado y hay que corregirlo y reemitirlo.
+ *      Entregarle un papel que se presenta como boleta cuando no lo es lo
+ *      deja sin comprobante y creyendo que lo tiene.
+ *
+ * Por eso el caso 3 se imprime como comprobante INTERNO, no como boleta.
+ * El comensal se lleva el detalle de lo que consumió y pagó — que es lo que
+ * necesita para irse — sin que el papel afirme algo que no es cierto.
+ */
+function _pieSegunEstado(factura, contingencia) {
+    if (!contingencia) {
+        return '<div>Representación impresa de la boleta de venta electrónica</div>';
+    }
+    if (factura.estado === 'error') {
+        return `
+        <div style="font-weight:700">DOCUMENTO INTERNO - NO ES COMPROBANTE DE PAGO</div>
+        <div>SUNAT observó el comprobante. Será corregido y reemitido.</div>
+        <div>Consulte su boleta con el negocio.</div>`;
+    }
+    return `
+        <div style="font-weight:700">Representación impresa de contingencia local</div>
+        <div>Comprobante en proceso de transmisión a SUNAT</div>`;
+}
+
+
+/**
+ * Imprime AL TOQUE aunque el comprobante no haya llegado a SUNAT.
+ *
+ * El comensal no tiene por qué esperar a que se resuelva un problema del
+ * servidor o de SUNAT: la venta ya está cobrada y registrada en la caja.
+ * Los datos salen de la Factura que el backend YA guardó y devolvió dentro
+ * del error — no se le vuelve a pedir nada al servidor, que es justo lo que
+ * puede estar caído.
+ */
+async function imprimirBoletaContingencia(factura) {
+    if (!factura) return false;
+    try {
+        await _imprimirHTML(_ticketBoletaHTML(factura, estado.usuario?.nombre, true));
+        return true;
+    } catch (err) {
+        console.error('Error al imprimir el comprobante de contingencia:', err);
+        return false;
+    }
+}
+
 
 async function imprimirBoletaVenta(factura) {
     try {
