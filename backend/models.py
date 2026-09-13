@@ -72,6 +72,37 @@ class Cliente(Base):
     # Factura(cliente_id, serie, numero_correlativo) como red de seguridad.
     boleta_correlativo_actual = Column(Integer, default=0, nullable=False)
 
+    # Correlativo de FACTURAS (serie F001) — separado del de boletas, y esto
+    # NO es opcional ante SUNAT.
+    #
+    # Cada serie debe ser correlativa SIN HUECOS. Con un solo contador
+    # compartido, una venta con RUC intercalada entre dos boletas produce:
+    #
+    #     B001-00000001   boleta
+    #     F001-00000002   factura   <- B001 se saltea el 2
+    #     B001-00000003   boleta    <- F001 se saltea el 3
+    #
+    # ...y las dos series quedan agujereadas. El UNIQUE(cliente_id, serie,
+    # numero_correlativo) NO lo detecta —las combinaciones son distintas—
+    # así que el problema pasa en silencio hasta una fiscalización.
+    factura_correlativo_actual = Column(Integer, default=0, nullable=False)
+
+    # ¿Este restaurante puede emitir FACTURAS, o solo boletas?
+    #
+    # No es una preferencia: es su régimen tributario. Un contribuyente del
+    # NUEVO RUS solo puede emitir boletas de venta y tickets — la factura le
+    # está PROHIBIDA, porque da derecho a crédito fiscal y el NRUS no factura
+    # IGV por separado.
+    #
+    # Default False a propósito: es el caso seguro. Un restaurante nuevo
+    # emitiendo boletas de más nunca es una infracción; emitiendo facturas que
+    # no le corresponden, sí. Lo activa el superadmin cuando confirma que el
+    # cliente está en Régimen Especial, MYPE o General.
+    #
+    # Con esto en False, un comensal que da su RUC igual recibe BOLETA, con su
+    # RUC como documento del adquiriente (el catálogo 06 de SUNAT lo permite).
+    emite_facturas = Column(Boolean, default=False, nullable=False)
+
     # Relationships
     usuarios = relationship("Usuario", back_populates="cliente", cascade="all, delete-orphan")
     platos = relationship("Plato", back_populates="cliente", cascade="all, delete-orphan")
@@ -89,6 +120,10 @@ class Cliente(Base):
     # registros tributarios, justo lo que una auditoría iría a buscar.
     facturas = relationship("Factura", cascade="all, delete-orphan")
     insumos = relationship("Insumo", back_populates="cliente", cascade="all, delete-orphan")
+    # Datos personales de comensales: cuando el restaurante deja el sistema,
+    # su registro de DNI/nombres se va con él. Dejarlos huérfanos sería
+    # conservar datos personales sin ninguna finalidad que los justifique.
+    clientes_frecuentes = relationship("ClienteFrecuente", cascade="all, delete-orphan")
 
 
 class Usuario(Base):
@@ -377,6 +412,12 @@ class Factura(Base):
     pdf_url = Column(String, nullable=True)
     qr_code = Column(Text, nullable=True)  # data URI base64, puede ser largo
     codigo_hash = Column(String, nullable=True)  # Hash/CDR que devuelve SUNAT
+    # CDR completo (Constancia de Recepción) que devuelve SUNAT al aceptar,
+    # solo con el emisor "sunat_cloud". Se guarda entero y no solo su hash
+    # porque es LA prueba de que el comprobante fue aceptado: ante una
+    # fiscalización, el hash no demuestra nada por sí solo. Es XML y puede
+    # pesar algunos KB, de ahí Text y no String.
+    cdr_xml = Column(Text, nullable=True)
     archivo_local = Column(String, nullable=True)  # Ruta del .cab escrito para el Facturador SUNAT
     # Cuándo el agente de la PC del restaurante confirmó que los cuatro
     # archivos llegaron a la carpeta del Facturador (ver routes/agente.py).
@@ -603,4 +644,64 @@ class FacturaComanda(Base):
 
     __table_args__ = (
         UniqueConstraint("factura_id", "comanda_id", name="uq_factura_comanda"),
+    )
+
+
+class ClienteFrecuente(Base):
+    """
+    Comensales identificados por DNI, guardados por restaurante.
+
+    PARA QUÉ EXISTE
+    ---------------
+    El Padrón Reducido de SUNAT solo tiene RUC: un DNI no se puede resolver
+    ahí. Pero desde S/ 700 SUNAT exige identificar al comprador, así que el
+    cajero necesita poder poner un nombre. Consultar un servicio externo de
+    RENIEC cuesta por consulta; guardar el resultado hace que el segundo
+    comprobante de esa misma persona salga gratis y al instante.
+
+    DATOS PERSONALES — ESTA TABLA ES DISTINTA AL PADRÓN
+    ---------------------------------------------------
+    El padrón viene de una fuente de acceso público y todo el mundo puede
+    consultarlo. Esto NO: es un registro propio del restaurante con nombres y
+    DNI de sus comensales, construido con los datos que ellos entregaron para
+    que les emitan un comprobante. Bajo la Ley N° 29733 eso obliga a:
+
+      - Finalidad acotada: sirve para emitir comprobantes, nada más. No es
+        una base para marketing, ni para compartir, ni para vender.
+      - Aislamiento estricto: `cliente_id` en el índice único, no solo en la
+        columna. Lo que un restaurante identificó no puede aparecerle a otro,
+        aunque sea el mismo DNI.
+      - Minimización: número, nombre y poco más. NO se guardan direcciones,
+        teléfonos, fechas de nacimiento ni nada que el comprobante no pida.
+
+    Si algún día se quiere usar para otra cosa (promociones, fidelización),
+    eso es una finalidad NUEVA y necesita su propio consentimiento.
+    """
+    __tablename__ = "clientes_frecuentes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cliente_id = Column(String, ForeignKey("clientes.id"), nullable=False, index=True)
+
+    # "1" = DNI. Se guarda el tipo aunque hoy solo entren DNI: un RUC no
+    # necesita esta tabla (sale del padrón) y dejarlo explícito evita que
+    # mañana alguien mezcle los dos sin darse cuenta.
+    tipo_documento = Column(String, nullable=False, default="1")
+    numero_documento = Column(String, nullable=False)
+    nombre = Column(String, nullable=False)
+
+    # De dónde salió el nombre: "api" (servicio externo) o "manual" (lo
+    # tipeó el cajero). Sirve para saber en qué confiar si alguna vez hay
+    # que depurar un nombre mal escrito.
+    origen = Column(String, nullable=False, default="manual")
+
+    creado_en = Column(DateTime, default=datetime.utcnow)
+    # Última vez que se usó para un comprobante. Permite depurar registros
+    # que llevan años sin usarse, que es lo que corresponde hacer con datos
+    # personales que ya no cumplen su finalidad.
+    usado_en = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        # El mismo DNI puede estar en dos restaurantes distintos: son dos
+        # registros independientes, cada uno del negocio que lo atendió.
+        UniqueConstraint("cliente_id", "numero_documento", name="uq_cliente_documento"),
     )

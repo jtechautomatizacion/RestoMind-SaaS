@@ -1,0 +1,89 @@
+# Levanta SOLO el micro-servicio de emisión SUNAT.
+#
+# POR QUÉ NO METE A RESTOMIND ADENTRO
+# -----------------------------------
+# RestoMind ya corre en el VPS con systemd (ver deploy/restomind.service y
+# deploy/RUNBOOK.md). Meterlo en un contenedor sería rehacer un despliegue
+# que hoy funciona, justo antes de salir a vender — y no haría falta para
+# nada de esto. Lo único que necesita aislamiento es sunat-py, porque fija
+# cryptography<45 contra la 50 que usa el backend.
+#
+# Así que este archivo agrega UN contenedor al lado de lo que ya hay.
+# RestoMind le habla por http://127.0.0.1:8100 (ver SUNAT_SERVICE_URL).
+#
+#   docker compose up -d --build
+#   docker compose logs -f sunat-service
+#
+# Si algún día se quiere todo en Docker, este servicio se mueve tal cual a
+# ese compose: no depende de nada del host salvo el volumen de certificados.
+
+services:
+  sunat-service:
+    build: ./sunat-service
+    container_name: restomind-sunat
+    restart: unless-stopped
+
+    # Escucha SOLO en loopback. Sin el 127.0.0.1, Docker publica el puerto en
+    # todas las interfaces Y le abre un agujero en el firewall (sus reglas se
+    # insertan ANTES que las de ufw), dejando el servicio de emisión expuesto
+    # a internet sin que ufw lo delate.
+    ports:
+      - "127.0.0.1:8100:8000"
+
+    environment:
+      # "beta" = ambiente de pruebas de SUNAT (no emite comprobantes reales).
+      # Pasar a "prod" recién cuando el circuito completo esté probado.
+      SUNAT_MODE: "${SUNAT_MODE:-beta}"
+      SUNAT_SERVICE_TOKEN: "${SUNAT_SERVICE_TOKEN:?Falta SUNAT_SERVICE_TOKEN en el .env}"
+      SUNAT_SOAP_TIMEOUT: "${SUNAT_SOAP_TIMEOUT:-30}"
+      SUNAT_CERTS_DIR: "/app/certs"
+
+    volumes:
+      # Certificados y credenciales SOL, un directorio por restaurante.
+      # :ro — el servicio solo necesita leerlos. Si lo comprometen, no puede
+      # sustituir el certificado por otro ni borrarlo.
+      - ./certs:/app/certs:ro
+
+      # NO se monta acá el padrón de RUC (data/sunat_padron.db), y es a
+      # propósito. Se evaluó y se descartó por tres razones:
+      #
+      #   1. Este contenedor guarda los certificados digitales y las claves
+      #      SOL de TODOS los restaurantes: es la pieza más sensible del
+      #      sistema. Sumarle un endpoint sin relación, con su propia
+      #      superficie de ataque, va contra darle a cada pieza el mínimo
+      #      alcance posible. Un fallo en la consulta de RUC no debería
+      #      poder acercarse al volumen de certificados.
+      #   2. Este contenedor existe por UNA razón puntual: sunat-py exige
+      #      cryptography<45 y RestoMind usa la 50. Un SELECT sobre SQLite
+      #      no tiene ese conflicto, así que no gana nada estando aislado.
+      #   3. Autenticación. Acá se entra con un token de servicio
+      #      compartido, sin identidad de usuario ni cuotas. La consulta de
+      #      RUC toca datos personales de ~19 millones de contribuyentes y
+      #      necesita exactamente lo contrario: sesión por usuario y límite
+      #      por volumen, que RestoMind ya tiene.
+      #
+      # La consulta vive en RestoMind (backend/routes/ruc.py), que corre con
+      # systemd y lee el archivo del disco directamente: sin volumen, sin
+      # contenedor y sin un salto de red de por medio — que además ayuda al
+      # objetivo de latencia. Ver docs/PADRON_RUC.md.
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+    # Un VPS de 2 GB corre además RestoMind, nginx y SQLite. Sin este techo,
+    # un pico acá podría dejar sin memoria al backend, que es lo que atiende
+    # a los comensales: emitir una boleta puede esperar, tomar un pedido no.
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

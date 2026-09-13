@@ -47,6 +47,9 @@ const estado = {
     roles: getRolesGuardados(),
     platos: [],
     mesas: [],
+    // Lo que hay en cocina ahora mismo. Lo mantiene refreshCocina() (cocina.js)
+    // y lo lee también la vista unificada, para no pedir dos veces lo mismo.
+    comandasCocina: [],
     currentTab: 'mozo',
     cajaAbierta: null // null = aún no se consultó; ver refreshCajaGate()
 };
@@ -127,11 +130,23 @@ const api = {
         }
         if (!resp.ok) {
             let detail = `Error ${resp.status}`;
+            let codigo = null;
             try {
                 const body = await resp.json();
                 detail = extraerMensajeError(body, detail);
+                // Algunos errores traen un CÓDIGO estable además del texto
+                // (ej. IDENTIFICAR_COMPRADOR en /facturas/generar). Se
+                // conserva para que quien llama pueda distinguir ESE caso
+                // sin tener que buscar palabras dentro del mensaje —
+                // frágil, y encima se rompe al reescribir el texto.
+                if (body && body.detail && typeof body.detail === 'object') {
+                    codigo = body.detail.codigo || null;
+                }
             } catch (_) { /* respuesta sin JSON */ }
-            throw new Error(detail);
+            const error = new Error(detail);
+            error.status = resp.status;
+            if (codigo) error.codigoNegocio = codigo;
+            throw error;
         }
         if (resp.status === 204) return null;
         return resp.json();
@@ -169,11 +184,23 @@ const api = {
         }
         if (!resp.ok) {
             let detail = `Error ${resp.status}`;
+            let codigo = null;
             try {
                 const body = await resp.json();
                 detail = extraerMensajeError(body, detail);
+                // Algunos errores traen un CÓDIGO estable además del texto
+                // (ej. IDENTIFICAR_COMPRADOR en /facturas/generar). Se
+                // conserva para que quien llama pueda distinguir ESE caso
+                // sin tener que buscar palabras dentro del mensaje —
+                // frágil, y encima se rompe al reescribir el texto.
+                if (body && body.detail && typeof body.detail === 'object') {
+                    codigo = body.detail.codigo || null;
+                }
             } catch (_) { /* respuesta sin JSON */ }
-            throw new Error(detail);
+            const error = new Error(detail);
+            error.status = resp.status;
+            if (codigo) error.codigoNegocio = codigo;
+            throw error;
         }
         return resp.json();
     },
@@ -217,6 +244,24 @@ async function init() {
         } catch (err) {
             console.error(`Error iniciando ${fnName}:`, err);
         }
+    });
+
+    // Después de los módulos: decide si mostrar el interruptor "Todo en uno"
+    // y, si quedó activado en este dispositivo, arranca esa vista. Necesita
+    // que initMozo/initCocina ya hayan corrido.
+    if (typeof initVistaUnificada === 'function') {
+        try {
+            initVistaUnificada();
+        } catch (err) {
+            console.error('Error iniciando la vista unificada:', err);
+        }
+    }
+
+    // Escape cierra el modal que esté abierto. Antes no había forma de salir
+    // con el teclado, y en una laptop (donde el dueño suele tener la app
+    // abierta todo el turno) el reflejo es apretar Esc, no buscar la ✕.
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') cerrarModalConEscape();
     });
 
     // Gate de caja: se revisa al arrancar y cada 20s en segundo plano — así
@@ -429,6 +474,25 @@ function abrirModal(id) {
 
 function cerrarModal() {
     document.getElementById('modal-comanda').classList.add('hidden');
+}
+
+/**
+ * Cierra el modal visible que esté más arriba (Escape).
+ *
+ * No esconde el modal a mano: le hace click a su propia ✕, para que corra la
+ * función de cierre que ese modal ya tiene. Varias hacen limpieza además de
+ * ocultar (resetean el formulario, vacían el carrito), y saltárselas dejaría
+ * datos del cliente anterior cargados en el siguiente uso.
+ */
+function cerrarModalConEscape() {
+    const abiertos = [...document.querySelectorAll('.modal:not(.hidden)')];
+    if (!abiertos.length) return false;
+
+    const modal = abiertos[abiertos.length - 1];
+    const btnCerrar = modal.querySelector('.btn-close');
+    if (btnCerrar) btnCerrar.click();
+    else modal.classList.add('hidden');
+    return true;
 }
 
 function cerrarModalPlato() {

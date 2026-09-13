@@ -1,31 +1,36 @@
 """
-Facturación electrónica SUNAT (boletas) — dos formas de emitir, elegidas
-por backend.config.settings.emisor_facturacion:
+Facturación electrónica SUNAT — 100% en la nube.
 
-  "sfs_local" (default, costo S/ 0): escribe .cab/.det en la carpeta que
-  vigila el Facturador SUNAT instalado en la PC de la caja (ver
-  backend/utils/sfs_export.py). RestoMind NO sabe si SUNAT terminó
-  aceptando el comprobante — eso pasa dentro del Facturador, después de
-  que este endpoint termina. El estado resultante es 'generado_localmente',
-  distinto de 'enviada_sunat' a propósito: no mentir sobre una confirmación
-  que este sistema no tiene.
+El comprobante se firma y se envía a SUNAT desde el servidor, vía el
+micro-servicio de sunat-service/ (librería sunat-py). No hace falta ninguna
+PC con Windows en el restaurante: un local que trabaja solo con tablets
+factura igual.
 
-  "facturacion_pe" (de pago, ver backend/utils/facturacion_pe.py): API
-  externa que sí confirma en el momento si SUNAT aceptó o rechazó.
+QUÉ COMPROBANTE SE EMITE — lo decide el servidor, no el frontend
+-----------------------------------------------------------------
+Según lo que el cajero tipee en un único campo (ver _resolver_comprobante):
 
-Regla central de este módulo, que no debe romperse nunca sea cual sea el
-emisor activo: la boleta se arma leyendo lo que el sistema ya registró
-como vendido (ComandaPlato de comandas en estado 'cobrado'), nunca de un
-array de platos que mande el frontend. Si se aceptara eso último,
-cualquiera con el token de un mozo podría pedir una boleta por productos
-que nunca se sirvieron.
+    vacío, total < S/ 700   -> Boleta  03 / B001, Público General
+    vacío, total >= S/ 700  -> 400: SUNAT exige identificar al comprador
+    8 dígitos (DNI)         -> Boleta  03 / B001
+    11 dígitos (RUC)        -> FACTURA 01 / F001 si el restaurante puede
+                               facturar; si no (Nuevo RUS), BOLETA 03 / B001
+                               con el RUC como documento del adquiriente
 
-Flujo (ver backend/services.py:cobrar_mesa):
-    1. Mozo cobra la mesa -> POST /mesas/{id}/cobrar (ya existente, sin
-       tocar). Devuelve comanda_ids de lo que se acaba de cerrar.
+Cada serie lleva su propio correlativo (ver models.py:Cliente): compartir
+uno dejaría huecos en ambas, y SUNAT las exige consecutivas.
+
+Regla central que no debe romperse: el comprobante se arma leyendo lo que
+el sistema ya registró como vendido (ComandaPlato de comandas en estado
+'cobrado'), nunca de un array de platos que mande el frontend. Si se
+aceptara eso último, cualquiera con el token de un mozo podría pedir un
+comprobante por productos que nunca se sirvieron.
+
+Flujo:
+    1. Mozo cobra la mesa -> POST /mesas/{id}/cobrar. Devuelve comanda_ids.
     2. Frontend llama POST /facturas/generar con esos comanda_ids.
-    3. Este endpoint arma el detalle desde la BD y despacha al emisor
-       configurado — nunca se pierde el intento, incluso si falla.
+    3. Este endpoint arma el detalle desde la BD y lo manda a emitir —
+       nunca se pierde el intento, incluso si falla.
 """
 
 from datetime import datetime, timedelta
@@ -50,18 +55,24 @@ from backend.schemas import (
     VentaSinBoletaItem,
 )
 from backend.utils.facturacion_pe import FacturacionPeError, generar_boleta
+from backend.utils.sunat_cloud import (
+    SunatCloudError,
+    diferencia_contra_lo_cobrado as diferencia_redondeo,
+    emitir_boleta as emitir_boleta_cloud,
+)
+from backend.utils.padron import PadronNoDisponible, consultar as consultar_padron
 from backend.utils.security import validar_admin
-from backend.utils.sfs_export import SfsExportError, exportar_comprobante
 
 router = APIRouter()
 
 IGV_TASA = 0.18
 
-# Estados que significan "el intento terminó bien" para el emisor que
-# corresponda — 'enviada_sunat' (facturacion_pe, confirmado por SUNAT) y
-# 'generado_localmente' (sfs_local, depositado para que el Facturador lo
-# procese) NO son intercambiables en significado, pero ambos representan
-# "no hace falta reintentar".
+# Estados que significan "el intento terminó bien".
+#
+# 'generado_localmente' ya NO se produce (el emisor local se eliminó), pero
+# sigue listado a propósito: hay comprobantes REALES emitidos así que
+# quedaron con ese estado. Sacarlo de acá los mostraría como pendientes y
+# el restaurante intentaría reemitir algo que SUNAT ya tiene.
 ESTADOS_OK = {"enviada_sunat", "generado_localmente"}
 
 
@@ -134,45 +145,6 @@ def _calcular_montos(total: float) -> tuple:
     return subtotal, igv
 
 
-def _emitir_sfs_local(factura: Factura, cliente: Cliente, detalles: list) -> None:
-    try:
-        resultado = exportar_comprobante(
-            ruc_emisor=cliente.ruc,
-            razon_social_emisor=cliente.razon_social or cliente.nombre,
-            tipo_comprobante=factura.tipo_comprobante,
-            serie=factura.serie,
-            numero_correlativo=factura.numero_correlativo,
-            # Congeladas al crear la Factura (no factura.creado_en, que es
-            # UTC) — un reintento horas después no debe correr la fecha de
-            # emisión del comprobante. Ver el comentario en models.py:Factura.
-            fecha_emision=factura.fecha_emision_local,
-            hora_emision=factura.hora_emision_local,
-            subtotal=factura.subtotal,
-            igv=factura.igv,
-            total=factura.total,
-            detalles=detalles,
-            tipo_documento_comprador=factura.tipo_documento_comprador,
-            numero_documento_comprador=factura.numero_documento_comprador,
-            nombre_comprador=factura.nombre_comprador,
-        )
-    except SfsExportError as exc:
-        # 'error' (no 'pendiente'): a diferencia de un proveedor HTTP
-        # caído, esto casi siempre es una causa local corregible ahora
-        # mismo (carpeta mal configurada, sin permisos) — vale la pena
-        # que se note como error activo, no como "ya va a resolverse solo".
-        factura.estado = "error"
-        factura.error_mensaje = str(exc)
-        return
-
-    factura.estado = "generado_localmente"
-    factura.archivo_local = resultado.archivo_cab
-    factura.pdf_url = None  # El Facturador local genera su propio PDF/impresión, fuera de RestoMind
-    factura.qr_code = None
-    factura.codigo_hash = None
-    factura.error_mensaje = None
-    factura.enviado_en = datetime.utcnow()
-
-
 def _emitir_facturacion_pe(factura: Factura, cliente: Cliente, detalles: list) -> None:
     """No relanza FacturacionPeError: la Factura queda en 'pendiente' (ya
     persistida con su número reservado) para que /facturas/{id}/reintentar
@@ -210,40 +182,192 @@ def _emitir_facturacion_pe(factura: Factura, cliente: Cliente, detalles: list) -
     factura.enviado_en = datetime.utcnow()
 
 
+def _emitir_sunat_cloud(factura: Factura, cliente: Cliente, detalles: list) -> None:
+    """
+    Firma y envía el comprobante a SUNAT desde el servidor, vía el
+    micro-servicio de sunat-service/ (ver backend/utils/sunat_cloud.py).
+
+    Distingue "no se pudo intentar" de "SUNAT dijo que no", porque se
+    resuelven distinto:
+      - transporte/servicio caído  -> 'pendiente': el mismo comprobante sirve,
+        /facturas/{id}/reintentar lo retoma SIN consumir otro correlativo.
+      - rechazo de SUNAT           -> 'error': reintentar igual daría lo mismo,
+        hay que corregir algo antes.
+    """
+    try:
+        resultado = emitir_boleta_cloud(
+            cliente_id=cliente.id,
+            ruc_emisor=cliente.ruc,
+            razon_social_emisor=cliente.razon_social or cliente.nombre,
+            direccion_emisor=cliente.direccion,
+            serie=factura.serie,
+            numero_correlativo=factura.numero_correlativo,
+            # La fecha congelada al crear la Factura, no "hoy": un reintento
+            # al día siguiente NO debe cambiar la fecha de emisión declarada.
+            fecha_emision=factura.fecha_emision_local,
+            detalles=detalles,
+            tipo_documento_comprador=factura.tipo_documento_comprador,
+            numero_documento_comprador=factura.numero_documento_comprador,
+            nombre_comprador=factura.nombre_comprador,
+        )
+    except SunatCloudError as exc:
+        factura.estado = "pendiente"
+        factura.error_mensaje = str(exc)
+        return
+
+    if not resultado.exito:
+        # Reintentable = el comprobante está bien, falló el camino. Se deja
+        # 'pendiente' para que el reintento lo retome con el mismo número.
+        factura.estado = "pendiente" if resultado.reintentable else "error"
+        factura.error_mensaje = resultado.error_mensaje or resultado.descripcion
+        return
+
+    factura.estado = "enviada_sunat"
+    factura.cdr_xml = resultado.cdr_xml
+    factura.codigo_hash = resultado.codigo
+    factura.enviado_en = datetime.utcnow()
+
+    # La boleta salió, pero puede declarar hasta un céntimo distinto de lo
+    # cobrado: RestoMind saca el IGV desde el total y SUNAT desde la base, y
+    # con ciertos precios las dos cuentas no pueden coincidir (ver
+    # sunat_cloud.total_que_declarara_sunat). Queda anotado en la Factura en
+    # vez de pasar desapercibido — sin esto, la caja no cuadraría contra los
+    # comprobantes al cierre de mes y nadie sabría por qué.
+    desvio = diferencia_redondeo(detalles, factura.total)
+    factura.error_mensaje = (
+        None if desvio == 0
+        else f"Aviso: la boleta declara S/ {desvio:+} respecto de lo cobrado (redondeo del IGV)."
+    )
+
+
 def _emitir(factura: Factura, cliente: Cliente, detalles: list) -> None:
     """Punto único de despacho entre emisores — actualiza la Factura in-place.
     El llamador hace commit/refresh después."""
     if settings.emisor_facturacion == "facturacion_pe":
+        # Proveedor de pago, ya integrado — se conserva como alternativa
+        # para quien prefiera no administrar su propio certificado.
         _emitir_facturacion_pe(factura, cliente, detalles)
     else:
-        _emitir_sfs_local(factura, cliente, detalles)
+        _emitir_sunat_cloud(factura, cliente, detalles)
 
 
-def _resolver_comprador(documento: Optional[str]) -> tuple:
-    """Deriva (tipo_documento, numero_documento, nombre) a partir de lo que
-    tipeó el cajero en un único campo — regla pensada para no ralentizar la
-    caja en hora punta (cero llamadas a RENIEC/SUNAT para autocompletar
-    nombre real):
+# Desde S/ 700, SUNAT exige identificar al comprador en una boleta de venta.
+# Por debajo se puede emitir a "Público General" sin documento.
+UMBRAL_IDENTIFICAR_COMPRADOR = 700.00
 
-        vacío       -> "0" (No domiciliado/Varios), "00000000", "CLIENTES VARIOS"
-        8 dígitos   -> "1" (DNI),  el valor tal cual, "-"
-        11 dígitos  -> "6" (RUC),  el valor tal cual, "-"
 
-    documento ya viene validado (vacío, 8 u 11 dígitos) por
-    FacturaGenerarRequest — acá no se vuelve a validar formato.
+def _resolver_comprobante(
+    documento: Optional[str],
+    total: float,
+    razon_social_manual: Optional[str],
+    emite_facturas: bool = False,
+) -> tuple:
+    """
+    Decide QUÉ comprobante corresponde según lo que tipeó el cajero.
 
-    Nota sobre el caso RUC: reemplazar la razón social real por "-" es una
-    decisión de negocio explícita (agilizar la venta), no una limitación
-    técnica — un cliente que da su RUC generalmente lo hace para sustentar
-    gasto/crédito fiscal, y un "-" en ese campo le deja un comprobante que
-    no le sirve para eso. Si el día de mañana se decide pedir la razón
-    social real cuando hay RUC, el cambio es local a este bloque.
+    Devuelve (tipo_comprobante, serie, tipo_doc, numero_doc, nombre).
+
+        vacío y total < 700   -> Boleta 03/B001, doc "0"/"00000000", Público General
+        vacío y total >= 700  -> 400: SUNAT exige identificar al comprador
+        8 dígitos             -> Boleta 03/B001, doc "1" (DNI)
+        11 dígitos            -> FACTURA 01/F001, doc "6" (RUC) + razón social real
+
+    El tipo de comprobante lo decide el SERVIDOR y no el frontend, por el
+    mismo motivo que el detalle se arma desde la BD: es la regla fiscal, y
+    tener dos versiones (una en JS, otra acá) es garantía de que algún día
+    divergan.
+
+    Un RUC SIEMPRE produce factura, nunca boleta: quien da su RUC lo hace
+    para sustentar gasto o crédito fiscal, y una boleta no le sirve para
+    eso. Cambiarle el tipo de comprobante por nuestra cuenta le crea un
+    problema comercial al restaurante.
     """
     if not documento:
-        return "0", "00000000", "CLIENTES VARIOS"
+        if total >= UMBRAL_IDENTIFICAR_COMPRADOR:
+            # EL COBRO NO SE TOCA. Esto corre DESPUÉS de /mesas/{id}/cobrar:
+            # la plata ya cambió de mano, la mesa ya se liberó y la venta ya
+            # está registrada en la caja. Lo único que no se puede emitir es
+            # el comprobante, y queda esperando en Admin > Boletas
+            # (ventas_sin_boleta) hasta que alguien agregue el documento.
+            #
+            # NO se crea una Factura con el correlativo reservado, a
+            # propósito: si nadie completa el dato, ese número queda
+            # consumido y abre un HUECO PERMANENTE en la serie B001 — y SUNAT
+            # las exige consecutivas. La recuperación por ventas_sin_boleta
+            # da lo mismo sin ese riesgo.
+            #
+            # El detalle va estructurado (no texto suelto) para que el
+            # frontend distinga ESTE caso de cualquier otro fallo de emisión
+            # y pueda pedir el documento en el momento, con el cliente
+            # todavía enfrente.
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "codigo": "IDENTIFICAR_COMPRADOR",
+                    "mensaje": (
+                        f"Cobro registrado. Desde S/ {UMBRAL_IDENTIFICAR_COMPRADOR:.0f} "
+                        "SUNAT exige identificar al cliente: pedile el DNI (8 dígitos) "
+                        "o el RUC (11 dígitos) para emitir el comprobante."
+                    ),
+                    "total": total,
+                    "umbral": UMBRAL_IDENTIFICAR_COMPRADOR,
+                },
+            )
+        return "03", "B001", "0", "00000000", "CLIENTES VARIOS"
+
     if len(documento) == 8:
-        return "1", documento, "-"
-    return "6", documento, "-"  # 11 dígitos: único otro caso que el schema permite
+        # El nombre del titular de un DNI no se consulta: RENIEC no es una
+        # fuente disponible acá y una boleta es válida sin él.
+        return "03", "B001", "1", documento, "-"
+
+    # ---- 11 dígitos: RUC ----
+    #
+    # Solo se convierte en FACTURA si el restaurante puede emitirlas. Un
+    # contribuyente del NUEVO RUS tiene PROHIBIDO facturar: emite boletas y
+    # tickets, nada más. Para él, un comensal con RUC igual recibe BOLETA,
+    # llevando su RUC como documento del adquiriente — el catálogo 06 de
+    # SUNAT admite RUC en una boleta.
+    #
+    # Emitir una factura sin poder hacerlo no es un detalle de formato: es
+    # una infracción del emisor, y le da al comprador un crédito fiscal que
+    # no corresponde.
+    if not emite_facturas:
+        return "03", "B001", "6", documento, (razon_social_manual or "").strip() or "-"
+
+    # Factura. SUNAT no acepta una factura sin razón social, así que hay que
+    # conseguirla sí o sí.
+    nombre = (razon_social_manual or "").strip()
+    if not nombre:
+        nombre = _razon_social_del_padron(documento)
+
+    if not nombre:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"No encontramos el RUC {documento} en el padrón de SUNAT. "
+                "Revisá el número, o escribí la razón social a mano para emitir igual."
+            ),
+        )
+
+    return "01", "F001", "6", documento, nombre
+
+
+def _razon_social_del_padron(ruc: str) -> Optional[str]:
+    """
+    Busca la razón social en la copia local del padrón.
+
+    Que el padrón no esté instalado NO es un error de esta operación: se
+    trata igual que "no lo encontré", y el cajero resuelve escribiendo el
+    nombre a mano. Así un restaurante que todavía no cargó el padrón de
+    1,6 GB puede facturar igual desde el primer día.
+    """
+    try:
+        contribuyente = consultar_padron(ruc, settings.padron_db_path)
+    except PadronNoDisponible:
+        return None
+    except Exception:  # noqa: BLE001 — un fallo del padrón no puede tumbar una venta
+        return None
+    return contribuyente.nombre if contribuyente else None
 
 
 def _detalles_de(comandas: List[Comanda]) -> list:
@@ -313,19 +437,35 @@ def generar_factura(
     subtotal, igv = _calcular_montos(total)
     detalles = _detalles_de(comandas)
 
+    # QUÉ comprobante corresponde se decide ANTES de tocar ningún
+    # correlativo: si esto rechaza (sin documento por encima de S/ 700, o un
+    # RUC sin razón social), no se puede haber consumido un número. Un
+    # correlativo gastado por un intento fallido deja un hueco permanente en
+    # la serie, y SUNAT exige que sean consecutivas.
+    tipo_comprobante, serie, tipo_doc, numero_doc, nombre_comprador = _resolver_comprobante(
+        payload.documento_comprador, total, payload.razon_social_manual,
+        emite_facturas=bool(cliente.emite_facturas),
+    )
+
     # Reserva atómica del correlativo: se incrementa y se lee en la misma
     # transacción de SQLAlchemy antes del commit. El UNIQUE(cliente_id,
     # serie, numero_correlativo) en Factura es la red de seguridad si dos
     # cobros concurrentes llegaran a pisarse este valor.
-    cliente.boleta_correlativo_actual += 1
-    numero_correlativo = cliente.boleta_correlativo_actual
+    #
+    # Cada serie lleva SU PROPIO contador: compartir uno dejaría huecos en
+    # ambas (ver models.py:Cliente.factura_correlativo_actual).
+    if serie == "F001":
+        cliente.factura_correlativo_actual += 1
+        numero_correlativo = cliente.factura_correlativo_actual
+    else:
+        cliente.boleta_correlativo_actual += 1
+        numero_correlativo = cliente.boleta_correlativo_actual
 
     # Hora LOCAL del restaurante, no del servidor — mismo criterio que
     # dashboard/compras (ver backend/dependencies.py:get_tz_offset). Se
     # congela en la Factura porque un reintento no debe correr la fecha de
     # emisión del comprobante a "ahora".
     ahora_local = datetime.utcnow() - timedelta(minutes=tz_offset)
-    tipo_doc, numero_doc, nombre_comprador = _resolver_comprador(payload.documento_comprador)
 
     factura = Factura(
         cliente_id=cliente_id,
@@ -333,7 +473,8 @@ def generar_factura(
         subtotal=subtotal,
         igv=igv,
         total=total,
-        serie="B001",
+        tipo_comprobante=tipo_comprobante,
+        serie=serie,
         numero_correlativo=numero_correlativo,
         fecha_emision_local=ahora_local.date().isoformat(),
         hora_emision_local=ahora_local.strftime("%H:%M:%S"),

@@ -75,7 +75,9 @@ def test_no_se_puede_activar_sin_ruc(test_client, test_cliente):
     mismo error en cada cobro, pero ahora sin explicación."""
     resp = test_client.patch("/api/configuracion", json={"usar_sunat": True})
     assert resp.status_code == 400
-    assert "RUC" in resp.json()["detail"]
+    # El mensaje ya no dice "cargá el RUC": con el flujo nuevo lo que falta
+    # es el certificado, que es lo que de verdad habilita emitir.
+    assert "certificado" in resp.json()["detail"]
 
 
 def test_con_ruc_se_puede_activar_y_desactivar(test_client, cliente_con_ruc):
@@ -161,3 +163,188 @@ def test_sin_sesion_no_se_puede_leer_ni_cambiar(test_client_real_auth, test_clie
     assert test_client_real_auth.patch(
         "/api/configuracion", json={"usar_sunat": True},
     ).status_code == 401
+
+
+# ============ ACTIVACIÓN DEL MODO FORMAL (certificado + SOL) ============
+#
+# Lo que se protege acá no es "que el archivo se guarde": es que un .pfx
+# —que permite emitir comprobantes a nombre del restaurante— no termine en
+# manos equivocadas, y que la facturación NUNCA quede activada a medias.
+
+# Un .pfx real es una estructura DER, que siempre arranca con SEQUENCE (0x30).
+PFX_FALSO = b"\x30\x82\x04\x00" + b"contenido de prueba"
+SOL_USUARIO = "MIUSUARIO"
+SOL_CLAVE = "miclavesol"
+RUC_VALIDO = "10200812234"
+
+
+def _activar(test_client, pfx=PFX_FALSO, password="clave-secreta",
+             sol_usuario=SOL_USUARIO, sol_clave=SOL_CLAVE,
+             ruc=RUC_VALIDO, direccion="Av. Lima 123"):
+    return test_client.post(
+        "/api/configuracion/subir-certificado",
+        files={"file": ("certificado.pfx", pfx, "application/x-pkcs12")},
+        data={
+            "ruc": ruc, "password": password, "direccion_fiscal": direccion,
+            "sol_usuario": sol_usuario, "sol_clave": sol_clave,
+        },
+    )
+
+
+@pytest.fixture
+def certs_tmp(tmp_path, monkeypatch):
+    from backend.config import settings
+    monkeypatch.setattr(settings, "certs_dir", str(tmp_path))
+    return tmp_path
+
+
+def test_se_guardan_los_TRES_archivos_que_necesita_la_firma(
+    test_client, test_db, cliente_con_ruc, certs_tmp
+):
+    """
+    sunat-service necesita certificado.pfx, clave.txt Y sol.txt. Si faltara
+    cualquiera, el restaurante quedaría "activado" y fallando en cada cobro
+    con SIN_CREDENCIALES_SOL — el escenario de emisiones rotas que esta
+    pantalla existe para evitar.
+    """
+    resp = _activar(test_client)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["usar_sunat"] is True
+
+    destino = certs_tmp / cliente_con_ruc.id
+    assert (destino / "certificado.pfx").read_bytes() == PFX_FALSO
+    assert (destino / "clave.txt").read_text(encoding="utf-8") == "clave-secreta"
+    # sol.txt con el formato exacto que espera el contenedor: usuario en la
+    # primera línea, clave en la segunda.
+    assert (destino / "sol.txt").read_text(encoding="utf-8") == "MIUSUARIO\nmiclavesol\n"
+
+    test_db.refresh(cliente_con_ruc)
+    assert cliente_con_ruc.usar_sunat is True
+
+
+def test_un_sol_incompleto_no_activa_nada(test_client, test_db, cliente_con_ruc, certs_tmp):
+    """Unas credenciales SOL incompletas, descubiertas recien al cobrar,
+    comprobante con el cliente en la puerta. Se valida acá, que es cuando hay
+    alguien mirando la pantalla para corregirlo."""
+    resp = _activar(test_client, sol_clave="   ")
+
+    assert resp.status_code == 400
+    assert "clave SOL" in resp.json()["detail"]
+    test_db.refresh(cliente_con_ruc)
+    assert cliente_con_ruc.usar_sunat is False
+    # Nada a medias: no quedó ni el certificado suelto.
+    assert not list(certs_tmp.iterdir())
+
+
+def test_sin_datos_fiscales_no_se_acepta_el_certificado(test_client, test_cliente, certs_tmp, monkeypatch):
+    """
+    Regla estricta: sin RUC resoluble no se activa nada.
+
+    Aceptarlo dejaría al restaurante emitiendo con datos de emisor vacíos.
+    Acá el padrón no está disponible y el cliente no tiene razón social, así
+    que no hay de dónde sacarla.
+    """
+    from backend.config import settings
+    from backend.utils.padron import cerrar_conexion_del_hilo
+    cerrar_conexion_del_hilo()
+    monkeypatch.setattr(settings, "padron_db_path", "/no/existe/padron.db")
+
+    resp = _activar(test_client)
+
+    assert resp.status_code == 400
+    assert "padrón" in resp.json()["detail"]
+    assert not list(certs_tmp.iterdir())
+
+
+def test_no_se_puede_cambiar_el_RUC_de_un_restaurante_ya_registrado(
+    test_client, cliente_con_ruc, certs_tmp
+):
+    """El certificado se emite A NOMBRE de un RUC: aceptar otro acá dejaría
+    los comprobantes firmados por un contribuyente distinto del que declaran."""
+    resp = _activar(test_client, ruc="20123456786")
+
+    assert resp.status_code == 400
+    assert cliente_con_ruc.ruc in resp.json()["detail"]
+    assert not list(certs_tmp.iterdir())
+
+
+def test_el_certificado_NUNCA_se_guarda_en_la_base_de_datos(
+    test_client, test_db, cliente_con_ruc, certs_tmp
+):
+    """Si alguien se lleva un backup de la BD, no debe llevarse con qué
+    facturar. El .pfx, su clave y las credenciales SOL viven solo en el
+    volumen de certificados."""
+    assert _activar(test_client).status_code == 200
+
+    import sqlalchemy
+    filas = test_db.execute(sqlalchemy.text("SELECT * FROM clientes")).mappings().all()
+    volcado = str([dict(f) for f in filas])
+    assert "clave-secreta" not in volcado
+    assert "miclavesol" not in volcado
+    assert "contenido de prueba" not in volcado
+
+
+def test_un_archivo_que_no_es_certificado_se_rechaza(test_client, cliente_con_ruc, certs_tmp):
+    """No se confía en la extensión ni en el content-type: los dos los elige
+    quien sube el archivo. Se mira la firma binaria."""
+    resp = _activar(test_client, pfx=b"<html>esto no es un pfx</html>")
+
+    assert resp.status_code == 400
+    assert "certificado" in resp.json()["detail"].lower()
+    assert not list(certs_tmp.iterdir())
+
+
+def test_sin_la_clave_no_se_acepta(test_client, cliente_con_ruc, certs_tmp):
+    """Un .pfx sin su clave no sirve para firmar: guardarlo dejaría la
+    facturación activada y rota.
+
+    Dos formas de no mandarla, con dos rechazos distintos y ambos correctos:
+    el campo ausente lo frena FastAPI (422) y el de puros espacios lo frena
+    la ruta (400) — este último NO lo atrapa un simple `if not password`.
+    """
+    assert _activar(test_client, password="").status_code == 422
+    assert _activar(test_client, password="   ").status_code == 400
+    assert not list(certs_tmp.iterdir())
+
+
+def test_sin_sesion_no_se_puede_activar_la_facturacion(test_client_real_auth, certs_tmp):
+    resp = test_client_real_auth.post(
+        "/api/configuracion/subir-certificado",
+        files={"file": ("c.pfx", PFX_FALSO, "application/x-pkcs12")},
+        data={"ruc": RUC_VALIDO, "password": "x",
+              "sol_usuario": SOL_USUARIO, "sol_clave": SOL_CLAVE},
+    )
+    assert resp.status_code == 401
+
+
+def test_el_certificado_va_a_la_carpeta_DEL_TOKEN_no_a_otra(
+    test_client, test_db, cliente_con_ruc, certs_tmp
+):
+    """El cliente_id sale del JWT, nunca del cuerpo: si viniera del payload,
+    un admin podría pisarle el certificado a otro restaurante."""
+    otro = Cliente(id="otro-restaurante", nombre="Ajeno", email="a@b.com", ruc="20123456786")
+    test_db.add(otro)
+    test_db.commit()
+
+    assert _activar(test_client).status_code == 200
+
+    assert (certs_tmp / cliente_con_ruc.id / "certificado.pfx").exists()
+    assert not (certs_tmp / "otro-restaurante").exists()
+
+
+def test_al_activar_quedan_bloqueados_los_datos_fiscales(
+    test_client, test_db, cliente_con_ruc, certs_tmp
+):
+    """El frontend usa esto para mostrarlos de solo lectura, en vez de
+    ofrecer campos que el backend va a rechazar."""
+    assert test_client.get("/api/configuracion").json()["datos_fiscales_bloqueados"] is False
+
+    datos = _activar(test_client).json()
+    assert datos["datos_fiscales_bloqueados"] is True
+    assert datos["razon_social"] == "Pollería Fogones"
+    assert datos["direccion_fiscal"] == "Av. Lima 123"
+
+    # Apagar el interruptor los libera: un candado permanente convertiría un
+    # tipeo en un callejón sin salida.
+    test_client.patch("/api/configuracion", json={"usar_sunat": False})
+    assert test_client.get("/api/configuracion").json()["datos_fiscales_bloqueados"] is False

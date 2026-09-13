@@ -186,11 +186,11 @@ function _imprimirHTML(html) {
 /**
  * Boleta de venta (al cobrar) — texto plano/HTML legible para el cliente,
  * SIN palotes. Los palotes (|) son un formato interno aparte, solo para
- * los archivos .cab/.det que lee el Facturador SUNAT en disco (ver
- * backend/utils/sfs_export.py) — nunca llegan a este archivo ni a papel.
+ * el XML UBL que se firma y se envía a SUNAT — nunca llegan a este
+ * archivo ni a papel.
  *
  * Usa exactamente los mismos fecha_emision_local/hora_emision_local que
- * quedaron escritos en el .cab, no `new Date()` — así el papel que recibe
+ * quedaron congelados en la Factura, no `new Date()` — así el papel que recibe
  * el cliente coincide con el archivo que procesa el Facturador.
  *
  * Campos que el modelo de referencia trae y que a propósito NO están acá:
@@ -215,14 +215,14 @@ function _ticketBoletaHTML(factura, cajeroNombre) {
     const tieneDocumento = factura.tipo_documento_comprador !== '0';
     const etiquetaDoc = factura.tipo_documento_comprador === '6' ? 'RUC' : 'DNI';
     // Sin nombre real (ver nota arriba): "-" cuando hay documento, igual que
-    // queda escrito en el .cab (Factura.nombre_comprador).
+    // queda guardado en Factura.nombre_comprador.
     const lineaCliente = tieneDocumento
         ? `<div>CLIENTE: -</div><div>${etiquetaDoc}: ${escapeHtml(factura.numero_documento_comprador)}</div>`
         : `<div>CLIENTE: Publico General</div>`;
 
     // Mismo encabezado que la pre-cuenta (titular / comercial / dirección) —
     // acá sale del backend (Factura sabe leer Cliente en el momento exacto
-    // en que se armó el .cab), no de estado.usuario cacheado en el login.
+    // en que se emitió), no de estado.usuario cacheado en el login.
     const lineaTitular = factura.razon_social_emisor && factura.razon_social_emisor !== factura.nombre_emisor
         ? `<div>${escapeHtml(factura.razon_social_emisor)}</div>`
         : '';

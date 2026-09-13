@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, PlainSerializer, field_validator, model_v
 from typing import Annotated, List, Literal, Optional
 from datetime import date, datetime, timezone
 
+from backend.utils.padron import digito_verificador_ok
 from backend.utils.roles import ROLES_STAFF, roles_de
 
 
@@ -87,13 +88,27 @@ def _validar_email(valor: str) -> str:
 
 
 def _validar_ruc_peru(valor: str) -> str:
-    """RUC peruano: exactamente 11 dígitos, empieza con 10 (persona natural
-    con negocio) o 20 (persona jurídica) — los únicos dos prefijos que
-    SUNAT usa para contribuyentes que emiten boletas de venta.
+    """
+    RUC peruano: 11 dígitos, prefijo en uso y dígito verificador correcto.
+
+    Antes se aceptaban SOLO los prefijos 10 y 20. Estaba mal: SUNAT también
+    usa 15, 16 y 17 para personas naturales (asignaciones antiguas). Sobre
+    una muestra de 154.132 contribuyentes reales del Padrón Reducido,
+    11.432 —el 7,4%— empezaban en 15 o 17, y a todos ellos esta validación
+    les rechazaba el RUC al pedir factura.
+
+    Se agregó además el DÍGITO VERIFICADOR, que es lo que de verdad separa
+    "once dígitos cualesquiera" de "un RUC que puede existir": atrapa el
+    número mal tipeado en el mostrador sin consultar nada. Verificado contra
+    esos mismos 154.132 RUC reales, con 100% de coincidencia.
     """
     limpio = re.sub(r"[\s-]", "", valor)
-    if not re.fullmatch(r"(10|20)\d{9}", limpio):
-        raise ValueError("El RUC debe tener 11 dígitos y empezar con 10 o 20 (ej: 10200812234)")
+    if not re.fullmatch(r"(10|15|16|17|20)\d{9}", limpio):
+        raise ValueError(
+            "El RUC debe tener 11 dígitos y empezar con 10, 15, 16, 17 o 20 (ej: 10200812234)"
+        )
+    if not digito_verificador_ok(limpio):
+        raise ValueError("Ese RUC no existe: revisa que los 11 dígitos estén bien copiados")
     return limpio
 
 
@@ -174,6 +189,7 @@ class ClienteConStats(BaseModel):
     telefono: Optional[str] = None
     ruc: Optional[str] = None
     razon_social: Optional[str] = None
+    emite_facturas: bool = False
     direccion: Optional[str] = None
     pais: str
     estado: str
@@ -191,6 +207,13 @@ class ClienteCreateRequest(BaseModel):
     telefono: Optional[str] = Field(default=None, max_length=30)
     ruc: Optional[str] = Field(default=None, max_length=15)
     razon_social: Optional[str] = Field(default=None, max_length=150)
+    # ¿Este restaurante puede emitir FACTURAS o solo boletas? Lo decide su
+    # RÉGIMEN TRIBUTARIO, no una preferencia: un contribuyente del Nuevo RUS
+    # tiene prohibido facturar. Default False porque es el caso seguro —
+    # emitir boletas de más nunca es infracción; facturar sin poder, sí.
+    # Solo el superadmin lo activa, tras confirmar el régimen del cliente.
+    emite_facturas: bool = False
+
     direccion: Optional[str] = Field(default=None, max_length=200)
     pais: str = Field(default="Perú", max_length=50)
     moneda: str = Field(default="PEN", max_length=10)
@@ -241,6 +264,10 @@ class ClienteUpdateRequest(BaseModel):
     telefono: Optional[str] = Field(default=None, max_length=30)
     ruc: Optional[str] = Field(default=None, max_length=15)
     razon_social: Optional[str] = Field(default=None, max_length=150)
+    # Ver ClienteCreateRequest.emite_facturas: lo decide el RÉGIMEN
+    # TRIBUTARIO del cliente (el Nuevo RUS no puede facturar), no una
+    # preferencia. Solo el superadmin lo cambia.
+    emite_facturas: bool = False
     direccion: Optional[str] = Field(default=None, max_length=200)
     pais: str = Field(default="Perú", max_length=50)
     moneda: str = Field(default="PEN", max_length=10)
@@ -855,6 +882,26 @@ class FacturaGenerarRequest(BaseModel):
     # decide el JS y lo que termina en el archivo SUNAT.
     documento_comprador: Optional[str] = Field(default=None, max_length=15)
 
+    # Salida de emergencia para el caso "RUC que el padrón local todavía no
+    # tiene" (uno recién inscrito, o la copia local sin actualizar).
+    #
+    # SUNAT no acepta una factura sin razón social, así que sin esto la venta
+    # se quedaría sin comprobante hasta que alguien recargue 1,6 GB de
+    # padrón. Con esto, el cajero lo escribe a mano y la factura sale.
+    #
+    # Solo se usa cuando el documento es un RUC: en una boleta el nombre no
+    # hace falta, y aceptarlo ahí abriría la puerta a emitir a nombre de
+    # cualquiera sin ningún respaldo.
+    razon_social_manual: Optional[str] = Field(default=None, max_length=200)
+
+    @field_validator("razon_social_manual")
+    @classmethod
+    def limpiar_razon_social_manual(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        limpio = " ".join(v.split())
+        return limpio or None
+
     @field_validator("documento_comprador")
     @classmethod
     def validar_documento_comprador(cls, v: Optional[str]) -> Optional[str]:
@@ -1000,3 +1047,81 @@ class ConfiguracionResponse(BaseModel):
     # deshabilitado, en vez de dejarlo muerto sin decir nada.
     tiene_ruc: bool
     ruc: Optional[str] = None
+    razon_social: Optional[str] = None
+    # Se llama direccion_fiscal de cara al frontend, pero la columna es
+    # Cliente.direccion — es el domicilio que va en el encabezado de los
+    # comprobantes, o sea el fiscal. No se renombró la columna para no
+    # forzar una migración por un tema de vocabulario.
+    direccion_fiscal: Optional[str] = None
+    # Con la facturación activa, el RUC/razón social quedan congelados: el
+    # certificado está emitido A NOMBRE de ese RUC. El frontend usa esto para
+    # mostrarlos de solo lectura en vez de ofrecer campos que el backend va
+    # a rechazar.
+    datos_fiscales_bloqueados: bool = False
+    # ¿Este restaurante puede emitir facturas, o solo boletas? En Nuevo RUS
+    # es False y un comensal con RUC igual recibe boleta.
+    emite_facturas: bool = False
+    # True solo para el tenant de pruebas (RUC 20000000001). El frontend lo
+    # usa para precargar las credenciales públicas de BETA y avisar que nada
+    # de lo que se emita ahí tiene efecto tributario.
+    es_ambiente_beta: bool = False
+
+
+# ============ CONSULTA DE RUC (Padrón Reducido SUNAT) ============
+
+class RucConsultaResponse(BaseModel):
+    """
+    Resultado de buscar un RUC en la copia local del padrón.
+
+    `encontrado=False` NO es un error: significa que ese RUC no figura en el
+    padrón descargado (puede ser reciente, o el archivo local estar viejo).
+    El cajero igual puede emitir escribiendo el nombre a mano.
+    """
+    ruc: str
+    encontrado: bool
+    nombre: Optional[str] = None
+    estado: Optional[str] = None       # ACTIVO, BAJA DE OFICIO...
+    condicion: Optional[str] = None    # HABIDO, NO HABIDO...
+    # RUC 10/15/16/17 son personas naturales: el "nombre" es el de una
+    # persona real. El frontend lo usa para no rotular ese dato como
+    # "razón social" cuando en realidad es el nombre de alguien.
+    persona_natural: Optional[bool] = None
+    puede_facturarse: Optional[bool] = None
+    advertencia: Optional[str] = None
+
+
+class RucPadronEstadoResponse(BaseModel):
+    disponible: bool
+    contribuyentes: int = 0
+    # Fecha del archivo local. SUNAT publica el padrón a diario, así que
+    # sirve para saber si conviene volver a cargarlo.
+    actualizado_en: Optional[str] = None
+
+
+class DocumentoConsultaResponse(BaseModel):
+    """
+    Resultado de consultar un documento de comprador (DNI o RUC).
+
+    `encontrado=False` NO es un error: puede ser un RUC recién inscrito, una
+    copia del padrón sin actualizar, o un DNI que este restaurante todavía
+    no atendió. El cajero escribe el nombre a mano y sigue cobrando —
+    `requiere_nombre_manual` es lo que le dice al frontend que despliegue
+    ese campo en vez de mostrar un error.
+    """
+    documento: str
+    tipo: Literal["DNI", "RUC"]
+    encontrado: bool
+    nombre: Optional[str] = None
+    # "local" = ya estaba guardado en este restaurante; "api" = lo trajo el
+    # servicio externo; "manual" = lo escribió el cajero. Solo aplica a DNI.
+    origen: Optional[str] = None
+    persona_natural: Optional[bool] = None
+    puede_facturarse: Optional[bool] = None
+    requiere_nombre_manual: bool = False
+    advertencia: Optional[str] = None
+
+
+class DocumentoGuardarRequest(BaseModel):
+    """El nombre que el cajero escribió a mano, para no tener que volver a
+    tipearlo la próxima vez que venga esa persona."""
+    nombre: str = Field(..., min_length=1, max_length=200)

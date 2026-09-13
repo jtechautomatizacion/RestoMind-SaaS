@@ -1256,6 +1256,11 @@ async function refreshBoletasPendientes() {
  * servidor, no la sesión guardada: el RUC lo carga el superadmin, así que
  * puede aparecer sin que este admin vuelva a loguearse.
  */
+// ¿Este restaurante ya cargó su certificado? Lo dice el backend
+// (datos_fiscales_bloqueados); mientras no responda, se asume que no —
+// es el supuesto que lleva al camino seguro (abrir el formulario).
+let sunatYaConfigurado = false;
+
 async function refreshSwitchUsarSunat() {
     const check = document.getElementById('switch-usar-sunat');
     const hint = document.getElementById('sunat-switch-hint');
@@ -1264,23 +1269,59 @@ async function refreshSwitchUsarSunat() {
     try {
         const cfg = await api.get('/configuracion');
         check.checked = cfg.usar_sunat;
+        // `datos_fiscales_bloqueados` viene en true solo cuando la
+        // facturación está activa, o sea cuando el certificado YA se cargó.
+        // Es lo que distingue "prender de nuevo algo ya configurado" de
+        // "configurarlo por primera vez".
+        sunatYaConfigurado = !!cfg.datos_fiscales_bloqueados;
         // Sin RUC el interruptor no puede prenderse — se deshabilita y se
         // dice POR QUÉ, en vez de dejarlo muerto sin explicación.
-        check.disabled = !cfg.tiene_ruc;
-        if (!cfg.tiene_ruc) {
-            hint.textContent = 'Primero hay que cargar el RUC del restaurante. Pídeselo a quien te dio de alta el sistema.';
+        // Siempre habilitado si el servidor respondió: prenderlo sin
+        // credenciales ya no es un callejón sin salida, abre el formulario
+        // que sirve para cargarlas.
+        check.disabled = false;
+        if (!sunatYaConfigurado) {
+            hint.textContent = 'Actívalo para vincular tu certificado digital y empezar a emitir.';
         } else if (cfg.usar_sunat) {
-            hint.textContent = `Emitiendo con RUC ${cfg.ruc}. Cada cobro genera su boleta.`;
+            hint.textContent = `Emitiendo con RUC ${cfg.ruc} · ${cfg.razon_social || ''}`.trim();
         } else {
-            hint.textContent = 'Actívalo cuando tengas el Facturador SUNAT listo. Mientras esté apagado, cobras normal y sin avisos de boleta.';
+            hint.textContent = 'Apagado: cobrás normal, sin emitir comprobantes ni pedir documento.';
         }
     } catch (_) {
-        // Un fallo acá no debe romper la pantalla de Boletas entera.
+        // Si no se pudo leer la configuración, el interruptor queda
+        // DESHABILITADO y lo dice.
+        //
+        // Antes acá no se hacía nada, y el resultado era un interruptor que
+        // se veía perfectamente usable pero no hacía nada: al tocarlo solo
+        // salía un error, sin ninguna pista de por qué. Peor todavía,
+        // mostraba "apagado" cuando en realidad NO SE SABE cómo está — y
+        // apagado significa "este restaurante no emite boletas", que es una
+        // afirmación fuerte para hacerla sin haber podido consultar nada.
+        //
+        // A diferencia del switch de notificaciones (que tiene respaldo en
+        // localStorage), este estado vive solo en el servidor: sin
+        // respuesta no hay nada que mostrar honestamente.
+        check.disabled = true;
+        hint.textContent = 'No se pudo leer la configuración. Revisa la conexión con el servidor y vuelve a entrar.';
     }
 }
 
 async function onToggleUsarSunat(event) {
     const activar = event.target.checked;
+
+    // ENCENDER no es un PATCH: hace falta el certificado digital y las
+    // credenciales SOL. Sin los tres archivos en el servidor, el restaurante
+    // quedaría "activado" y fallando en cada cobro, que es justo lo que este
+    // interruptor existe para evitar.
+    //
+    // Si ya está todo cargado (el admin lo apagó y lo vuelve a prender), el
+    // PATCH alcanza: los archivos siguen donde estaban.
+    if (activar && !sunatYaConfigurado) {
+        event.target.checked = false;   // no mentir: todavía no está activo
+        abrirActivacionSunat();
+        return;
+    }
+
     try {
         const cfg = await api.patch('/configuracion', { usar_sunat: activar });
         showToast(cfg.usar_sunat ? 'Boletas activadas' : 'Boletas desactivadas', 'success');
@@ -1362,4 +1403,200 @@ async function emitirBoletaPendiente(comandaIds) {
         showToast(err.message || 'No se pudo emitir la boleta', 'error');
         await refreshBoletasPendientes();
     }
+}
+
+
+// ============ ACTIVACIÓN DE FACTURACIÓN ELECTRÓNICA ============
+//
+// Prender el interruptor no es un PATCH: hace falta el certificado digital y
+// las credenciales SOL, porque sin los tres archivos el restaurante quedaría
+// "activado" y fallando en CADA cobro. Por eso el switch abre este
+// formulario en vez de mandar un cambio de estado que el backend rechazaría.
+//
+// Dos pasos porque el primero puede fallar solo (un RUC mal tipeado), y no
+// tiene sentido pedirle el certificado a alguien cuyo RUC todavía no validó.
+
+let sunatDatosFiscales = null;   // { ruc, razon_social, direccion_fiscal }
+
+function abrirActivacionSunat() {
+    const panel = document.getElementById('sunat-activacion');
+    if (!panel) return;
+    panel.classList.remove('hidden');
+    volverAPaso1();
+
+    // Si el restaurante ya tiene RUC cargado (lo puso el superadmin al darlo
+    // de alta), se precarga: el admin no tiene por qué volver a tipearlo.
+    api.get('/configuracion').then(cfg => {
+        if (cfg.ruc) {
+            document.getElementById('sunat-ruc').value = cfg.ruc;
+            validarRucEmpresa();
+        }
+        // Restaurante de pruebas (RUC 20000000001): el ambiente BETA de SUNAT
+        // exige unas credenciales fijas y PÚBLICAS, iguales para todos. Se
+        // precargan para que nadie tenga que ir a buscarlas a la
+        // documentación — y se avisa, bien visible, que ahí nada tiene
+        // efecto tributario.
+        if (cfg.es_ambiente_beta) {
+            document.getElementById('sunat-sol-usuario').value = 'MODDATOS';
+            document.getElementById('sunat-sol-clave').value = 'moddatos';
+            const aviso = document.getElementById('sunat-aviso-beta');
+            if (aviso) aviso.classList.remove('hidden');
+        }
+    }).catch(() => { /* que falle el precargado no impide tipearlo a mano */ });
+
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function cerrarActivacionSunat() {
+    const panel = document.getElementById('sunat-activacion');
+    if (panel) panel.classList.add('hidden');
+    sunatDatosFiscales = null;
+    // Las claves NO se dejan en el DOM: si el admin cancela, no tiene por qué
+    // quedar una contraseña escrita en un input de una pantalla abierta.
+    ['sunat-cert-clave', 'sunat-sol-clave', 'sunat-cert'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+}
+
+function volverAPaso1() {
+    document.getElementById('sunat-paso-1').classList.remove('hidden');
+    document.getElementById('sunat-paso-2').classList.add('hidden');
+    document.getElementById('sunat-paso-1-chip').classList.add('activo');
+    document.getElementById('sunat-paso-2-chip').classList.remove('activo');
+}
+
+// ---- Paso 1: validar el RUC contra el padrón ----
+
+async function validarRucEmpresa() {
+    const ruc = document.getElementById('sunat-ruc').value.trim();
+    const info = document.getElementById('sunat-ruc-info');
+    const encontrados = document.getElementById('sunat-datos-encontrados');
+    const boton = document.getElementById('sunat-btn-validar');
+
+    encontrados.classList.add('hidden');
+
+    if (ruc.length !== 11) {
+        pintar(info, 'El RUC tiene 11 dígitos.', 'aviso');
+        return;
+    }
+
+    boton.disabled = true;
+    pintar(info, 'Buscando en SUNAT...', 'buscando');
+    try {
+        const datos = await api.get(`/documento/${ruc}`);
+
+        if (!datos.encontrado) {
+            // No es un error del admin: puede ser un RUC recién inscrito o
+            // una copia del padrón sin actualizar. Pero para ACTIVAR sí hace
+            // falta la razón social, así que acá no se puede seguir.
+            pintar(info, 'No figura en el padrón de SUNAT. Revisá el número; si es correcto, pedí que registren la razón social.', 'aviso');
+            return;
+        }
+
+        document.getElementById('sunat-razon-social').value = datos.nombre;
+        encontrados.classList.remove('hidden');
+
+        if (datos.puede_facturarse === false) {
+            // Se avisa pero NO se bloquea: el estado del padrón puede estar
+            // desactualizado, y quien sabe si su RUC está al día es el dueño.
+            pintar(info, datos.advertencia || 'Revisá el estado de tu RUC en SUNAT.', 'aviso');
+        } else {
+            pintar(info, 'RUC verificado', 'ok');
+        }
+    } catch (err) {
+        pintar(info, err.message || 'No se pudo consultar el RUC', 'aviso');
+    } finally {
+        boton.disabled = false;
+    }
+}
+
+function confirmarDatosFiscales() {
+    const ruc = document.getElementById('sunat-ruc').value.trim();
+    const razon = document.getElementById('sunat-razon-social').value.trim();
+    const direccion = document.getElementById('sunat-direccion').value.trim();
+
+    if (!direccion) {
+        showToast('Falta la dirección fiscal', 'warning');
+        document.getElementById('sunat-direccion').focus();
+        return;
+    }
+
+    sunatDatosFiscales = { ruc, razon_social: razon, direccion_fiscal: direccion };
+
+    document.getElementById('sunat-paso-1').classList.add('hidden');
+    document.getElementById('sunat-paso-2').classList.remove('hidden');
+    document.getElementById('sunat-paso-1-chip').classList.remove('activo');
+    document.getElementById('sunat-paso-2-chip').classList.add('activo');
+}
+
+// ---- Paso 2: certificado y credenciales ----
+
+function mostrarNombreCertificado(event) {
+    const archivo = event.target.files && event.target.files[0];
+    const el = document.getElementById('sunat-cert-nombre');
+    el.textContent = archivo ? archivo.name : 'Ningún archivo elegido';
+}
+
+async function vincularConSunat() {
+    const error = document.getElementById('sunat-activacion-error');
+    const boton = document.getElementById('sunat-btn-vincular');
+    error.classList.add('hidden');
+
+    const archivo = document.getElementById('sunat-cert').files[0];
+    const claveCert = document.getElementById('sunat-cert-clave').value;
+    const solUsuario = document.getElementById('sunat-sol-usuario').value.trim();
+    const solClave = document.getElementById('sunat-sol-clave').value;
+
+    // Se revisa acá antes de subir: mandar un formulario incompleto gasta el
+    // tiempo de subida del certificado para nada.
+    const falta = !archivo ? 'el certificado (.pfx)'
+        : !claveCert ? 'la clave del certificado'
+        : !solUsuario ? 'el usuario SOL'
+        : !solClave ? 'la clave SOL'
+        : null;
+    if (falta) {
+        error.textContent = `Falta ${falta}.`;
+        error.classList.remove('hidden');
+        return;
+    }
+
+    const datos = new FormData();
+    datos.append('ruc', sunatDatosFiscales.ruc);
+    datos.append('file', archivo);
+    datos.append('password', claveCert);
+    datos.append('sol_usuario', solUsuario);
+    datos.append('sol_clave', solClave);
+    datos.append('direccion_fiscal', sunatDatosFiscales.direccion_fiscal);
+
+    boton.disabled = true;
+    boton.textContent = 'Vinculando...';
+    try {
+        // api.postFile no pone Content-Type a mano: el navegador tiene que
+        // armar el boundary del multipart, y fijarlo nosotros rompe el parseo.
+        await api.postFile('/configuracion/subir-certificado', datos);
+
+        cerrarActivacionSunat();
+        showToast('Listo: ya podés emitir comprobantes electrónicos', 'success');
+        // El backend es la fuente de verdad del switch: se repinta con lo que
+        // acaba de responder, no con una suposición del frontend.
+        await refreshSwitchUsarSunat();
+        // La sesión guardada lleva cliente_usar_sunat, y es lo que mira el
+        // mozo al cobrar. Sin refrescarla, el cambio no surte efecto hasta el
+        // próximo login.
+        await refrescarSesionDesdeServidor();
+        await refreshBoletasPendientes();
+    } catch (err) {
+        error.textContent = err.message || 'No se pudo vincular';
+        error.classList.remove('hidden');
+    } finally {
+        boton.disabled = false;
+        boton.textContent = 'Vincular con SUNAT';
+    }
+}
+
+function pintar(el, texto, tipo) {
+    if (!el) return;
+    el.textContent = texto || '';
+    el.className = 'doc-info' + (texto ? ` ${tipo}` : '');
 }

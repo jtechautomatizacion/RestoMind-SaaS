@@ -1,8 +1,10 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
-**Versión MVP:** 3.0 — Inventario Básico (Movimientos de Insumo)
-**Implementado y probado:** ✅ 100% Autenticación + Seguridad + Facturación SUNAT SFS + Dashboard Financiero + Validador de Caja + Notificaciones Push + **Inventario con entradas/salidas manuales** (181/181 tests)
-**Última actualización:** 2026-08-31
+**Versión MVP:** 4.0 — Facturación SUNAT 100% en la nube
+**Implementado y probado:** ✅ 100% Autenticación + Seguridad + **Facturación SUNAT en la nube** (firma y envío desde el servidor) + Consulta de RUC contra el Padrón Reducido local + Dashboard Financiero + Validador de Caja + Notificaciones Push + Inventario + Vista Unificada (304/304 tests)
+**Última actualización:** 2026-09-13
+**[NUEVA] Interruptor de facturación (`Cliente.usar_sunat`):** emitir boleta SUNAT ya no se deduce de "¿tiene RUC?" — es una decisión operativa aparte, con su propio switch en Admin > Boletas. Sin activarlo, el cobro ya no muestra el toast rojo de "boleta no emitida" ni pide DNI/RUC al cliente. Ver sección "Interruptor de Facturación" más abajo.
+**[NUEVA] Vista Unificada ("Todo en uno"):** pantalla única con Mesas + Cocina + Cobro en tres columnas, pensada para el dueño que atiende solo (sin saltar entre pestañas). Interruptor por dispositivo, no reemplaza la vista clásica. Ver sección "Vista Unificada" más abajo.
 **[NUEVA] Inventario Básico:** Entradas/salidas manuales de stock (sin acoplamiento con comandas). Admin registra entrada (compra) o salida (uso/merma/ajuste). Sistema calcula automáticamente estado (ok/bajo/crítico) basado en cantidad actual vs mínimo. Alertas solo al cruzar umbral (no en cada salida). Historial auditable con reversión sin borrar (contra-asiento). Ver sección "Inventario Básico" más abajo.
 
 > Este documento describe el diseño original (MVPv1). El estado real de la
@@ -24,12 +26,12 @@
 > - ✅ **[NUEVA] Tabla de auditoría:** Registro persistente de logins y cambios administrativos
 > - ✅ **[NUEVA] Cascade delete:** Eliminar cliente limpia todas sus categorías (antes quedaban huérfanas)
 > - ✅ **[NUEVA] Rediseño UI 3D:** ícono de mesa con relieve (gradientes + sombra), cajitas de texto con glow al enfocar, nav inferior con píldora animada — pensado para PWA, sin costo extra de rendimiento (ver sección "Rediseño Visual" más abajo)
-> - ✅ **[NUEVA] Facturación SUNAT:** Exportador local de boletas para el Facturador SUNAT — CUATRO archivos planos (.cab 18 campos / .det 36 / .tri 5 / .ley 2), con la estructura leída campo por campo del Anexo I de SUNAT (`docs/sunat/AnexosIyII_Formato1.3.xlsx`, hoja "Factura y boleta 2.1")
+> - ❌ **[ELIMINADO en 4.0] Exportador local `sfs_local`:** escribía cuatro archivos planos (.cab/.det/.tri/.ley) para el Facturador SUNAT de escritorio. Ataba cada restaurante a una PC con Windows prendida — inservible para un local que trabaja solo con tablets. Reemplazado por el emisor `sunat_cloud`. Los comprobantes ya emitidos así siguen en el historial con estado `generado_localmente`
 > - ✅ **[NUEVA] Validación de RUC:** Prefijo 10 o 20 requerido; rechaza tipeos antes de cobrar (frontend) y después (backend)
 > - ✅ **[NUEVA] Admin > Boletas:** Pantalla de recuperación de boletas con error o nunca emitidas; reintento/emisión de cero
 > - ✅ **[BUG FIX] Edición de restaurante:** PATCH /superadmin/clientes/{id} fallaba 100% de las veces sin cambiar contraseña (schema contradictorio); separado ClienteUpdateRequest
-> - ✅ **[NUEVA] Agente de descarga de comprobantes:** el Facturador SUNAT vigila una carpeta LOCAL de Windows, cosa que deja de existir al mover RestoMind a un VPS. Se invierte la dirección: un agente en PowerShell (`agente/`) corre en la PC del restaurante, consulta `GET /api/agente/pendientes` y deposita los cuatro archivos en la carpeta del Facturador. Solo conexiones salientes — sin abrir puertos ni VPN — y cada local con su propio token revocable, lo que permite que un mismo RestoMind sirva a varios restaurantes. Ver `agente/INSTALAR.md`
-> - ✅ **[MEJORA] Orden de operaciones:** Commit de correlativo ANTES de escribir los archivos, para evitar race conditions bajo concurrencia. El `.cab` se escribe ÚLTIMO de los cuatro: el Facturador dispara al ver la cabecera, así que sus complementos ya deben existir
+> - ❌ **[ELIMINADO en 4.0] Agente de PowerShell:** existía solo para llevarle los archivos planos al Facturador de escritorio. Sin ese emisor, no tiene para qué existir
+> - ✅ **[NUEVA en 4.0] Emisor `sunat_cloud`:** el comprobante se arma como XML UBL 2.1, se firma con el certificado digital del restaurante y se envía a SUNAT por SOAP, todo desde el servidor. Vive en un contenedor aparte (`sunat-service/`) porque `sunat-py` exige `cryptography<45` y RestoMind usa la 50 — juntarlos obligaría a retroceder 6 versiones mayores la librería que respalda los JWT. Ver `docs/SUNAT_SETUP.md`
 > - ✅ **[NUEVA] Dashboard Financiero Completo:** Tabla detallada de ganancias diarias, Top 5 platos, colores consistentes (teal ventas/rojo gastos en gráfico + leyenda), etiquetas de barras con montos exactos (sin redondeo falso)
 > - ✅ **[NUEVA] Tabla de Ganancias por Día:** Fecha / Ventas / Gastos / Ganancia / Margen %, orden DESC (más reciente primero), filas coloreadas según ganancia (verde positivo/rojo negativo), responsive (oculta Gastos y Margen en móvil ≤480px)
 > - ✅ **[FIX] formatCompacto():** Ya no redondea falsos — 122.50 se muestra "122.50", no "123"; consistente con tabla de abajo y stat-tiles
@@ -1454,6 +1456,260 @@ desincronizarse.
 
 ---
 
+## 🧾 INTERRUPTOR DE FACTURACIÓN (`Cliente.usar_sunat`)
+
+**Contexto:** antes, "¿este restaurante emite boletas?" se deducía de "¿tiene
+RUC?". Son dos cosas distintas: tener RUC es un dato tributario del negocio;
+emitir desde esta app es una decisión operativa que además cambia con el
+tiempo — un restaurante se da de alta y empieza a vender desde el primer día,
+y el Facturador SUNAT (la app de escritorio + el agente que le entrega los
+archivos, ver el bloque de inicio de este documento) se configura después,
+si acaso. Con la lógica vieja, un restaurante sin SUNAT configurado recibía
+un toast rojo en **cada cobro** ("Cobro OK, pero la boleta NO se emitió") y
+Admin > Boletas se le llenaba de pendientes que nadie iba a emitir jamás —
+ruido que además tapa un pendiente de verdad el día que sí se activa.
+
+### Qué cambia al prender/apagar el switch
+
+- `mozo.js` solo intenta emitir boleta si el restaurante tiene
+  `usar_sunat=true` — sin eso, cobrar ya no dispara el toast rojo.
+- El campo de DNI/RUC del cobro se oculta cuando el restaurante no emite:
+  pedirle el documento al cliente no tiene sentido si ese dato no va a
+  ningún lado.
+- `GET /facturas/pendientes` devuelve vacío para quien no emite (en vez de
+  acumular boletas "pendientes" que nunca se van a generar).
+
+### Endpoint y regla de negocio
+
+```
+GET/PATCH /api/configuracion   (admin-only, cliente_id del token)
+```
+
+- **No se puede activar sin RUC cargado** — sin RUC no hay comprobante
+  posible, y prenderlo solo llevaría al mismo error de siempre en cada
+  cobro, ahora sin ninguna pista de por qué.
+- El cambio queda en `audit_log`, pero **solo si de verdad cambió algo**: el
+  frontend puede reenviar el estado actual (por ejemplo al cargar la
+  pantalla) y eso no cuenta como un evento de auditoría.
+- **Migración no destructiva:** los clientes que ya tenían RUC cargado
+  arrancan en `usar_sunat=1`, preservando exactamente lo que venían
+  haciendo. Los clientes nuevos arrancan apagados (opt-in).
+
+### Interruptor en Admin > Boletas
+
+Vive junto a la pantalla de recuperación de boletas (`frontend/js/admin.js`,
+`frontend/js/auth.js` para el estado de sesión) — es el lugar natural porque
+es la misma pantalla donde el admin ya lidia con RUC y comprobantes.
+
+### Lo que la especificación pedía y NO se implementó (a propósito)
+
+La especificación original de este cambio pedía además un `modo_operacion`
+(`solo`/`duo`/`formal`) que restringiera qué roles pueden existir y cobrar
+según el tamaño del restaurante. Se descartó porque choca de frente con el
+sistema multi-rol ya en producción (una cuenta puede ser `cajero,jefe_cocina`
+a la vez — ver [[personal-login-real-por-rol]] más abajo — mientras la spec
+asumía un rol único por usuario), usaba nombres de rol que no existen en esta
+app (`atención`/`caja`/`cocina` en vez de `mozo`/`cajero`/`jefe_cocina`), y su
+matriz de permisos le escondía el Dashboard al dueño que trabaja solo, que es
+justamente quien más necesita ver sus números.
+
+---
+
+## 🖥️ VISTA UNIFICADA ("Todo en uno")
+
+**Contexto:** con roles reales y caja obligatoria, el flujo de un dueño que
+atiende SOLO (sin mozo, sin cocinero — todo en una sola cuenta admin, o
+`mozo,jefe_cocina`) seguía obligando a saltar entre las pestañas Mesas →
+Cocina → Mesas por cada cliente que atiende, y en cada salto pierde de vista
+lo que estaba haciendo. La Vista Unificada (`frontend/js/vista-unificada.js`)
+pone las tres etapas de una mesa — tomar el pedido, cocinarlo, cobrarlo — en
+una sola pantalla de tres columnas, siempre visibles.
+
+### Tres decisiones que conviene no deshacer sin leer esto
+
+1. **Quién la ve sale de los ROLES que ya existen, no de una columna nueva en
+   `clientes`.** La condición es "esta cuenta ve Mesas Y ve Cocina"
+   (`vistaUnificadaDisponible()`): un admin la cumple, y también una cuenta
+   `mozo,jefe_cocina`. Un mozo puro no la ve — su columna de cocina estaría
+   siempre vacía y cada consulta le devolvería un 403. Un "modo de
+   operación" en la base habría creado una segunda fuente de verdad sobre
+   quién puede hacer qué, que tarde o temprano se contradice con los roles
+   (mismo argumento que llevó a descartar `modo_operacion` en el interruptor
+   de facturación, arriba).
+2. **Es un interruptor, no un reemplazo.** La grilla de mesas de siempre
+   (`mozo-mesas`) queda intacta y a un toque de distancia — el switch
+   "Solo mesas" / "Todo en uno" vive junto a ella, y la preferencia se
+   guarda por dispositivo (`localStorage`, clave `restomind_vista_unificada`),
+   no por cuenta. Si a mitad de un turno real esta vista no le acomoda al
+   dueño, se vuelve sin perder nada.
+3. **Reusa los modales que ya existen** (nuevo pedido, cuenta, cobro) en vez
+   de duplicar el carrito y el flujo de cobro — exactamente donde no se
+   pueden tener dos versiones que se desincronicen. Esos modales ya son
+   overlays semitransparentes (`.modal` en `style.css`), así que las tres
+   columnas de atrás se siguen viendo sin construir nada nuevo.
+
+### Las tres columnas
+
+1. **Mesas** — la grilla de siempre, coloreada en tres estados (no dos):
+   `libre`, `cocinando` (ocupada, con algo todavía en cocina) y `por-cobrar`
+   (ocupada, todo entregado, nada pendiente). Para quien atiende, "esperando
+   la comida" y "esperando que le cobren" son situaciones muy distintas.
+2. **En cocina** — las mismas comandas que pinta `cocina.js` en su propia
+   pestaña (`estado.comandasCocina`, poblado por `refreshCocina()` cada 4s).
+   La vista unificada **no vuelve a pedirlas**: se avisa vía el hook
+   `onCocinaActualizada()` que `cocina.js` dispara después de cada refresco.
+   Pedir el mismo dato dos veces sería duplicar tráfico contra el wifi del
+   local, que suele ser el cuello de botella real.
+3. **Esperando la cuenta** — mesas con comandas `entregado` y **ninguna**
+   todavía en `cocina` (`vuMesasPorCobrar()`). El filtro por cocina no es
+   cosmético: `POST /mesas/{id}/cobrar` rechaza con 400 si queda alguna
+   comanda en `cocina` (no se cobra comida que el cliente no recibió — ver
+   sección "Cobro de Mesa" más arriba). Sin el filtro, una mesa que pidió
+   postre después del primer plato aparecería acá con un botón Cobrar que
+   fallaría siempre.
+
+Un pie fijo (`vu-pie`) resume: cuántas mesas en cocina, cuánto suma lo por
+cobrar, y — solo para quien tiene rol `admin` — el vendido del turno
+(`GET /caja/estado`, mismo dato que el validador de caja) y si la caja está
+abierta o cerrada. Una cuenta `mozo,jefe_cocina` no ve ese monto: pedirlo
+igual sería un 403 en cada vuelta del intervalo de 5s.
+
+### Atajos de teclado — solo navegan, nunca cobran
+
+Tipear un número de mesa (con una ventana de 700ms para juntar dígitos y
+poder tipear "12" sin saltar antes a la mesa 1) abre esa mesa, igual que
+tocarla. **No hay atajo de teclado para cobrar ni para confirmar un modal.**
+Cobrar mueve dinero y libera la mesa; que se dispare con una tecla que se
+suele apretar sin mirar (Enter, sobre todo) es un cobro equivocado esperando
+a pasar. Los atajos se desactivan solo si hay un modal abierto (saltar de
+mesa ahí perdería un pedido a medio armar) o si el foco está en un campo de
+texto.
+
+Por el mismo motivo se agregó, de forma general para toda la app (no solo
+la vista unificada), que **Escape cierre el modal visible** (`app.js`,
+`cerrarModalConEscape()`) — dispara el botón ✕ real del modal en vez de
+esconderlo a mano, para no saltarse la limpieza que ese modal ya hace
+(resetear el formulario, vaciar el carrito).
+
+### Endpoints — ninguno nuevo
+
+La vista unificada no agrega backend: reusa `GET /mesas`,
+`GET /comandas?estado=entregado`, `GET /caja/estado` y los mismos modales
+(`abrirMesa`, `abrirCuentaMesa`) que ya usaban Mesas y Cocina por separado.
+
+---
+
+
+---
+
+## 🧾 FACTURACIÓN SUNAT EN LA NUBE (v4.0)
+
+Reemplaza por completo al emisor local (`sfs_local` + agente de PowerShell),
+que ataba cada restaurante a una PC con Windows prendida.
+
+### Arquitectura
+
+```
+RestoMind (systemd, cryptography 50)
+    │  HTTP 127.0.0.1:8100  + token de servicio
+    ▼
+sunat-service (Docker, cryptography 44 + sunat-py)
+    │  XML UBL 2.1 → firma RSA → zip → SOAP
+    ▼
+  SUNAT  → CDR → se guarda en Factura.cdr_xml
+```
+
+El contenedor está aparte por UNA razón concreta: `sunat-py` fija
+`cryptography<45` y RestoMind usa la 50. Instalarlos juntos retrocedería 22
+versiones la librería que respalda los JWT y firebase-admin.
+
+**El certificado NUNCA va a la base de datos.** Vive en
+`{certs_dir}/{cliente_id}/` — volumen que el contenedor monta de SOLO
+LECTURA: RestoMind escribe, el contenedor de firma lee.
+
+### Qué comprobante se emite — lo decide el SERVIDOR
+
+| El cajero tipea | Resultado |
+|---|---|
+| nada, total < S/ 700 | Boleta 03 / B001, Público General |
+| nada, total ≥ S/ 700 | 400 `IDENTIFICAR_COMPRADOR` — **el cobro NO se toca** |
+| 8 dígitos (DNI) | Boleta 03 / B001 |
+| 11 dígitos (RUC) | Factura 01 / F001 **solo si `Cliente.emite_facturas`** |
+
+### Nuevo RUS: no puede facturar
+
+`Cliente.emite_facturas` arranca en **False para todos**. Un contribuyente
+del Nuevo RUS tiene PROHIBIDO emitir facturas: solo boletas y tickets. Con
+el campo en False, un comensal con RUC igual recibe **boleta**, llevando su
+RUC como documento del adquiriente (el catálogo 06 de SUNAT lo admite).
+
+Default False porque es el caso seguro: emitir boletas de más nunca es
+infracción; facturar sin poder, sí. Solo el superadmin lo activa.
+
+### Correlativos SEPARADOS por serie — no es opcional
+
+`Cliente.boleta_correlativo_actual` y `Cliente.factura_correlativo_actual`.
+SUNAT exige que cada serie sea correlativa SIN HUECOS. Con un contador
+compartido, una factura intercalada entre dos boletas deja a las DOS series
+agujereadas — y el `UNIQUE(cliente_id, serie, correlativo)` **no lo
+detecta**, porque las combinaciones siguen siendo distintas.
+
+### La matemática del IGV, calibrada contra un comprobante real
+
+Contra la boleta **EB01-1297** (S/ 150.00) del visor oficial:
+
+```
+Valor Unitario   127.11864      <- 5 decimales (PRECISION_BASE)
+Importe de Venta 149.9999952
+Op. Gravada      127.12         = redondeo(150 / 1.18, 2)
+IGV               22.88         = 150.00 - 127.12   (por RESTA, no multiplicando)
+```
+
+`_calcular_montos()` ya usaba una fórmula equivalente: se compararon las dos
+sobre **500.000 montos** (S/ 0.01 a S/ 5.000) con **cero diferencias**.
+
+**Limitación conocida, no es un bug pendiente:** `sunat_py.compute_totals`
+calcula el IGV multiplicando por línea, no restando, y
+`build_invoice_xml()` lo llama internamente sin permitir inyectar totales.
+La librería tampoco soporta `PayableRoundingAmount` (el "Monto de Redondeo"
+oficial de UBL). Para ciertos precios (S/ 10.00 × 1, por ejemplo) NO existe
+base imponible que dé el total exacto: 8.47 → 9.99 y 8.48 → 10.01. El
+desvío se DETECTA (`diferencia_contra_lo_cobrado`) y se anota en la
+Factura, en vez de emitirse en silencio.
+
+### Ambiente de pruebas
+
+BETA no acepta el RUC ni el usuario SOL reales: usa credenciales fijas y
+públicas (RUC `20000000001`, `MODDATOS`/`moddatos`). Por eso hay un tenant
+de pruebas separado (`backend/scripts/crear_tenant_beta.py`) en vez de un
+"modo beta" con condicionales que algún día alguien activa en producción.
+
+El usuario SOL va **sin el RUC adelante**: `sunat-py` hace
+`UsernameToken(f"{ruc}{username}", password)` por su cuenta.
+
+---
+
+## 🔎 CONSULTA DE RUC — PADRÓN REDUCIDO LOCAL
+
+`backend/scripts/cargar_padron_sunat.py` construye una copia local del
+Padrón Reducido oficial (~19 millones de contribuyentes, ~1,6 GB). Medido:
+**mediana 0,022 ms** por consulta — por eso NO hay Redis delante.
+
+**Datos personales (Ley N° 29733).** Los RUC 10/15/16/17 son personas
+naturales: su "razón social" es el nombre de alguien. El padrón es fuente de
+acceso público, pero eso no habilita cualquier uso. Tres reglas que no
+conviene relajar:
+
+1. Solo se guardan 4 campos (se descartan las 11 columnas de domicilio).
+2. La consulta **nunca** se expone sin sesión.
+3. Cuota por IP — sin ella es una API de descarga masiva de datos personales.
+
+`clientes_frecuentes` es **distinta**: son DNI y nombres de los comensales
+de cada restaurante, y NO vienen de una fuente pública. Aislamiento por
+`cliente_id` en el índice único, finalidad acotada a emitir comprobantes.
+
+Ver `docs/PADRON_RUC.md`.
+
 ## 📝 NOTAS PARA EL DESARROLLADOR
 
 **Importante:**
@@ -1476,11 +1732,11 @@ desincronizarse.
 
 ---
 
-**Versión:** 3.0 (Inventario Básico con Movimientos de Insumo)  
+**Versión:** 4.0 (Facturación SUNAT en la nube)  
 **Estado:** ✅ **COMPLETAMENTE FUNCIONAL Y AUDITADO** — Autenticación, Facturación, Caja, Notificaciones Push, Inventario probados y operativos  
-**Última Actualización:** 2026-08-31  
-**Tests:** 181/181 pasando (sin fallos, sin warnings críticos)  
-**Cobertura:** Autenticación JWT dual + Rate limiting + Auditoría + Facturación SUNAT SFS + Dashboard Financiero + Validador de Caja (turnos múltiples) + Notificaciones Push (Firebase Cloud Messaging) + Inventario Básico (movimientos manuales)
+**Última Actualización:** 2026-09-13  
+**Tests:** 304/304 pasando (`python -m pytest -q`)  
+**Cobertura:** Autenticación JWT dual + Rate limiting + Auditoría + Facturación SUNAT en la nube (boleta/factura según régimen, correlativos separados por serie) + Padrón Reducido local + Dashboard Financiero + Validador de Caja + Notificaciones Push + Inventario + Vista Unificada
 
 ### ✅ Stack Completo Implementado
 
@@ -1499,8 +1755,9 @@ desincronizarse.
 **Financiero:**
 - ✅ Dashboard de ganancias diarias (ventas/gastos/ganancia/margen %)
 - ✅ Top 5 platos más vendidos con gráficos
-- ✅ Facturación SUNAT (boletas .cab/.det/.tri/.ley) según el Anexo I de SUNAT
-- ✅ Validación de RUC (prefijo 10/20 requerido)
+- ✅ Facturación SUNAT en la nube: XML UBL 2.1 + firma RSA + envío SOAP desde el servidor
+- ✅ Interruptor de facturación por restaurante (`usar_sunat`, NUEVO): emitir boleta es opt-in, no depende solo de tener RUC cargado
+- ✅ Validación de RUC: prefijos 10/15/16/17/20 **y dígito verificador** (verificado contra 154.132 RUC reales del padrón)
 - ✅ Recuperación de boletas no emitidas
 
 **Cash Management:**
@@ -1528,6 +1785,13 @@ desincronizarse.
 - ✅ Admin-only en escritura/reversión, lectura abierta (cocina ve el historial)
 - ✅ Multi-tenant aislado, cascade delete (eliminar insumo borra sus movimientos)
 - ✅ 24 tests verdes (CRUD movimiento, validaciones, atomicidad, auditoría, reversión)
+
+**Vista Unificada (NUEVA):**
+- ✅ Pantalla "Todo en uno" con Mesas + Cocina + Cobro en tres columnas, para el dueño que atiende solo
+- ✅ Interruptor por dispositivo (no reemplaza la grilla clásica de Mesas)
+- ✅ Reusa los modales existentes (pedido, cuenta, cobro) — no duplica lógica de dinero
+- ✅ Atajos de teclado para navegar entre mesas (nunca para cobrar); Escape cierra cualquier modal abierto
+- ✅ Sin endpoints nuevos: reusa `/mesas`, `/comandas`, `/caja/estado`
 
 **Infraestructura:**
 - ✅ PWA con Service Worker (network-first para HTML/CSS/JS, cache-first estáticos)

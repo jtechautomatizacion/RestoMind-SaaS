@@ -1,0 +1,19 @@
+# Dependencias del micro-servicio de emisión SUNAT — AISLADAS de las de
+# RestoMind (../requirements.txt) a propósito.
+#
+# sunat-py fija cryptography<45. RestoMind corre con cryptography 50.0.1, y
+# mezclarlos obligaría a retroceder 22 versiones la librería que respalda los
+# JWT de la app. Al vivir en su propio contenedor, cada uno resuelve su árbol
+# de dependencias sin pisarse.
+#
+# NO fijar aquí signxml / cryptography / zeep a mano: sunat-py ya declara los
+# rangos que soporta y pip los resuelve. Fijarlos por separado fue el error de
+# la especificación original — pedía signxml==3.0.0, cryptography==42.0.0 y
+# zeep==4.2.1, las tres FUERA del rango que sunat-py admite, así que pip no
+# habría podido instalar nada.
+
+sunat-py==0.5.0
+
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+pydantic==2.13.5

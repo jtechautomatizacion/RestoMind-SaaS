@@ -342,6 +342,64 @@ def migrate():
             else:
                 print("[OK] Columna 'usar_sunat' ya existe")
 
+        # facturas.cdr_xml: la Constancia de Recepción que devuelve SUNAT al
+        # aceptar un comprobante, con el emisor "sunat_cloud".
+        #
+        # Se guarda entera y no solo su hash porque es LA prueba de que SUNAT
+        # aceptó: ante una fiscalización, un hash no demuestra nada por sí
+        # solo. Nullable sin default: las boletas ya emitidas por los otros
+        # dos emisores (sfs_local / facturacion_pe) nunca tuvieron CDR, y
+        # NULL dice exactamente eso — no se inventa un valor.
+        cols_facturas_cdr = [row[1] for row in cursor.execute("PRAGMA table_info(facturas)").fetchall()]
+        if cols_facturas_cdr:
+            if "cdr_xml" not in cols_facturas_cdr:
+                print("Agregando columna 'cdr_xml' a facturas...")
+                cursor.execute("ALTER TABLE facturas ADD COLUMN cdr_xml TEXT")
+                conn.commit()
+                print("[OK] Columna 'cdr_xml' agregada")
+            else:
+                print("[OK] Columna 'cdr_xml' ya existe")
+
+        # clientes.factura_correlativo_actual: numeración de la serie F001,
+        # separada de la de boletas (B001). Ver el comentario extenso en
+        # models.py:Cliente — compartir un contador entre dos series deja a
+        # las DOS con huecos, y SUNAT exige que cada una sea correlativa.
+        #
+        # Arranca en 0 para todos, incluidos los clientes que ya existen: hasta
+        # hoy NADIE emitió facturas (solo boletas B001), así que 0 es el valor
+        # correcto y no hay que deducirlo de los datos históricos.
+        cols_clientes_fact = [row[1] for row in cursor.execute("PRAGMA table_info(clientes)").fetchall()]
+        if cols_clientes_fact:
+            if "factura_correlativo_actual" not in cols_clientes_fact:
+                print("Agregando columna 'factura_correlativo_actual' a clientes...")
+                cursor.execute(
+                    "ALTER TABLE clientes ADD COLUMN factura_correlativo_actual INTEGER NOT NULL DEFAULT 0"
+                )
+                conn.commit()
+                print("[OK] Columna 'factura_correlativo_actual' agregada")
+            else:
+                print("[OK] Columna 'factura_correlativo_actual' ya existe")
+
+        # clientes.emite_facturas: si el restaurante puede emitir facturas o
+        # solo boletas. Ver el comentario en models.py:Cliente.
+        #
+        # TODOS arrancan en 0 (solo boletas), incluidos los que ya existen: es
+        # el valor seguro. Hasta hoy el sistema solo emitía boletas B001, así
+        # que 0 describe exactamente lo que venían haciendo — y si alguno está
+        # en Régimen General, activarlo es un clic del superadmin, mientras
+        # que lo contrario (facturar sin poder) es una infracción.
+        cols_clientes_fact2 = [row[1] for row in cursor.execute("PRAGMA table_info(clientes)").fetchall()]
+        if cols_clientes_fact2:
+            if "emite_facturas" not in cols_clientes_fact2:
+                print("Agregando columna 'emite_facturas' a clientes...")
+                cursor.execute(
+                    "ALTER TABLE clientes ADD COLUMN emite_facturas BOOLEAN NOT NULL DEFAULT 0"
+                )
+                conn.commit()
+                print("[OK] Columna 'emite_facturas' agregada (todos en 'solo boletas')")
+            else:
+                print("[OK] Columna 'emite_facturas' ya existe")
+
         print("[OK] Migración completada")
     except Exception as e:
         print(f"[ERROR] Error en migración: {e}")

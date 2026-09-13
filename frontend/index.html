@@ -309,11 +309,74 @@
                     <p>No se pueden tomar pedidos hasta que el administrador abra la caja del día.</p>
                     <button type="button" class="btn btn-primary hidden" id="btn-ir-abrir-caja-mozo" onclick="irAAbrirCaja()">Ir a Caja</button>
                 </div>
+                <!-- Solo aparece para cuentas que ven Mesas Y Cocina (dueño solo,
+                     o una cuenta mozo+cocina). Ver frontend/js/vista-unificada.js -->
+                <div id="vu-switch" class="vu-switch hidden">
+                    <button type="button" class="vu-switch-btn active" data-vista="simple"
+                            aria-pressed="true" onclick="toggleVistaUnificada(false)">Solo mesas</button>
+                    <button type="button" class="vu-switch-btn" data-vista="unificada"
+                            aria-pressed="false" onclick="toggleVistaUnificada(true)">Todo en uno</button>
+                </div>
+
                 <button id="btn-gestionar-mesas" class="btn btn-secondary btn-fab hidden" onclick="abrirGestionMesas()">
                     <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                     Gestionar mesas
                 </button>
                 <div id="mozo-mesas" class="mesas-grid"></div>
+
+                <!-- VISTA UNIFICADA: las tres etapas de una mesa en una pantalla.
+                     En pantallas chicas las columnas se vuelven pestañas (mismo
+                     contenido, solo se oculta lo que no está en foco). -->
+                <div id="vu-panel" class="vu-panel" data-col="mesas">
+                    <div id="vu-tabs" class="vu-tabs" role="tablist">
+                        <button type="button" class="vu-tab active" data-col="mesas" role="tab">
+                            Mesas <span class="vu-badge cero" id="vu-badge-mesas">0</span>
+                        </button>
+                        <button type="button" class="vu-tab" data-col="cocina" role="tab">
+                            Cocina <span class="vu-badge cero" id="vu-badge-cocina">0</span>
+                        </button>
+                        <button type="button" class="vu-tab" data-col="cobro" role="tab">
+                            Cobrar <span class="vu-badge cero" id="vu-badge-cobro">0</span>
+                        </button>
+                    </div>
+
+                    <div class="vu-grid">
+                        <section class="vu-col" data-col="mesas">
+                            <h3 class="vu-col-title">1 · Mesas</h3>
+                            <div id="vu-mesas" class="vu-mesas-grid"></div>
+                        </section>
+                        <section class="vu-col" data-col="cocina">
+                            <h3 class="vu-col-title">2 · En cocina</h3>
+                            <div id="vu-cocina" class="vu-lista"></div>
+                        </section>
+                        <section class="vu-col" data-col="cobro">
+                            <h3 class="vu-col-title">3 · Esperando la cuenta</h3>
+                            <div id="vu-cobro" class="vu-lista"></div>
+                        </section>
+                    </div>
+
+                    <div id="vu-pie" class="vu-pie"></div>
+                </div>
+
+                <!-- Aviso de la regla de los S/ 700. Panel y no toast a
+                     propósito: un toast se va solo, y esto el cajero TIENE que
+                     leerlo y accionarlo. Lo primero que dice es que el cobro SÍ
+                     entró — esa es su duda inmediata con el cliente enfrente. -->
+                <div id="aviso-sunat-700" class="modal hidden">
+                    <div class="modal-content aviso-sunat">
+                        <div class="aviso-sunat-icono">📄</div>
+                        <h2>Cobro registrado</h2>
+                        <p id="aviso-sunat-700-texto">
+                            Por norma de SUNAT, desde S/ 700 hay que identificar al comprador.
+                        </p>
+                        <p class="aviso-sunat-nota">
+                            El comprobante quedó <b>pendiente</b> en Admin &gt; Boletas.
+                            Pedile el DNI o RUC al cliente y emitilo desde ahí.
+                        </p>
+                        <button type="button" class="btn btn-primary btn-large"
+                                onclick="cerrarAvisoSunat700()">Entendido</button>
+                    </div>
+                </div>
 
                 <!-- Modal: Nuevo Pedido -->
                 <div id="modal-comanda" class="modal hidden">
@@ -353,11 +416,28 @@
                             <div class="cuenta-total-global">
                                 <span class="label">Total a cobrar</span>
                                 <span class="value" id="cuenta-total">S/ 0.00</span>
+                                <!-- Un RUC SIEMPRE produce factura, nunca boleta.
+                                     Mostrarlo ANTES de cobrar evita la sorpresa de
+                                     recibir un comprobante distinto del pedido. -->
+                                <span class="comprobante-chip" id="cuenta-tipo-comprobante">BOLETA B001</span>
                             </div>
                             <div class="form-group" id="cuenta-documento-grupo" style="margin-bottom:8px;">
-                                <label for="cuenta-documento">DNI (8 dígitos) o RUC (11, empieza en 10/20) — opcional</label>
+                                <label for="cuenta-documento">DNI (8 dígitos) o RUC (11 dígitos) — opcional</label>
                                 <input type="text" id="cuenta-documento" inputmode="numeric" maxlength="11"
-                                       oninput="soloDigitos(event)" placeholder="Vacío = Público General">
+                                       autocomplete="off"
+                                       oninput="onDocumentoInput(event)" placeholder="Vacío = Público General">
+                                <!-- Al completar un RUC aparece acá el nombre registrado en
+                                     SUNAT. Nunca bloquea el cobro: si no se puede consultar,
+                                     esta línea queda vacía y todo sigue igual. -->
+                                <div id="cuenta-doc-info" class="doc-info" aria-live="polite"></div>
+                            </div>
+
+                            <!-- Se abre solo cuando el documento NO se encontró: un RUC
+                                 recién inscrito, o un comensal que este restaurante
+                                 nunca atendió. Es la única forma de emitir igual. -->
+                            <div class="form-group hidden" id="cuenta-nombre-manual-grupo" style="margin-bottom:8px;">
+                                <label for="cuenta-nombre-manual" id="cuenta-nombre-manual-label">Razón social</label>
+                                <input type="text" id="cuenta-nombre-manual" maxlength="200" autocomplete="off">
                             </div>
                             <button id="btn-agregar-pedido" class="btn btn-secondary btn-large" style="margin-bottom:8px;" onclick="agregarPedidoAMesa()">
                                 + Agregar pedido
@@ -838,14 +918,126 @@
                         </div>
                         <div class="notif-settings-text">
                             <div class="notif-settings-title">Emitir boletas electrónicas</div>
-                            <div class="notif-settings-hint" id="sunat-switch-hint">Actívalo cuando tengas el Facturador SUNAT listo. Mientras esté apagado, cobras normal y sin avisos de boleta.</div>
+                            <div class="notif-settings-hint" id="sunat-switch-hint">Consultando…</div>
                         </div>
                         <label class="switch">
-                            <input type="checkbox" id="switch-usar-sunat" onchange="onToggleUsarSunat(event)">
+                            <!-- Arranca DESHABILITADO a propósito: este estado vive
+                                 solo en el servidor, así que hasta que /configuracion
+                                 responda no se sabe si el restaurante emite boletas
+                                 ni si puede hacerlo. Lo habilita refreshSwitchUsarSunat()
+                                 al recibir la respuesta. Mostrarlo usable antes sería
+                                 ofrecer una acción que todavía no se puede cumplir. -->
+                            <input type="checkbox" id="switch-usar-sunat" disabled onchange="onToggleUsarSunat(event)">
                             <span class="switch-track"></span>
                             <span class="switch-thumb"></span>
                         </label>
                     </div>
+
+                    <!-- ACTIVACIÓN DE FACTURACIÓN, en dos pasos.
+                         Aparece solo cuando el admin intenta prender el switch sin
+                         tener el certificado cargado (ver onToggleUsarSunat en
+                         admin.js). En dos pasos porque el primero puede fallar por
+                         sí solo —un RUC mal tipeado— y no tiene sentido pedirle el
+                         certificado a alguien cuyo RUC todavía no validó. -->
+                    <div id="sunat-activacion" class="sunat-activacion hidden">
+
+                        <!-- Solo en el tenant de pruebas. Que se vea es
+                             importante: alguien podría creer que ya está
+                             emitiendo de verdad. -->
+                        <div id="sunat-aviso-beta" class="sunat-aviso-beta hidden">
+                            🧪 <b>Ambiente de pruebas.</b> Nada de lo que emitas acá
+                            tiene efecto tributario. Las credenciales SOL vienen
+                            precargadas.
+                        </div>
+
+                        <ol class="sunat-pasos">
+                            <li id="sunat-paso-1-chip" class="sunat-paso-chip activo">1 · Tu empresa</li>
+                            <li id="sunat-paso-2-chip" class="sunat-paso-chip">2 · Credenciales</li>
+                        </ol>
+
+                        <!-- PASO 1 -->
+                        <div id="sunat-paso-1" class="sunat-paso">
+                            <p class="sunat-paso-intro">
+                                Escribí el RUC del restaurante y lo buscamos en SUNAT.
+                            </p>
+                            <div class="form-group">
+                                <label for="sunat-ruc">RUC (11 dígitos)</label>
+                                <div class="sunat-fila-validar">
+                                    <input type="text" id="sunat-ruc" inputmode="numeric" maxlength="11"
+                                           autocomplete="off" placeholder="20123456789"
+                                           oninput="soloDigitos(event)">
+                                    <button type="button" class="btn btn-secondary" id="sunat-btn-validar"
+                                            onclick="validarRucEmpresa()">Validar</button>
+                                </div>
+                                <div id="sunat-ruc-info" class="doc-info"></div>
+                            </div>
+
+                            <!-- Aparece recién cuando SUNAT confirma el RUC -->
+                            <div id="sunat-datos-encontrados" class="hidden">
+                                <div class="form-group">
+                                    <label>Razón social (según SUNAT)</label>
+                                    <input type="text" id="sunat-razon-social" readonly>
+                                </div>
+                                <div class="form-group">
+                                    <label for="sunat-direccion">Dirección fiscal</label>
+                                    <input type="text" id="sunat-direccion" maxlength="200"
+                                           autocomplete="off" placeholder="Av. Ejemplo 123, Lima">
+                                    <!-- El padrón de SUNAT no trae domicilio: al cargarlo
+                                         se descartan sus columnas de dirección, así que
+                                         este dato lo pone el restaurante. -->
+                                    <div class="form-hint">La que figura en tu ficha RUC.</div>
+                                </div>
+                                <button type="button" class="btn btn-primary btn-large"
+                                        onclick="confirmarDatosFiscales()">Confirmar datos fiscales</button>
+                            </div>
+                        </div>
+
+                        <!-- PASO 2 -->
+                        <div id="sunat-paso-2" class="sunat-paso hidden">
+                            <p class="sunat-paso-intro">
+                                Ahora los datos que te dio SUNAT para firmar.
+                                <b>No salen de tu servidor.</b>
+                            </p>
+
+                            <div class="form-group">
+                                <label for="sunat-cert">Certificado digital (.pfx)</label>
+                                <input type="file" id="sunat-cert" accept=".pfx,.p12"
+                                       onchange="mostrarNombreCertificado(event)">
+                                <div id="sunat-cert-nombre" class="form-hint">Ningún archivo elegido</div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="sunat-cert-clave">Clave del certificado</label>
+                                <input type="password" id="sunat-cert-clave" autocomplete="new-password">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="sunat-sol-usuario">Usuario SOL secundario</label>
+                                <input type="text" id="sunat-sol-usuario" autocomplete="off"
+                                       maxlength="50" placeholder="MIUSUARIO">
+                                <div class="form-hint">Sin el RUC adelante — solo el usuario.</div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="sunat-sol-clave">Clave SOL secundaria</label>
+                                <input type="password" id="sunat-sol-clave" autocomplete="new-password">
+                            </div>
+
+                            <div id="sunat-activacion-error" class="sunat-error hidden"></div>
+
+                            <button type="button" class="btn btn-primary btn-large"
+                                    id="sunat-btn-vincular" onclick="vincularConSunat()">
+                                Vincular con SUNAT
+                            </button>
+                            <button type="button" class="btn btn-secondary"
+                                    onclick="volverAPaso1()">Volver</button>
+                        </div>
+
+                        <button type="button" class="btn-texto" onclick="cerrarActivacionSunat()">
+                            Cancelar
+                        </button>
+                    </div>
+
                     <div class="admin-actions-row">
                         <button class="btn btn-secondary btn-fab" onclick="refreshBoletasPendientes()">
                             <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
@@ -1167,6 +1359,7 @@
     <script src="/static/js/print.js"></script>
     <script src="/static/js/mozo.js"></script>
     <script src="/static/js/cocina.js"></script>
+    <script src="/static/js/vista-unificada.js"></script>
     <script src="/static/js/dashboard.js"></script>
     <script src="/static/js/admin.js"></script>
     <script src="/static/js/cierre-caja-print.js"></script>

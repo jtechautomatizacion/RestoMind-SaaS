@@ -1,28 +1,25 @@
 """
 Tests de facturación SUNAT.
 
-Dos emisores posibles (backend.config.settings.emisor_facturacion):
+El sistema es 100% nube: el comprobante se firma y se envía desde el
+servidor vía sunat-service. El emisor local (Facturador de escritorio +
+archivos .cab/.det + agente de PowerShell) se eliminó, y con él los tests
+que verificaban la estructura de esos archivos planos.
 
-- "sfs_local" (default): escribe .cab/.det en disco. Se prueba con una
-  carpeta temporal real (tmp_path) — no hace falta mockear nada, es
-  escritura de archivo puro, así que estos tests ejercitan el código real.
-- "facturacion_pe": llama a un proveedor HTTP externo, que sí se mockea
-  (backend.utils.facturacion_pe.generar_boleta) porque ahí no queremos
-  pegarle a la red real en un test.
+Lo que se prueba acá es LA LÓGICA DE NEGOCIO de RestoMind: qué comprobante
+corresponde, qué se rechaza, los correlativos por serie, y que el detalle
+salga de la comanda real y no de lo que mande el frontend.
 
-En ambos casos, lo que se prueba acá es LA LÓGICA DE NEGOCIO de RestoMind:
-qué se guarda, qué se rechaza, el correlativo, el detalle copiado de la
-comanda real.
-
-La ESTRUCTURA de los archivos planos (cuántos campos lleva cada uno y qué
-va en cada posición, según el Anexo I de SUNAT) se prueba aparte, en
-tests/unit/test_sfs_export.py.
+El envío a SUNAT se sustituye por un doble: pegarle a SUNAT de verdad en un
+test sería lento, dependiente de la red y emitiría comprobantes reales.
 """
 
 import pytest
 
 from backend.config import settings
+from backend.models import Factura
 from backend.utils.facturacion_pe import FacturacionPeError, FacturacionPeResultado
+from backend.utils.sunat_cloud import SunatCloudError, SunatCloudResultado
 
 
 @pytest.fixture
@@ -32,9 +29,7 @@ def cliente_con_ruc(test_db, test_cliente):
 
     usar_sunat=True porque este fixture representa un restaurante que SÍ
     emite desde RestoMind: tener RUC y emitir son dos cosas distintas (ver
-    tests/integration/test_configuracion.py), y los endpoints de
-    recuperación de boletas solo aplican al que emite. Es el mismo criterio
-    que usó la migración con los clientes que ya existían."""
+    tests/integration/test_configuracion.py)."""
     test_cliente.ruc = "10200812234"
     test_cliente.razon_social = "Pollería Fogones"
     test_cliente.usar_sunat = True
@@ -43,14 +38,37 @@ def cliente_con_ruc(test_db, test_cliente):
 
 
 @pytest.fixture
-def sfs_dir(tmp_path, monkeypatch):
-    """Apunta SFS_EXPORT_DIR a una carpeta temporal real y la restaura al
-    terminar el test (settings es un singleton importado en todo el código,
-    así que monkeypatch.setattr sobre el objeto es lo que garantiza el
-    rollback automático, no reasignar la variable de módulo)."""
-    monkeypatch.setattr(settings, "sfs_export_dir", str(tmp_path))
-    monkeypatch.setattr(settings, "emisor_facturacion", "sfs_local")
-    return tmp_path
+def regimen_general(test_db, cliente_con_ruc):
+    """Restaurante que SÍ puede emitir facturas (Régimen Especial, MYPE o
+    General). El default del sistema es lo contrario —Nuevo RUS, solo
+    boletas— así que los tests del camino F001 lo piden explícito: hace
+    visible de qué depende cada uno."""
+    cliente_con_ruc.emite_facturas = True
+    test_db.commit()
+    return cliente_con_ruc
+
+
+@pytest.fixture
+def emisor_cloud(monkeypatch):
+    """
+    Emisión en la nube que siempre acepta.
+
+    Se parchea el nombre TAL COMO lo importó routes/facturas.py
+    (emitir_boleta_cloud), no el del módulo de origen: el import por valor
+    ya copió la referencia y parchear el origen no tendría efecto.
+
+    settings es un singleton importado en todo el código, así que
+    monkeypatch.setattr sobre el OBJETO es lo que garantiza el rollback.
+    """
+    monkeypatch.setattr(settings, "emisor_facturacion", "sunat_cloud")
+    monkeypatch.setattr(settings, "sunat_service_url", "http://sunat-service:8000")
+    monkeypatch.setattr(settings, "sunat_service_token", "token-de-prueba")
+    monkeypatch.setattr(
+        "backend.routes.facturas.emitir_boleta_cloud",
+        lambda **kw: SunatCloudResultado(
+            exito=True, estado="accepted", codigo="0", cdr_xml="<ok/>"
+        ),
+    )
 
 
 def _crear_y_cobrar_mesa(test_client, test_platos, numero_mesa=5):
@@ -75,11 +93,11 @@ def _crear_y_cobrar_mesa(test_client, test_platos, numero_mesa=5):
     return resp.json()["comanda_ids"]
 
 
-# ============ EMISOR sfs_local (default) ============
+# ============ REGLAS GENERALES DE EMISIÓN ============
 
-def test_generar_factura_sin_ruc_configurado_falla(test_client, test_cliente, test_platos, test_mesas, sfs_dir):
+def test_generar_factura_sin_ruc_configurado_falla(test_client, test_cliente, test_platos, test_mesas, emisor_cloud):
     """test_cliente (sin fixture cliente_con_ruc) no tiene RUC — debe rechazar
-    ANTES de intentar escribir ningún archivo, con un mensaje accionable."""
+    ANTES de intentar emitir, con un mensaje accionable."""
     comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
 
     resp = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids})
@@ -88,155 +106,66 @@ def test_generar_factura_sin_ruc_configurado_falla(test_client, test_cliente, te
     assert "RUC" in resp.json()["detail"]
 
 
-def test_generar_factura_escribe_cab_y_det_en_la_carpeta_configurada(
-    test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir
+def test_el_detalle_sale_de_la_comanda_real_no_del_frontend(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud
 ):
-    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
-
-    resp = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids})
-
-    assert resp.status_code == 201, resp.text
-    data = resp.json()
-    assert data["estado"] == "generado_localmente"
-    assert data["numero_boleta"] == "B001-00000001"
-    assert data["total"] == 90.00
-    # subtotal + igv debe cuadrar exacto con total (ver _calcular_montos:
-    # redondear cada uno por separado podía descuadrar el total en centavos).
-    assert round(data["subtotal"] + data["igv"], 2) == data["total"]
-
-    # Son CUATRO archivos, no dos: el Anexo I los agrupa bajo "Archivos
-    # Obligatorios". Sin .tri (desglose de tributos) ni .ley (monto en
-    # letras) el comprobante está incompleto para SUNAT.
-    nombre_esperado = "10200812234-03-B001-00000001"
-    ruta_cab = sfs_dir / f"{nombre_esperado}.cab"
-    ruta_det = sfs_dir / f"{nombre_esperado}.det"
-    for extension in ("cab", "det", "tri", "ley"):
-        assert (sfs_dir / f"{nombre_esperado}.{extension}").exists(), f"falta el .{extension}"
-    assert data["archivo_local"] == str(ruta_cab)
-
-    contenido_det = ruta_det.read_text(encoding="latin-1")
-    assert "Ceviche Cl" in contenido_det  # "Ceviche Clásico" sin acento en latin-1 no rompe la lectura
-    assert "90.00" not in contenido_det.split("|")[0]  # sanity: no quedó todo en un solo campo
-
-
-def test_generar_factura_cabecera_tiene_los_18_campos_en_el_orden_del_spec(
-    test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir
-):
-    """Posiciones según el Anexo I de SUNAT (AnexosIyII_Formato1.3.xlsx,
-    hoja "Factura y boleta 2.1"). El índice de la lista es la posición del
-    Anexo menos uno."""
-    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
-    resp = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids})
-    assert resp.status_code == 201, resp.text
-
-    ruta_cab = sfs_dir / "10200812234-03-B001-00000001.cab"
-    campos = ruta_cab.read_text(encoding="latin-1").strip("\r\n").split("|")
-
-    assert len(campos) == 18
-    assert campos[0] == "0101"        # 1.  tipOperacion (venta interna)
-    assert campos[3] == ""            # 4.  fecVencimiento: una boleta no vence
-    assert campos[4] == "0000"        # 5.  codLocalEmisor
-    assert campos[5] == "0"           # 6.  tipDocUsuario: Público General -> Varios
-    assert campos[6] == "00000000"    # 7.  numDocUsuario
-    assert campos[8] == "PEN"         # 9.  tipMoneda
-    assert campos[12] == "0.00"       # 13. sumDescTotal
-    assert campos[13] == "0.00"       # 14. sumOtrosCargos
-    assert campos[14] == "0.00"       # 15. sumTotalAnticipos
-    # 12. sumPrecioVenta == 16. sumImpVenta
-    assert campos[11] == campos[15] == "90.00"
-    assert campos[16] == "2.1"        # 17. ublVersionId
-    assert campos[17] == "2.0"        # 18. customizationId
-
-
-def test_generar_factura_detalle_multiples_platos_cuadra_exacto_con_cabecera(
-    test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir
-):
-    """3 ceviches (S/45 c/u) + 2 jugos (S/5 c/u) = S/145. El IGV por línea
-    se redondea independiente por línea; el ajuste de residuo en la última
-    línea (ver _construir_detalle_lineas) debe hacer que la suma cuadre
-    EXACTO con la cabecera — no "cerca", exacto — porque eso es lo primero
-    que un validador de SUNAT cruza entre cabecera y detalle."""
+    """
+    La regla central del módulo: el comprobante declara lo que el sistema
+    registró como vendido. Si se armara con lo que manda el cliente HTTP,
+    cualquiera con el token de un mozo podría facturar productos que nunca
+    se sirvieron.
+    """
     resp = test_client.post("/api/comandas", json={
-        "numero_mesa": 5,
+        "numero_mesa": 2,
         "platos": [
-            {"plato_id": test_platos[0].id, "cantidad": 3},  # Ceviche
-            {"plato_id": test_platos[1].id, "cantidad": 2},  # Jugo
+            {"plato_id": test_platos[0].id, "cantidad": 2},
+            {"plato_id": test_platos[1].id, "cantidad": 1},
         ],
     })
     comanda_id = resp.json()["id"]
+    total_real = resp.json()["total_cuenta"]
     test_client.patch(f"/api/comandas/{comanda_id}/estado", json={"estado": "entregado"})
-    mesa = next(m for m in test_client.get("/api/mesas").json() if m["numero"] == 5)
-    cobro = test_client.post(f"/api/mesas/{mesa['id']}/cobrar").json()
+    mesa = next(m for m in test_client.get("/api/mesas").json() if m["numero"] == 2)
+    comanda_ids = test_client.post(f"/api/mesas/{mesa['id']}/cobrar").json()["comanda_ids"]
 
-    resp = test_client.post("/api/facturas/generar", json={"comanda_ids": cobro["comanda_ids"]})
-    assert resp.status_code == 201, resp.text
-    data = resp.json()
+    data = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids}).json()
 
-    ruta_cab = sfs_dir / "10200812234-03-B001-00000001.cab"
-    ruta_det = sfs_dir / "10200812234-03-B001-00000001.det"
-    campos_cab = ruta_cab.read_text(encoding="latin-1").strip("\r\n").split("|")
-
-    # read_text en modo texto normaliza cualquier fin de línea (\r\n, \r, \n)
-    # a \n al leer (universal newlines) — separar por \n acá, no por \r\n,
-    # sin importar qué se haya escrito en disco.
-    lineas_det = [
-        linea.split("|")
-        for linea in ruta_det.read_text(encoding="latin-1").strip("\n").split("\n")
-    ]
-    assert len(lineas_det) == 2
-    for campos_linea in lineas_det:
-        assert len(campos_linea) == 36
-        assert campos_linea[0] == "NIU"   # 1.  codUnidadMedida
-        assert campos_linea[12] == "10"   # 13. tipAfeIGV: Gravado - Operación Onerosa
-
-    # 35. mtoValorVentaItem y 9. mtoIgvItem, sumados sobre todas las líneas,
-    # tienen que dar exactamente lo que declara la cabecera.
-    suma_valor_venta_lineas = round(sum(float(l[34]) for l in lineas_det), 2)
-    suma_igv_lineas = round(sum(float(l[8]) for l in lineas_det), 2)
-
-    assert suma_valor_venta_lineas == float(campos_cab[10])  # 11. sumTotValVenta
-    assert suma_igv_lineas == float(campos_cab[9])           # 10. sumTotTributos
-    assert data["total"] == 145.00
+    assert data["total"] == total_real
+    assert len(data["detalles"]) == 2
+    # subtotal + IGV tiene que dar el total EXACTO: SUNAT rechaza el
+    # comprobante donde no cuadra por un céntimo de redondeo.
+    assert round(data["subtotal"] + data["igv"], 2) == data["total"]
 
 
-def test_generar_factura_carpeta_no_configurada_falla_con_error_claro(
+def test_si_el_envio_falla_la_venta_no_se_pierde_y_es_reintentable(
     test_client, cliente_con_ruc, test_platos, test_mesas, monkeypatch
 ):
-    monkeypatch.setattr(settings, "sfs_export_dir", "")
-    monkeypatch.setattr(settings, "emisor_facturacion", "sfs_local")
-    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
-
-    resp = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids})
-
-    assert resp.status_code == 502
-    factura = resp.json()["detail"]["factura"]
-    assert factura["estado"] == "error"
-    assert "SFS_EXPORT_DIR" in factura["error_mensaje"]
-
-
-def test_generar_factura_carpeta_no_existe_es_reintentable_tras_corregir(
-    test_client, cliente_con_ruc, test_platos, test_mesas, monkeypatch, tmp_path
-):
-    carpeta_inexistente = tmp_path / "no-existe-todavia"
-    monkeypatch.setattr(settings, "sfs_export_dir", str(carpeta_inexistente))
-    monkeypatch.setattr(settings, "emisor_facturacion", "sfs_local")
+    """El servicio de emisión caído no puede hacer desaparecer la venta: el
+    comprobante queda guardado y reintentable, con SU MISMO número."""
+    monkeypatch.setattr(settings, "emisor_facturacion", "sunat_cloud")
+    monkeypatch.setattr(settings, "sunat_service_url", "http://sunat-service:8000")
+    monkeypatch.setattr(
+        "backend.routes.facturas.emitir_boleta_cloud",
+        lambda **kw: (_ for _ in ()).throw(SunatCloudError("servicio caído")),
+    )
     comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
 
     resp = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids})
     assert resp.status_code == 502
     factura_id = resp.json()["detail"]["factura"]["id"]
+    assert resp.json()["detail"]["factura"]["estado"] == "pendiente"
 
-    # Se "corrige" creando la carpeta — el correlativo ya reservado (1) no
-    # debe cambiar al reintentar.
-    carpeta_inexistente.mkdir()
+    # Se "arregla" el servicio; el correlativo ya reservado (1) no cambia.
+    monkeypatch.setattr(
+        "backend.routes.facturas.emitir_boleta_cloud",
+        lambda **kw: SunatCloudResultado(exito=True, estado="accepted", codigo="0", cdr_xml="<ok/>"),
+    )
     resp = test_client.post(f"/api/facturas/{factura_id}/reintentar")
     assert resp.status_code == 200
-    data = resp.json()
-    assert data["estado"] == "generado_localmente"
-    assert data["numero_boleta"] == "B001-00000001"
+    assert resp.json()["numero_boleta"] == "B001-00000001"
 
 
-def test_generar_factura_dos_correlativos_consecutivos(test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir):
+def test_generar_factura_dos_correlativos_consecutivos(test_client, cliente_con_ruc, test_platos, test_mesas, emisor_cloud):
     """El correlativo vive en Cliente.boleta_correlativo_actual y debe
     incrementar de verdad entre dos boletas del mismo restaurante."""
     ids_1 = _crear_y_cobrar_mesa(test_client, test_platos, numero_mesa=1)
@@ -248,20 +177,18 @@ def test_generar_factura_dos_correlativos_consecutivos(test_client, cliente_con_
     assert resp_2.json()["numero_boleta"] == "B001-00000002"
 
 
-def test_generar_factura_comanda_no_cobrada_falla(test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir):
+def test_generar_factura_comanda_no_cobrada_falla(test_client, cliente_con_ruc, test_platos, test_mesas, emisor_cloud):
     resp = test_client.post("/api/comandas", json={
-        "numero_mesa": 1,
-        "platos": [{"plato_id": test_platos[0].id, "cantidad": 1}],
+        "numero_mesa": 2, "platos": [{"plato_id": test_platos[0].id, "cantidad": 1}],
     })
-    comanda_id = resp.json()["id"]  # sigue en estado 'cocina', nunca se cobró
+    comanda_id = resp.json()["id"]
 
     resp = test_client.post("/api/facturas/generar", json={"comanda_ids": [comanda_id]})
-
     assert resp.status_code == 400
-    assert "cobradas" in resp.json()["detail"]
+    assert "no están cobradas" in resp.json()["detail"]
 
 
-def test_generar_factura_dos_veces_la_misma_comanda_falla(test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir):
+def test_generar_factura_dos_veces_la_misma_comanda_falla(test_client, cliente_con_ruc, test_platos, test_mesas, emisor_cloud):
     comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
 
     resp_1 = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids})
@@ -269,104 +196,16 @@ def test_generar_factura_dos_veces_la_misma_comanda_falla(test_client, cliente_c
 
     resp_2 = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids})
     assert resp_2.status_code == 400
-    assert "ya tienen una boleta" in resp_2.json()["detail"]
+    assert "ya tienen una boleta emitida" in resp_2.json()["detail"]
 
 
-# ============ Resolución automática de documento del comprador ============
-
-def test_documento_vacio_es_publico_general(test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir):
-    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
-    resp = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids})
-    assert resp.status_code == 201
-
-    campos = (sfs_dir / "10200812234-03-B001-00000001.cab").read_text(encoding="latin-1").split("|")
-    assert campos[5] == "0"  # 6. tipDocUsuario: No domiciliado/Varios
-    assert campos[6] == "00000000"  # 7. numDocUsuario
-    assert campos[7] == "CLIENTES VARIOS"  # 8. rznSocialUsuario
-
-
-def test_documento_8_digitos_es_dni(test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir):
-    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
-    resp = test_client.post("/api/facturas/generar", json={
-        "comanda_ids": comanda_ids, "documento_comprador": "73081441",
-    })
-    assert resp.status_code == 201
-
-    campos = (sfs_dir / "10200812234-03-B001-00000001.cab").read_text(encoding="latin-1").split("|")
-    assert campos[5] == "1"  # 6. tipDocUsuario: DNI
-    assert campos[6] == "73081441"  # 7. numDocUsuario
-    assert campos[7] == "-"  # 8. rznSocialUsuario
-
-
-def test_documento_11_digitos_es_ruc(test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir):
-    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
-    resp = test_client.post("/api/facturas/generar", json={
-        "comanda_ids": comanda_ids, "documento_comprador": "20600055519",
-    })
-    assert resp.status_code == 201
-
-    campos = (sfs_dir / "10200812234-03-B001-00000001.cab").read_text(encoding="latin-1").split("|")
-    assert campos[5] == "6"  # 6. tipDocUsuario: RUC
-    assert campos[6] == "20600055519"  # 7. numDocUsuario
-    assert campos[7] == "-"  # 8. rznSocialUsuario
-
-
-@pytest.mark.parametrize("documento, motivo", [
-    ("123456789", "9 dígitos: ni DNI (8) ni RUC (11)"),
-    ("11111111111", "11 dígitos pero no empieza en 10 ni 20: no es un RUC válido"),
-    ("30200812234", "prefijo 30 no existe para contribuyentes que emiten boletas"),
-    ("1020081223a", "letras"),
-])
-def test_documento_invalido_se_rechaza_antes_de_tocar_disco(
-    test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir, documento, motivo
-):
-    """Rechazar rápido en vez de adivinar: un tipeo del cajero no debe
-    convertirse en un comprobante que SUNAT rechaza DESPUÉS de emitido
-    (cuando el correlativo ya se consumió y el cliente ya se fue)."""
-    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
-    resp = test_client.post("/api/facturas/generar", json={
-        "comanda_ids": comanda_ids, "documento_comprador": documento,
-    })
-    assert resp.status_code == 422, f"{documento} ({motivo}) debería rechazarse"
-    assert not list(sfs_dir.iterdir())  # no se escribió nada
-
-
-@pytest.mark.parametrize("documento", ["10200812234", "20600055519"])
-def test_ruc_con_prefijo_valido_se_acepta(
-    test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir, documento
-):
-    """10 = persona natural con negocio, 20 = persona jurídica: los dos
-    prefijos que SUNAT usa para contribuyentes."""
-    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
-    resp = test_client.post("/api/facturas/generar", json={
-        "comanda_ids": comanda_ids, "documento_comprador": documento,
-    })
-    assert resp.status_code == 201, resp.text
-
-
-def test_documento_con_espacios_o_guiones_se_normaliza(
-    test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir
-):
-    """El cajero puede tipear "7308-1441" de apuro; se limpia en vez de
-    rechazarlo, pero lo que llega al .cab son solo dígitos."""
-    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
-    resp = test_client.post("/api/facturas/generar", json={
-        "comanda_ids": comanda_ids, "documento_comprador": "7308-1441",
-    })
-    assert resp.status_code == 201, resp.text
-
-    campos = (sfs_dir / "10200812234-03-B001-00000001.cab").read_text(encoding="latin-1").split("|")
-    assert campos[5] == "1"  # 6. tipDocUsuario: DNI
-    assert campos[6] == "73081441"  # 7. numDocUsuario, sin el guion
-
-
-def test_borrar_cliente_no_deja_facturas_huerfanas(test_db, test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir):
+def test_borrar_cliente_no_deja_facturas_huerfanas(test_db, test_client, cliente_con_ruc, test_platos, test_mesas, emisor_cloud):
     """Mismo bug que ya se corrigió una vez para Categoria (ver CLAUDE.md):
     sin cascade, borrar un restaurante dejaba sus facturas y las filas de
     factura_comandas colgando en la BD — invisibles en la app (todo filtra
     por cliente_id) pero acumulándose para siempre. Con facturas es peor
     que con categorías: son registros tributarios."""
-    from backend.models import Cliente, Factura, FacturaComanda
+    from backend.models import Cliente, FacturaComanda
 
     comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
     assert test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids}).status_code == 201
@@ -380,15 +219,288 @@ def test_borrar_cliente_no_deja_facturas_huerfanas(test_db, test_client, cliente
     assert test_db.query(FacturaComanda).count() == 0
 
 
-def test_pendientes_lista_factura_con_error_y_permite_reintentar(
-    test_client, cliente_con_ruc, test_platos, test_mesas, monkeypatch, tmp_path
+# ============ QUÉ COMPROBANTE CORRESPONDE ============
+#
+# Lo decide el SERVIDOR a partir de lo que el cajero tipeó en un solo campo.
+# Es la regla fiscal: tenerla también en el JS garantizaría que algún día
+# las dos versiones digan cosas distintas.
+
+RUC_EN_PADRON = "20123456786"
+
+
+@pytest.fixture
+def padron(tmp_path, monkeypatch):
+    """Padrón chico con la misma forma que el real (ver
+    backend/scripts/cargar_padron_sunat.py)."""
+    import sqlite3
+
+    from backend.utils.padron import cerrar_conexion_del_hilo
+
+    ruta = tmp_path / "padron.db"
+    conn = sqlite3.connect(ruta)
+    conn.execute("CREATE TABLE padron (ruc TEXT, nombre TEXT, estado TEXT, condicion TEXT)")
+    conn.execute(
+        "INSERT INTO padron VALUES (?,?,?,?)",
+        (RUC_EN_PADRON, "DISTRIBUIDORA EL SOL SAC", "ACTIVO", "HABIDO"),
+    )
+    conn.execute("CREATE UNIQUE INDEX idx_ruc ON padron(ruc)")
+    conn.commit()
+    conn.close()
+
+    cerrar_conexion_del_hilo()
+    monkeypatch.setattr(settings, "padron_db_path", str(ruta))
+    yield ruta
+    cerrar_conexion_del_hilo()
+
+
+def _cobrar_por_monto(test_client, test_platos, cantidad, numero_mesa=5):
+    """Cobra una mesa con N unidades del primer plato (S/ 45 c/u), para
+    poder cruzar el umbral de S/ 700 sin depender del fixture chico."""
+    resp = test_client.post("/api/comandas", json={
+        "numero_mesa": numero_mesa,
+        "platos": [{"plato_id": test_platos[0].id, "cantidad": cantidad}],
+    })
+    assert resp.status_code == 201, resp.text
+    comanda_id = resp.json()["id"]
+    test_client.patch(f"/api/comandas/{comanda_id}/estado", json={"estado": "entregado"})
+    mesa = next(m for m in test_client.get("/api/mesas").json() if m["numero"] == numero_mesa)
+    return test_client.post(f"/api/mesas/{mesa['id']}/cobrar").json()["comanda_ids"]
+
+
+def test_sin_documento_y_monto_chico_sale_boleta_a_publico_general(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud
 ):
-    """El caso real que se dio en producción: la emisión falla (carpeta del
-    Facturador mal configurada), la venta queda cobrada y la boleta en
-    'error'. Sin esta pantalla el cobro es irrecuperable desde la app."""
-    carpeta = tmp_path / "todavia-no"
-    monkeypatch.setattr(settings, "sfs_export_dir", str(carpeta))
-    monkeypatch.setattr(settings, "emisor_facturacion", "sfs_local")
+    """El caso más común: nadie pide comprobante a su nombre."""
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    resp = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids})
+    assert resp.status_code == 201, resp.text
+
+    factura = test_db.query(Factura).one()
+    assert factura.tipo_comprobante == "03"
+    assert factura.serie == "B001"
+    assert factura.tipo_documento_comprador == "0"
+    assert factura.numero_documento_comprador == "00000000"
+
+
+def test_sin_documento_desde_700_soles_se_exige_identificar_al_cliente(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud
+):
+    """
+    SUNAT exige identificar al comprador en una boleta desde S/ 700.
+
+    El rechazo llega DESPUÉS del cobro, no durante: la plata ya cambió de
+    mano y la mesa ya se liberó. El comprobante queda pendiente y el cajero
+    lo emite desde Admin > Boletas pidiéndole el documento al cliente.
+    """
+    comanda_ids = _cobrar_por_monto(test_client, test_platos, cantidad=16)  # 16 x 45 = 720
+
+    resp = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids})
+
+    assert resp.status_code == 400
+    detalle = resp.json()["detail"]
+    # Estructurado, no texto suelto: el frontend distingue ESTE caso de
+    # cualquier otro fallo y pide el documento en el momento, con el cliente
+    # todavía enfrente, en vez de mandar al cajero a Admin.
+    assert detalle["codigo"] == "IDENTIFICAR_COMPRADOR"
+    assert detalle["total"] == 720.0
+    assert "700" in detalle["mensaje"]
+
+    # Y no gastó ningún correlativo: un número consumido por un intento
+    # fallido deja un hueco permanente en la serie.
+    assert test_db.query(Factura).count() == 0
+    test_db.refresh(cliente_con_ruc)
+    assert cliente_con_ruc.boleta_correlativo_actual == 0
+
+    # EL COBRO NO SE PERDIÓ: la venta queda esperando en Admin > Boletas
+    # hasta que alguien agregue el documento.
+    pendientes = test_client.get("/api/facturas/pendientes").json()
+    assert len(pendientes["ventas_sin_boleta"]) == 1
+    assert pendientes["ventas_sin_boleta"][0]["total"] == 720.0
+
+
+def test_un_dni_produce_boleta(test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud):
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    resp = test_client.post("/api/facturas/generar", json={
+        "comanda_ids": comanda_ids, "documento_comprador": "73081441",
+    })
+    assert resp.status_code == 201, resp.text
+
+    factura = test_db.query(Factura).one()
+    assert factura.tipo_comprobante == "03"
+    assert factura.serie == "B001"
+    assert factura.tipo_documento_comprador == "1"
+    assert factura.numero_documento_comprador == "73081441"
+
+
+def test_un_ruc_produce_FACTURA_con_la_razon_social_del_padron(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud, padron,
+    regimen_general,
+):
+    """
+    Un RUC SIEMPRE produce factura, nunca boleta.
+
+    Quien da su RUC lo hace para sustentar gasto o crédito fiscal, y una
+    boleta no le sirve para eso: cambiarle el tipo de comprobante por
+    nuestra cuenta le crea un problema comercial al restaurante.
+    """
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    resp = test_client.post("/api/facturas/generar", json={
+        "comanda_ids": comanda_ids, "documento_comprador": RUC_EN_PADRON,
+    })
+    assert resp.status_code == 201, resp.text
+
+    factura = test_db.query(Factura).one()
+    assert factura.tipo_comprobante == "01"
+    assert factura.serie == "F001"
+    assert factura.tipo_documento_comprador == "6"
+    assert factura.nombre_comprador == "DISTRIBUIDORA EL SOL SAC"
+
+
+def test_boletas_y_facturas_llevan_correlativos_INDEPENDIENTES(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud, padron,
+    regimen_general,
+):
+    """
+    EL test de este archivo.
+
+    SUNAT exige que cada serie sea correlativa SIN HUECOS. Con un contador
+    compartido, una factura intercalada entre dos boletas dejaría a las DOS
+    series agujereadas — y el UNIQUE(cliente_id, serie, correlativo) no lo
+    detecta, porque las combinaciones siguen siendo distintas. Pasaría en
+    silencio hasta una fiscalización.
+    """
+    ids_1 = _crear_y_cobrar_mesa(test_client, test_platos, numero_mesa=1)
+    b1 = test_client.post("/api/facturas/generar", json={"comanda_ids": ids_1}).json()
+
+    ids_2 = _crear_y_cobrar_mesa(test_client, test_platos, numero_mesa=2)
+    f1 = test_client.post("/api/facturas/generar", json={
+        "comanda_ids": ids_2, "documento_comprador": RUC_EN_PADRON,
+    }).json()
+
+    ids_3 = _crear_y_cobrar_mesa(test_client, test_platos, numero_mesa=5)
+    b2 = test_client.post("/api/facturas/generar", json={"comanda_ids": ids_3}).json()
+
+    assert b1["numero_boleta"] == "B001-00000001"
+    assert f1["numero_boleta"] == "F001-00000001"   # NO F001-00000002
+    assert b2["numero_boleta"] == "B001-00000002"   # NO B001-00000003
+
+
+def test_un_ruc_fuera_del_padron_se_rechaza_pidiendo_la_razon_social(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud, padron,
+    regimen_general,
+):
+    """
+    SUNAT no acepta una factura sin razón social, así que no se puede
+    inventar. Tampoco se cae a boleta: el cliente que pidió factura la
+    necesita, y darle otra cosa es un problema comercial del restaurante.
+    El mensaje invita a escribir el nombre a mano.
+    """
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    resp = test_client.post("/api/facturas/generar", json={
+        "comanda_ids": comanda_ids, "documento_comprador": "20600055519",
+    })
+
+    assert resp.status_code == 400
+    assert "razón social" in resp.json()["detail"]
+    assert test_db.query(Factura).count() == 0
+
+
+def test_la_razon_social_a_mano_permite_facturar_un_ruc_nuevo(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud, padron,
+    regimen_general,
+):
+    """Salida para un RUC recién inscrito que el padrón local todavía no
+    tiene. Sin esto, la venta se quedaría sin comprobante hasta que alguien
+    recargue 1,6 GB de padrón."""
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    resp = test_client.post("/api/facturas/generar", json={
+        "comanda_ids": comanda_ids,
+        "documento_comprador": "20600055519",
+        "razon_social_manual": "  IMPORTACIONES  NUEVAS   SAC  ",
+    })
+    assert resp.status_code == 201, resp.text
+
+    factura = test_db.query(Factura).one()
+    assert factura.serie == "F001"
+    # Espacios repetidos normalizados: lo que va al comprobante tiene que
+    # estar prolijo aunque el cajero tipee de apuro.
+    assert factura.nombre_comprador == "IMPORTACIONES NUEVAS SAC"
+
+
+def test_sin_padron_instalado_se_puede_facturar_igual_a_mano(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud, monkeypatch,
+    regimen_general,
+):
+    """Que el padrón de 1,6 GB no esté cargado NO puede impedir facturar:
+    un restaurante nuevo debe poder emitir desde el primer día."""
+    from backend.utils.padron import cerrar_conexion_del_hilo
+
+    cerrar_conexion_del_hilo()
+    monkeypatch.setattr(settings, "padron_db_path", "/no/existe/padron.db")
+
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    resp = test_client.post("/api/facturas/generar", json={
+        "comanda_ids": comanda_ids,
+        "documento_comprador": RUC_EN_PADRON,
+        "razon_social_manual": "CLIENTE SAC",
+    })
+    assert resp.status_code == 201, resp.text
+    assert test_db.query(Factura).one().serie == "F001"
+
+
+@pytest.mark.parametrize("documento, motivo", [
+    ("123456789", "9 dígitos: ni DNI (8) ni RUC (11)"),
+    ("11111111111", "11 dígitos con prefijo que SUNAT no usa"),
+    ("30200812234", "prefijo 30 no existe para contribuyentes"),
+    ("1020081223a", "letras"),
+])
+def test_documento_invalido_se_rechaza_antes_de_emitir(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud, documento, motivo
+):
+    """Rechazar rápido en vez de adivinar: un tipeo del cajero no debe
+    convertirse en un comprobante que SUNAT rechaza DESPUÉS de emitido
+    (cuando el correlativo ya se consumió y el cliente ya se fue)."""
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    resp = test_client.post("/api/facturas/generar", json={
+        "comanda_ids": comanda_ids, "documento_comprador": documento,
+    })
+    assert resp.status_code == 422, f"{documento} ({motivo}) debería rechazarse"
+    assert test_db.query(Factura).count() == 0
+
+
+def test_documento_con_espacios_o_guiones_se_normaliza(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud
+):
+    """El cajero puede tipear "7308-1441" de apuro; se limpia en vez de
+    rechazarlo, pero al comprobante llegan solo dígitos."""
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    resp = test_client.post("/api/facturas/generar", json={
+        "comanda_ids": comanda_ids, "documento_comprador": "7308-1441",
+    })
+    assert resp.status_code == 201, resp.text
+
+    factura = test_db.query(Factura).one()
+    assert factura.tipo_documento_comprador == "1"
+    assert factura.numero_documento_comprador == "73081441"
+
+
+# ============ Recuperación de boletas (Admin > Boletas) ============
+
+def test_pendientes_lista_factura_con_error_y_permite_reintentar(
+    test_client, cliente_con_ruc, test_platos, test_mesas, monkeypatch
+):
+    """El caso real que se dio en producción: la emisión falla, la venta
+    queda cobrada y el comprobante en 'error'. Sin esta pantalla, ese cobro
+    es irrecuperable desde la app."""
+    monkeypatch.setattr(settings, "emisor_facturacion", "sunat_cloud")
+    monkeypatch.setattr(settings, "sunat_service_url", "http://sunat-service:8000")
+    monkeypatch.setattr(
+        "backend.routes.facturas.emitir_boleta_cloud",
+        lambda **kw: SunatCloudResultado(
+            exito=False, error_codigo="RECHAZO_SUNAT",
+            error_mensaje="El RUC del emisor no está activo", reintentable=False,
+        ),
+    )
 
     comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
     assert test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids}).status_code == 502
@@ -402,7 +514,11 @@ def test_pendientes_lista_factura_con_error_y_permite_reintentar(
     assert data["facturas_con_error"][0]["estado"] == "error"
     assert data["ventas_sin_boleta"] == []  # la Factura sí existe, no es este caso
 
-    carpeta.mkdir()
+    # Se corrige lo que fallaba y se reintenta.
+    monkeypatch.setattr(
+        "backend.routes.facturas.emitir_boleta_cloud",
+        lambda **kw: SunatCloudResultado(exito=True, estado="accepted", codigo="0", cdr_xml="<ok/>"),
+    )
     factura_id = data["facturas_con_error"][0]["id"]
     assert test_client.post(f"/api/facturas/{factura_id}/reintentar").status_code == 200
 
@@ -410,7 +526,7 @@ def test_pendientes_lista_factura_con_error_y_permite_reintentar(
 
 
 def test_pendientes_detecta_venta_cobrada_que_nunca_llego_a_facturarse(
-    test_client, cliente_con_ruc, test_platos, test_mesas, sfs_dir
+    test_client, cliente_con_ruc, test_platos, test_mesas, emisor_cloud
 ):
     """Caso distinto: la petición de facturar nunca llegó al servidor (se
     cortó la red justo al cobrar), así que NO hay Factura que reintentar —
@@ -493,3 +609,135 @@ def test_facturacion_pe_caida_de_red_no_pierde_el_intento(
     resp = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids})
     assert resp.status_code == 502
     assert resp.json()["detail"]["factura"]["estado"] == "pendiente"
+
+
+# ============ RÉGIMEN TRIBUTARIO: QUIÉN PUEDE FACTURAR ============
+#
+# Un contribuyente del NUEVO RUS tiene PROHIBIDO emitir facturas: solo
+# boletas de venta y tickets. Hacerlo igual es una infracción del emisor, y
+# le da al comprador un crédito fiscal que no le corresponde.
+#
+# Por eso `emite_facturas` arranca en False para TODOS: emitir boletas de
+# más nunca es infracción; facturar sin poder, sí.
+
+
+def test_por_defecto_un_restaurante_NO_puede_facturar(test_db, test_cliente):
+    """El caso seguro es el default. Que un restaurante del Régimen General
+    tenga que pedir que se lo activen es un trámite; que uno del Nuevo RUS
+    emita facturas sin darse cuenta es una infracción."""
+    assert test_cliente.emite_facturas is False
+
+
+def test_en_NUEVO_RUS_un_RUC_produce_BOLETA_no_factura(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud, padron
+):
+    """
+    EL test de esta sección.
+
+    El comensal da su RUC y el restaurante es NRUS: le corresponde BOLETA,
+    con su RUC como documento del adquiriente (catálogo 06 de SUNAT lo
+    admite). NO una factura.
+    """
+    assert cliente_con_ruc.emite_facturas is False   # NRUS
+
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    resp = test_client.post("/api/facturas/generar", json={
+        "comanda_ids": comanda_ids, "documento_comprador": RUC_EN_PADRON,
+    })
+    assert resp.status_code == 201, resp.text
+
+    factura = test_db.query(Factura).one()
+    assert factura.tipo_comprobante == "03"          # boleta, NO "01"
+    assert factura.serie == "B001"                   # NO "F001"
+    assert factura.tipo_documento_comprador == "6"   # el RUC del comensal
+    assert factura.numero_documento_comprador == RUC_EN_PADRON
+
+    # Y el correlativo de facturas queda intacto: en NRUS esa serie no se usa.
+    test_db.refresh(cliente_con_ruc)
+    assert cliente_con_ruc.factura_correlativo_actual == 0
+
+
+def test_en_NUEVO_RUS_un_RUC_fuera_del_padron_NO_frena_la_venta(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud, padron
+):
+    """Una boleta es válida sin razón social del comprador, así que un RUC
+    que el padrón no tiene no puede bloquear nada. Solo una FACTURA exige el
+    nombre — y un NRUS no emite facturas."""
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    resp = test_client.post("/api/facturas/generar", json={
+        "comanda_ids": comanda_ids, "documento_comprador": "20600055519",
+    })
+
+    assert resp.status_code == 201, resp.text
+    assert test_db.query(Factura).one().serie == "B001"
+
+
+def test_con_el_regimen_habilitado_el_mismo_RUC_produce_FACTURA(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud, padron
+):
+    """La contracara: activar el campo habilita la serie F001 y su
+    correlativo propio. Si esto falla, se rompió el camino del Régimen
+    General al blindar el del Nuevo RUS."""
+    cliente_con_ruc.emite_facturas = True
+    test_db.commit()
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    resp = test_client.post("/api/facturas/generar", json={
+        "comanda_ids": comanda_ids, "documento_comprador": RUC_EN_PADRON,
+    })
+    assert resp.status_code == 201, resp.text
+
+    factura = test_db.query(Factura).one()
+    assert factura.tipo_comprobante == "01"
+    assert factura.serie == "F001"
+    assert factura.nombre_comprador == "DISTRIBUIDORA EL SOL SAC"
+
+    test_db.refresh(cliente_con_ruc)
+    assert cliente_con_ruc.factura_correlativo_actual == 1
+
+
+def test_un_DNI_produce_boleta_en_los_dos_regimenes(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud
+):
+    """El régimen solo decide qué pasa con un RUC: un DNI siempre es boleta."""
+    cliente_con_ruc.emite_facturas = True
+    test_db.commit()
+
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    test_client.post("/api/facturas/generar", json={
+        "comanda_ids": comanda_ids, "documento_comprador": "73081441",
+    })
+
+    factura = test_db.query(Factura).one()
+    assert factura.serie == "B001"
+    assert factura.tipo_documento_comprador == "1"
+
+
+# ============ CALIBRACIÓN CONTRA UN COMPROBANTE REAL DE SUNAT ============
+
+
+def test_los_montos_coinciden_con_la_boleta_real_EB01_1297():
+    """
+    Calibrado contra un comprobante EMITIDO de verdad (boleta EB01-1297,
+    S/ 150.00). Lo que declara el visor oficial de SUNAT:
+
+        Valor Unitario    127.11864     <- 5 decimales
+        Importe de Venta  149.9999952
+        Op. Gravada       127.12
+        IGV                22.88
+        Importe Total     150.00
+
+    Si alguien "simplifica" la precisión, el Valor Unitario impreso deja de
+    coincidir con el que SUNAT emitiría para el mismo importe.
+    """
+    from decimal import Decimal
+
+    from backend.routes.facturas import _calcular_montos
+    from backend.utils.sunat_cloud import precio_sin_igv
+
+    assert precio_sin_igv(150.00) == Decimal("127.11864")
+    assert precio_sin_igv(150.00) * Decimal("1.18") == Decimal("149.9999952")
+
+    subtotal, igv = _calcular_montos(150.00)
+    assert subtotal == 127.12
+    assert igv == 22.88
+    assert round(subtotal + igv, 2) == 150.00

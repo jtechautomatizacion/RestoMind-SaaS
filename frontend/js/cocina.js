@@ -20,6 +20,12 @@ async function refreshCocina() {
     try {
         const comandas = await api.get('/monitor/cocina');
 
+        // La vista unificada pinta estas mismas comandas en su columna del
+        // medio. Se comparten desde acá en vez de que ella las vuelva a
+        // pedir: es el mismo dato, y esta consulta ya corre cada 4s.
+        estado.comandasCocina = comandas || [];
+        if (typeof onCocinaActualizada === 'function') onCocinaActualizada();
+
         if (!comandas || comandas.length === 0) {
             container.innerHTML = '';
             emptyMsg.classList.remove('hidden');

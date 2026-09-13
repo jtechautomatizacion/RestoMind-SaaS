@@ -153,6 +153,7 @@ def crear_cliente(
         email=payload.email,
         telefono=payload.telefono,
         ruc=payload.ruc,
+        emite_facturas=bool(payload.emite_facturas),
         razon_social=payload.razon_social,
         direccion=payload.direccion,
         pais=payload.pais,
@@ -251,6 +252,31 @@ def editar_cliente(
         if otro:
             raise HTTPException(status_code=400, detail=f"Ya existe un restaurante con el email '{payload.email}'")
 
+    # Los datos fiscales quedan CONGELADOS mientras el restaurante emita.
+    #
+    # El certificado digital que firma sus comprobantes está emitido A NOMBRE
+    # de ese RUC: cambiarlo acá dejaría a SUNAT recibiendo documentos que
+    # declaran un contribuyente y vienen firmados por otro — rechazo seguro,
+    # y descubierto recién en el próximo cobro.
+    #
+    # El bloqueo NO es irreversible a propósito: apagar el interruptor de
+    # facturación los vuelve a liberar. Un candado permanente convertiría un
+    # simple tipeo en un callejón sin salida.
+    if cliente.usar_sunat:
+        cambia_fiscal = (
+            (payload.ruc or None) != (cliente.ruc or None)
+            or (payload.razon_social or None) != (cliente.razon_social or None)
+        )
+        if cambia_fiscal:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "No se pueden cambiar el RUC ni la razón social mientras el "
+                    "restaurante está emitiendo comprobantes. Pedile al admin que "
+                    "apague la facturación electrónica primero."
+                ),
+            )
+
     # Actualizar cliente
     cliente.nombre = payload.nombre
     cliente.email = payload.email
@@ -258,6 +284,11 @@ def editar_cliente(
     cliente.ruc = payload.ruc
     cliente.razon_social = payload.razon_social
     cliente.direccion = payload.direccion
+    # El régimen SÍ se puede cambiar con la facturación activa: un
+    # restaurante puede pasar de Nuevo RUS a Régimen General sin cambiar de
+    # RUC ni de certificado. Lo que queda congelado es la identidad fiscal
+    # (RUC y razón social), no el régimen.
+    cliente.emite_facturas = bool(payload.emite_facturas)
     cliente.pais = payload.pais or cliente.pais
     cliente.moneda = payload.moneda or cliente.moneda
 

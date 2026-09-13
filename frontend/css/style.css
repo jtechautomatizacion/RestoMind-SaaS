@@ -2607,3 +2607,622 @@ body {
         transition: none !important;
     }
 }
+
+/* ============ VISTA UNIFICADA ("Todo en uno") ============
+
+   Las tres etapas de una mesa —pedir, cocinar, cobrar— en una sola pantalla,
+   para quien atiende solo y no puede darse el lujo de ir y volver entre
+   pestañas. Ver frontend/js/vista-unificada.js.
+
+   SIN backdrop-filter, a propósito: la cabecera de este archivo lo descarta
+   para toda la app (gama media/baja). Los modales ya se ven "flotantes" con
+   un fondo rgba plano, que cuesta lo mismo que pintar un color.
+
+   El gate de caja sigue mandando: `.tab-content.caja-bloqueada > *` usa
+   !important, así que sin caja abierta este panel queda oculto igual que la
+   grilla de siempre. */
+
+.vu-switch {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    margin-bottom: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+}
+
+.vu-switch-btn {
+    flex: 1;
+    padding: 9px 12px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: background 0.18s, color 0.18s;
+}
+
+.vu-switch-btn.active {
+    background: var(--accent-gradient);
+    color: var(--accent-contrast);
+    box-shadow: var(--shadow-sm);
+}
+
+/* El panel solo existe cuando el interruptor está en "Todo en uno"; en la
+   vista de siempre la grilla de mesas queda exactamente como estaba. */
+.vu-panel { display: none; }
+
+#mozo-tab.vu-activa .vu-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+#mozo-tab.vu-activa #mozo-mesas { display: none; }
+
+/* Estorba entre tres columnas de trabajo; sigue disponible en "Solo mesas". */
+#mozo-tab.vu-activa #btn-gestionar-mesas { display: none; }
+
+.vu-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.35fr 1fr;
+    gap: 12px;
+    align-items: start;
+}
+
+.vu-col {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    min-width: 0;
+}
+
+.vu-col-title {
+    margin: 0;
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.vu-lista {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    /* El scroll vive dentro de cada columna, no en la página: así el pie con
+       los totales y las otras dos columnas nunca se van de la vista. */
+    max-height: 62vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.vu-vacio {
+    margin: 0;
+    padding: 18px 6px;
+    text-align: center;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+}
+
+/* ---- Columna 1: mesas ---- */
+
+.vu-mesas-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+    gap: 8px;
+    max-height: 62vh;
+    overflow-y: auto;
+}
+
+.vu-mesa {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    aspect-ratio: 1;
+    padding: 4px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    transition: transform 0.12s, box-shadow 0.12s;
+}
+
+.vu-mesa:active { transform: scale(0.94); }
+
+.vu-mesa-num { font-size: 1.15rem; font-weight: 800; line-height: 1; }
+
+.vu-mesa-detalle {
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+/* Tres estados, no dos: "cocinando" (no hay nada que hacer todavía) es muy
+   distinto de "por cobrar" (hay plata esperando sobre la mesa). El borde
+   grueso acompaña al color para que se distingan también sin ver bien el
+   matiz — daltonismo rojo/verde es justo el par que se usa acá. */
+.vu-mesa.libre { border-color: var(--success); }
+.vu-mesa.libre .vu-mesa-num { color: var(--success); }
+
+.vu-mesa.cocinando {
+    border-color: var(--accent);
+    border-width: 2.5px;
+    background: var(--surface-alt);
+}
+.vu-mesa.cocinando .vu-mesa-num { color: var(--accent-dark); }
+
+.vu-mesa.por-cobrar {
+    border-color: var(--warning);
+    border-width: 2.5px;
+    background: var(--warning-bg);
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.16);
+}
+.vu-mesa.por-cobrar .vu-mesa-num { color: #92400E; }
+.vu-mesa.por-cobrar .vu-mesa-detalle { color: #92400E; }
+
+/* ---- Columnas 2 y 3: tarjetas ---- */
+
+.vu-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+    background: var(--bg);
+    animation: vu-entra 0.22s ease-out;
+}
+
+.vu-card.tarde {
+    border-color: var(--danger);
+    background: var(--danger-bg);
+}
+
+.vu-card.cobro {
+    border-color: var(--warning);
+    background: var(--warning-bg);
+}
+
+.vu-card.saliendo {
+    opacity: 0;
+    transform: scale(0.96);
+    transition: opacity 0.25s, transform 0.25s;
+}
+
+@keyframes vu-entra {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: none; }
+}
+
+.vu-card-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.vu-card-mesa { font-size: 0.95rem; font-weight: 800; }
+
+.vu-card-tiempo {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+.vu-card-tiempo.tarde { color: var(--danger); }
+
+.vu-card-total {
+    font-size: 1rem;
+    font-weight: 800;
+    color: var(--money);
+    font-variant-numeric: tabular-nums;
+}
+
+.vu-card-platos {
+    margin: 0 0 8px;
+    padding-left: 16px;
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+
+.vu-card-nota {
+    margin: 0 0 8px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.vu-btn-listo,
+.vu-btn-cobrar {
+    width: 100%;
+    /* 44px: el mínimo táctil cómodo con el pulgar, mismo criterio que el
+       resto de la app (botones grandes en CLAUDE.md). */
+    min-height: 44px;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    font-weight: 800;
+    color: #FFFFFF;
+    cursor: pointer;
+    transition: transform 0.12s, filter 0.12s;
+}
+
+.vu-btn-listo { background: var(--success); }
+.vu-btn-cobrar { background: var(--money); }
+
+.vu-btn-listo:active,
+.vu-btn-cobrar:active { transform: scale(0.97); filter: brightness(0.94); }
+
+/* ---- Pie con los totales ---- */
+
+.vu-pie {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
+    margin-top: 12px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    /* Pegado al fondo del área que scrollea: los totales del turno se ven
+       siempre, sin importar cuánto se haya bajado en una columna. */
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+}
+
+.vu-pie-item b {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.vu-pie-fuerte b { color: var(--money); }
+
+.vu-pie-hora {
+    font-variant-numeric: tabular-nums;
+    margin-left: auto;
+}
+
+.vu-pie-caja {
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 800;
+    font-size: 0.72rem;
+}
+
+.vu-pie-caja.ok { background: var(--success-bg); color: var(--success); }
+.vu-pie-caja.cerrada { background: var(--danger-bg); color: var(--danger); }
+
+/* ---- Pestañas: solo en pantallas chicas ---- */
+
+.vu-tabs { display: none; }
+
+.vu-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    margin-left: 4px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--accent-contrast);
+    font-size: 0.68rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+
+.vu-badge.cero { background: var(--border); color: var(--text-muted); }
+
+/* Debajo de 960px las tres columnas no entran sin encogerse a un ancho donde
+   ya no se leen. Se pasa a pestañas y NO a columnas apiladas: apilar obliga a
+   scrollear para llegar al botón Cobrar, que es justo lo que esta vista viene
+   a evitar. Sigue siendo una sola pantalla lógica — cambiar de pestaña acá no
+   recarga nada ni pierde el contexto, solo muestra otra columna. */
+@media (max-width: 960px) {
+    .vu-tabs {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 10px;
+    }
+
+    .vu-tab {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        padding: 6px 8px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        background: var(--surface);
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        font-weight: 700;
+        cursor: pointer;
+    }
+
+    .vu-tab.active {
+        border-color: var(--accent);
+        background: var(--surface-alt);
+        color: var(--accent-dark);
+    }
+
+    .vu-grid { grid-template-columns: 1fr; }
+
+    .vu-col { display: none; }
+    .vu-panel[data-col="mesas"]  .vu-col[data-col="mesas"],
+    .vu-panel[data-col="cocina"] .vu-col[data-col="cocina"],
+    .vu-panel[data-col="cobro"]  .vu-col[data-col="cobro"] { display: flex; }
+
+    /* El título de la columna lo dice ya la pestaña activa. */
+    .vu-col-title { display: none; }
+
+    .vu-lista, .vu-mesas-grid { max-height: none; overflow-y: visible; }
+
+    .vu-mesas-grid { grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vu-card { animation: none; }
+    .vu-mesa, .vu-btn-listo, .vu-btn-cobrar, .vu-switch-btn { transition: none; }
+}
+
+/* ============ NOMBRE DEL COMPRADOR (consulta de RUC) ============
+
+   Aparece bajo el campo de DNI/RUC del cobro cuando se completa un RUC.
+   Ver la nota de onDocumentoInput() en frontend/js/mozo.js.
+
+   Deliberadamente discreto: en esa pantalla lo importante es el TOTAL A
+   COBRAR, y un cartel de colores compitiendo por la atención justo cuando
+   hay alguien esperando el vuelto es exactamente lo que no se quiere.
+   Ocupa una línea, no empuja el botón de cobrar fuera de la vista y se
+   reserva su alto aunque esté vacío, para que nada salte al aparecer. */
+
+.doc-info {
+    /* min-height y no height: si el nombre es largo puede ocupar dos
+       líneas, pero el alto mínimo evita el salto del layout al aparecer. */
+    min-height: 1.15rem;
+    margin-top: 5px;
+    font-size: 0.76rem;
+    line-height: 1.15rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    /* Un nombre muy largo no puede romper el ancho del modal. */
+    overflow-wrap: anywhere;
+}
+
+/* Encontrado y en regla: se puede facturar sin más. */
+.doc-info.ok { color: var(--money); }
+
+/* De baja / no habido, o un número que no parece válido. Ámbar y no rojo a
+   propósito: no es un error del cajero ni impide cobrar, es un dato que
+   conviene mirar antes de emitir. El rojo acá haría pensar que algo se
+   rompió. */
+.doc-info.aviso { color: #92400E; }
+
+/* No está en el padrón: puede ser un RUC nuevo o la copia local estar
+   vieja. Tono neutro — no es un problema. */
+.doc-info.neutro { color: var(--text-muted); }
+
+.doc-info.buscando {
+    color: var(--text-muted);
+    opacity: 0.75;
+}
+
+/* ============ ACTIVACIÓN DE FACTURACIÓN (Admin > Boletas) ============
+
+   Formulario de dos pasos que aparece al intentar prender el interruptor sin
+   tener el certificado cargado. Ver abrirActivacionSunat() en admin.js.
+
+   Reusa .form-group, .btn y los tokens de color de la app — nada de estilos
+   nuevos para lo que ya existe, así se ve igual que el resto en un celular. */
+
+.sunat-activacion {
+    margin-top: 12px;
+    padding: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    animation: sunat-baja 0.22s ease-out;
+}
+
+@keyframes sunat-baja {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: none; }
+}
+
+/* Los dos pasos, para que se vea dónde está parado y cuánto falta. */
+.sunat-pasos {
+    display: flex;
+    gap: 8px;
+    margin: 0 0 16px;
+    padding: 0;
+    list-style: none;
+}
+
+.sunat-paso-chip {
+    flex: 1;
+    padding: 7px 6px;
+    text-align: center;
+    border-radius: 999px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    /* En 360px los dos textos entran justos: se permite romper antes que
+       desbordar el ancho de la tarjeta. */
+    overflow-wrap: anywhere;
+}
+
+.sunat-paso-chip.activo {
+    background: var(--surface-alt);
+    border-color: var(--accent);
+    color: var(--accent-dark);
+}
+
+.sunat-paso-intro {
+    margin: 0 0 14px;
+    font-size: 0.83rem;
+    line-height: 1.45;
+    color: var(--text-muted);
+}
+
+/* Input + botón "Validar" en una línea; en pantallas muy angostas el botón
+   pasa abajo a lo ancho, en vez de comprimir el campo del RUC. */
+.sunat-fila-validar {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.sunat-fila-validar input {
+    flex: 1 1 auto;
+    min-width: 0;   /* sin esto, un flex item no baja de su ancho de contenido */
+}
+
+.sunat-fila-validar .btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+@media (max-width: 380px) {
+    .sunat-fila-validar { flex-direction: column; }
+}
+
+/* Un campo de solo lectura tiene que VERSE de solo lectura: si parece
+   editable, el usuario intenta corregirlo y no pasa nada. */
+.sunat-activacion input[readonly] {
+    background: var(--bg);
+    color: var(--text-muted);
+    cursor: default;
+}
+
+.sunat-activacion input[type="file"] {
+    padding: 10px;
+    font-size: 0.8rem;
+}
+
+.sunat-error {
+    margin: 10px 0;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--danger-bg);
+    color: var(--danger);
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+/* "Cancelar": una salida que no compite con la acción principal. */
+.btn-texto {
+    display: block;
+    width: 100%;
+    margin-top: 10px;
+    padding: 10px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+/* ============ TIPO DE COMPROBANTE EN EL COBRO ============ */
+
+/* Un RUC produce FACTURA, no boleta. Se muestra antes de cobrar para que
+   nadie se entere después de recibir un comprobante distinto del que pidió. */
+.comprobante-chip {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--border);
+    color: var(--text-muted);
+    font-size: 0.64rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    vertical-align: middle;
+}
+
+.comprobante-chip.factura {
+    background: var(--money);
+    color: #FFFFFF;
+}
+
+/* ============ AVISO DE LA REGLA DE S/ 700 ============ */
+
+.modal-content.aviso-sunat {
+    max-width: 420px;
+    padding: 26px 22px 22px;
+    text-align: center;
+    /* Centrado y no pegado abajo como los otros modales: no es un formulario
+       para operar, es un mensaje para leer. */
+    border-radius: var(--radius-lg);
+    align-self: center;
+    margin: auto 16px;
+}
+
+.aviso-sunat-icono {
+    font-size: 2.4rem;
+    line-height: 1;
+    margin-bottom: 10px;
+}
+
+.modal-content.aviso-sunat h2 {
+    margin: 0 0 10px;
+    font-size: 1.15rem;
+    /* Verde: lo PRIMERO que tiene que quedar claro es que la plata entró.
+       Un título en rojo haría pensar que el cobro falló. */
+    color: var(--success);
+}
+
+.modal-content.aviso-sunat p {
+    margin: 0 0 12px;
+    font-size: 0.87rem;
+    line-height: 1.5;
+    color: var(--text);
+    text-wrap: balance;
+}
+
+.aviso-sunat-nota {
+    padding: 11px 13px;
+    border-radius: var(--radius-sm);
+    background: var(--warning-bg);
+    color: #92400E !important;
+    font-size: 0.82rem !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sunat-activacion { animation: none; }
+}
+
+/* Aviso del ambiente de pruebas. Ámbar y bien visible: sin esto, alguien
+   podría creer que los comprobantes que emite acá son reales. */
+.sunat-aviso-beta {
+    margin-bottom: 14px;
+    padding: 11px 13px;
+    border-radius: var(--radius-sm);
+    background: var(--warning-bg);
+    color: #92400E;
+    font-size: 0.8rem;
+    line-height: 1.45;
+}

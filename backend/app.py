@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
@@ -6,7 +8,7 @@ from backend.config import settings
 from backend.database import init_db, SessionLocal
 from backend.middleware import SecurityHeadersMiddleware
 from backend.seed import seed_if_empty, backfill_clientes_existentes
-from backend.routes import platos, mesas, comandas, compras, dashboard, categorias, auth, superadmin, usuarios, facturas, caja, push, insumos, movimientos, agente, configuracion
+from backend.routes import platos, mesas, comandas, compras, dashboard, categorias, auth, superadmin, usuarios, facturas, caja, push, insumos, movimientos, configuracion, ruc
 from backend.migrate import migrate
 
 # Ejecutar migración antes de init_db
@@ -54,10 +56,48 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 
+# Momento en que ESTE proceso cargó el código. No es "hace cuánto está
+# arriba el servidor": con --reload, cada recarga levanta un worker nuevo y
+# este valor se renueva. Si no se renueva, la recarga NO ocurrió.
+_CODIGO_CARGADO_EN = datetime.utcnow()
+
+
 # Health check endpoint
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "version": "0.1.0"}
+    """
+    Además de "estoy vivo", responde QUÉ CÓDIGO está corriendo.
+
+    Existe por un problema real que costó días: uvicorn con --reload dejó de
+    recargar (el vigilante de archivos murió, algo habitual en Windows tras
+    suspender el equipo) y el servidor siguió sirviendo código de 4 días
+    antes, en silencio. Desde afuera todo parecía normal: /health decía
+    "ok", el login andaba, las pantallas cargaban — solo faltaban las rutas
+    nuevas, que respondían 404 sin ninguna pista de por qué.
+
+    Con estos dos campos, una sola consulta lo delata:
+        curl -s localhost:8000/health
+
+    - cargado_en muy viejo -> el proceso no tomó tus cambios; reinícialo.
+    - rutas no cambió tras agregar un endpoint -> lo mismo.
+
+    Es información inocua (no dice versiones de librerías ni rutas del
+    disco), así que no hace falta autenticarla — y tiene que ser pública
+    justamente para que el healthcheck del contenedor pueda consultarla.
+    """
+    return {
+        "status": "ok",
+        "version": "0.1.0",
+        "cargado_en": _CODIGO_CARGADO_EN.isoformat() + "Z",
+        # Se cuenta sobre el esquema OpenAPI y NO sobre app.routes: esta
+        # versión de FastAPI deja los routers incluidos como objetos
+        # `_IncludedRouter` sin aplanar, así que app.routes devolvía 24
+        # (17 routers + las rutas propias) en vez de los ~60 endpoints
+        # reales — un número que parecía informativo y no lo era.
+        # app.openapi() arma el esquema una sola vez y lo cachea, así que
+        # solo la primera consulta paga ese costo.
+        "rutas": len(app.openapi().get("paths", {})),
+    }
 
 
 # Root endpoint — redirige a la app
@@ -81,8 +121,8 @@ app.include_router(usuarios.router, prefix="/api", tags=["Personal"])
 app.include_router(facturas.router, prefix="/api", tags=["Facturación SUNAT"])
 app.include_router(caja.router, prefix="/api", tags=["Caja"])
 app.include_router(push.router, prefix="/api", tags=["Notificaciones Push"])
-app.include_router(agente.router, prefix="/api", tags=["Agente Facturador"])
 app.include_router(configuracion.router, prefix="/api", tags=["Configuración"])
+app.include_router(ruc.router, prefix="/api", tags=["Consulta RUC"])
 
 
 if __name__ == "__main__":

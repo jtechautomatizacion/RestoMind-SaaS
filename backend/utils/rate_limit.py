@@ -56,3 +56,42 @@ def limpiar_intentos_login(request: Request) -> None:
     """Llamar tras un login exitoso: no hace falta seguir arrastrando
     fallos viejos de esa IP."""
     _fallos.pop(_ip_de(request), None)
+
+
+# ============ LÍMITE POR VOLUMEN (no por fallos) ============
+
+# El de arriba cuenta fallos porque frena adivinación de contraseñas. Este
+# cuenta TODOS los pedidos, porque frena algo distinto: la extracción masiva
+# de un endpoint que funciona perfectamente. Es el caso de la consulta de
+# RUC, donde detrás hay millones de nombres de personas naturales — ahí el
+# abuso son miles de consultas EXITOSAS, no fallidas.
+_accesos: Dict[str, List[float]] = defaultdict(list)
+
+
+def limitar_por_volumen(request: Request, clave: str, maximo: int, ventana_segundos: int) -> None:
+    """
+    429 si esta IP superó `maximo` pedidos de `clave` en la ventana.
+
+    La cuota se cuenta por IP y no por usuario a propósito: un token robado
+    o un script con credenciales válidas es justo el escenario a contener, y
+    ahí el usuario del token no es una barrera.
+    """
+    ahora = time.time()
+    k = f"{clave}:{_ip_de(request)}"
+    vigentes = [t for t in _accesos[k] if ahora - t < ventana_segundos]
+
+    if len(vigentes) >= maximo:
+        _accesos[k] = vigentes
+        raise HTTPException(
+            status_code=429,
+            detail="Demasiadas consultas seguidas. Espera un momento.",
+        )
+
+    vigentes.append(ahora)
+    _accesos[k] = vigentes
+
+
+def limpiar_limites_por_volumen() -> None:
+    """Solo para los tests: TestClient reporta siempre la misma IP falsa, así
+    que sin resetear, un test gastaría la cuota del siguiente."""
+    _accesos.clear()

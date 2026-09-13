@@ -31,3 +31,25 @@ agente/descargados.txt
 # versiona la carpeta vacía (.gitkeep).
 frontend/assets/platos/*
 !frontend/assets/platos/.gitkeep
+
+# ============ CERTIFICADOS SUNAT — NUNCA COMMITEAR ============
+# Un .pfx con su clave permite emitir comprobantes a nombre del restaurante:
+# quien lo obtiene puede facturar por él. sol.txt son las credenciales con
+# las que el negocio se identifica ante SUNAT.
+# Si alguna vez se commitea uno por error, no alcanza con borrarlo en el
+# commit siguiente: queda en el historial. Hay que revocarlo y emitir otro.
+certs/
+*.pfx
+*.p12
+sol.txt
+clave.txt
+
+# ============ PADRÓN SUNAT — NUNCA COMMITEAR ============
+# ~1.6 GB con los nombres de ~19 millones de contribuyentes, muchos de ellos
+# personas naturales (Ley N° 29733). Se reconstruye con:
+#   python -m backend.scripts.cargar_padron_sunat
+# Subirlo a un repositorio sería republicar datos personales, además de
+# hacer inmanejable el historial de git.
+data/
+*.db.construyendo
+padron_reducido_ruc.zip

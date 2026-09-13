@@ -22,6 +22,7 @@ import unicodedata
 
 from backend.auth import hash_password
 from backend.database import SessionLocal, init_db
+from backend.utils.padron import formato_valido as formato_valido_ruc
 from backend.models import Cliente, Mesa, Usuario
 
 
@@ -57,9 +58,18 @@ def main() -> None:
         print("\n-- Datos tributarios (opcionales acá, se pueden cargar después desde")
         print("   el Panel General — pero sin RUC el restaurante no puede emitir")
         print("   boletas SUNAT) --")
-        ruc = input("RUC (11 dígitos, empieza con 10 o 20; opcional): ").strip() or None
-        if ruc and not re.fullmatch(r"(10|20)\d{9}", ruc):
-            print("RUC con formato inválido (debe tener 11 dígitos y empezar con 10 o 20). Se deja vacío.")
+        # Los tres campos fiscales nacen VACÍOS a propósito: un restaurante
+        # se da de alta y vende desde el primer día; el RUC y el certificado
+        # se cargan después, desde Admin > Boletas. Lo mismo con usar_sunat,
+        # que arranca en False (default del modelo).
+        ruc = input("RUC (11 dígitos; opcional, se puede cargar después): ").strip() or None
+        # Antes esto aceptaba SOLO los prefijos 10 y 20, y rechazaba los
+        # 15/16/17 que SUNAT también usa (el 7,4% del padrón real). Se
+        # comparte la misma validación que el resto de la app —incluye el
+        # dígito verificador— en vez de repetir una regex que ya divergió
+        # una vez.
+        if ruc and not formato_valido_ruc(ruc):
+            print("RUC inválido (11 dígitos, prefijo 10/15/16/17/20 y dígito de control). Se deja vacío.")
             ruc = None
         razon_social = input("Razón social (el titular del RUC, no el nombre comercial; opcional): ").strip() or None
         direccion = input("Dirección fiscal (opcional): ").strip() or None

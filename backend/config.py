@@ -33,37 +33,80 @@ class Settings(BaseSettings):
     # Claude API (futuro)
     anthropic_api_key: str = ""
 
-    # Facturación electrónica SUNAT — dos formas de emitir, elegidas por
-    # 'emisor_facturacion'. Es config de ESTA instalación física (qué hay
-    # en la PC de la caja), no del tenant en la nube — a diferencia del RUC
-    # (que sí vive en Cliente.ruc porque cada restaurante tiene el suyo),
-    # esto puede ser distinto en cada máquina donde corra RestoMind.
+    # Facturación electrónica SUNAT — 100% en la nube.
     #
-    # "sfs_local" (default, costo S/ 0): el Facturador SUNAT oficial (u
-    # homólogo) corre en la misma PC, vigilando una carpeta. RestoMind
-    # escribe ahí los archivos .cab/.det; el propio Facturador es quien
-    # habla con SUNAT — RestoMind NO se entera si SUNAT aceptó o rechazó
-    # (ver backend/utils/sfs_export.py y el estado 'generado_localmente').
+    # "sunat_cloud" (default): RestoMind firma y envía el comprobante a
+    # SUNAT desde el servidor, vía el micro-servicio de sunat-service/. No
+    # necesita ninguna PC con Windows en el restaurante.
     #
-    # "facturacion_pe" (de pago, S/ 0.20/boleta): integración por API ya
-    # implementada (backend/utils/facturacion_pe.py) — queda lista para
-    # cuando el volumen justifique confirmación automática de SUNAT en
-    # vez de depender del Facturador local.
-    emisor_facturacion: str = "sfs_local"
+    # El emisor "sfs_local" (Facturador de escritorio + archivos planos
+    # .cab/.det/.tri/.ley + agente de PowerShell) SE ELIMINÓ: ataba cada
+    # restaurante a una computadora prendida y no servía para un local que
+    # trabaja solo con tablets. Los comprobantes emitidos así siguen
+    # visibles en el historial, con estado 'generado_localmente'.
+    #
+    # "facturacion_pe" (de pago, S/ 0.20/boleta) se conserva como
+    # alternativa para quien prefiera no administrar su propio certificado.
+    emisor_facturacion: str = "sunat_cloud"
 
-    # Carpeta local donde el Facturador SUNAT (SFS) vigila archivos nuevos.
-    # Sin valor, /api/facturas/generar debe rechazar con error claro antes
-    # de intentar escribir en ningún lado — nunca asumir una ruta por
-    # defecto tipo "C:/sfs/DATA", porque escribir en el lugar equivocado
-    # en silencio es peor que fallar ruidosamente.
+    # OBSOLETAS — no se leen en ningún lado. Se declaran solo para que un
+    # .env que todavía las tenga no impida ARRANCAR la app.
+    #
+    # pydantic-settings rechaza variables desconocidas (extra_forbidden), así
+    # que borrarlas de acá haría que cualquier servidor ya desplegado —con
+    # SFS_EXPORT_DIR/SFS_EXPORT_ENCODING en su .env— muriera al actualizar,
+    # con un error de validación que no dice "sacá esta línea del .env".
+    # Se pueden eliminar cuando ningún .env en producción las tenga.
     sfs_export_dir: str = ""
-    # Los formatos planos de SUNAT (ej. PLE) tradicionalmente usan Latin-1,
-    # no UTF-8 — CONFIRMAR contra el manual del Facturador que estés usando
-    # antes de ir a producción; un encoding equivocado corrompe tildes/ñ.
     sfs_export_encoding: str = "latin-1"
+
+    # Carpeta donde vive el certificado de CADA restaurante, un
+    # subdirectorio por cliente_id. Es el mismo volumen que sunat-service
+    # monta de solo lectura (ver docker-compose.yml): RestoMind escribe,
+    # el contenedor de firma lee.
+    #
+    # Ruta relativa a propósito: en el VPS el proceso corre desde
+    # /opt/restomind, así que resuelve a /opt/restomind/certs — la misma que
+    # el compose monta. Se puede apuntar a otro lado con CERTS_DIR.
+    certs_dir: str = "certs"
 
     facturacion_pe_api_key: str = ""
     facturacion_pe_url: str = "https://api.facturacion.pe/v1"
+
+    # "sunat_cloud" (costo S/ 0 por boleta, pero exige certificado digital):
+    # RestoMind firma y envía el comprobante a SUNAT desde el servidor, vía
+    # el micro-servicio de sunat-service/ (librería sunat-py). A diferencia
+    # de "sfs_local", NO necesita una PC con Windows en el restaurante — un
+    # local que trabaja solo con tablets puede facturar igual, y desaparece
+    # la dependencia del agente de PowerShell.
+    #
+    # Vive en su propio contenedor porque sunat-py fija cryptography<45 y
+    # RestoMind usa la 50: juntarlos obligaría a retroceder 6 versiones
+    # mayores la librería que respalda los JWT. Ver sunat-service/app.py.
+    sunat_service_url: str = ""
+    sunat_service_token: str = ""
+    # Generoso a propósito: firmar + comprimir + el ida y vuelta SOAP contra
+    # SUNAT puede pasar de 20s en horas pico. Cortar antes deja la boleta en
+    # un limbo (SUNAT pudo haberla aceptado y RestoMind no se enteró).
+    sunat_service_timeout: int = 45
+
+    # Copia local del Padrón Reducido de SUNAT, construida por
+    # backend/scripts/cargar_padron_sunat.py. Si el archivo no existe, la
+    # consulta de RUC responde 503 con instrucciones — el resto de la app
+    # funciona igual, no es una dependencia dura.
+    padron_db_path: str = "data/sunat_padron.db"
+
+    # Servicio externo para resolver un DNI (el Padrón Reducido solo tiene
+    # RUC). APAGADO por defecto: sin URL configurada, un DNI desconocido
+    # simplemente devuelve "no encontrado" y el cajero escribe el nombre a
+    # mano — nunca falla el cobro por esto.
+    #
+    # Es de PAGO por consulta, de ahí que el resultado se guarde en
+    # clientes_frecuentes: la segunda vez que vuelve el mismo comensal sale
+    # gratis y al instante.
+    dni_api_url: str = ""
+    dni_api_token: str = ""
+    dni_api_timeout: int = 6
 
     # Notificaciones push (Firebase Cloud Messaging) — avisan a jefe_cocina
     # cuando entra una comanda nueva, incluso con la app minimizada.
@@ -91,6 +134,22 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+
+    @model_validator(mode="after")
+    def _normalizar_emisor(self) -> "Settings":
+        """
+        Un .env que todavía diga EMISOR_FACTURACION=sfs_local pasa a
+        'sunat_cloud'.
+
+        Sin esto, el despacho igual mandaría a la nube (todo lo que no sea
+        'facturacion_pe' va por ahí), pero la app REPORTARÍA un emisor que ya
+        no existe: en /health, en los logs y en cualquier diagnóstico se
+        leería "sfs_local" y alguien buscaría archivos .cab que nadie
+        escribe. Normalizar acá deja una sola verdad.
+        """
+        if self.emisor_facturacion == "sfs_local":
+            self.emisor_facturacion = "sunat_cloud"
+        return self
 
     @model_validator(mode="after")
     def _validar_produccion(self) -> "Settings":

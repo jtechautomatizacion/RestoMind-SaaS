@@ -18,6 +18,12 @@ async function refreshMozo() {
         console.error('Error cargando mesas:', err);
     }
     renderMesas();
+    // Las mesas que se acaban de traer son las mismas que pinta la vista
+    // unificada, así que solo le falta refrescar lo suyo (lo cobrable y los
+    // totales). Sin este aviso, después de enviar una comanda o de cobrar la
+    // vista quedaría mostrando el estado anterior hasta la próxima vuelta del
+    // intervalo. No hace nada si la vista está apagada.
+    if (typeof vuSincronizar === 'function') vuSincronizar();
 }
 
 function renderMesas() {
@@ -325,6 +331,14 @@ async function abrirCuentaMesa(mesa) {
     // Sin esto, el DNI/RUC tipeado para la mesa anterior quedaría precargado
     // acá y terminaría en la boleta de un cliente distinto.
     document.getElementById('cuenta-documento').value = '';
+    // Y con él, el nombre que se había traído de SUNAT: dejarlo visible
+    // sobre una mesa nueva haría creer que la boleta va a nombre de ese
+    // cliente cuando el campo ya está vacío. También se corta una búsqueda
+    // en vuelo, para que no pinte un resultado viejo sobre la mesa nueva.
+    clearTimeout(rucTimer);
+    docUltimoBuscado = null;
+    pintarInfoRuc('');
+    mostrarCampoNombreManual(false);
     // Pedirle el documento al cliente no tiene sentido en un restaurante
     // que no emite boletas desde acá: ese dato no iría a ningún lado.
     document.getElementById('cuenta-documento-grupo').classList.toggle(
@@ -404,7 +418,8 @@ function agregarPedidoAMesa() {
 
 /**
  * Misma regla que valida el backend (schemas.py:validar_documento_comprador):
- * vacío, 8 dígitos (DNI), u 11 empezando en 10/20 (RUC). Se repite acá a
+ * vacío, 8 dígitos (DNI), u 11 dígitos con prefijo válido y dígito
+ * verificador correcto (RUC). Se repite acá a
  * propósito, y NO para reemplazar la del servidor —que sigue siendo la que
  * manda— sino por CUÁNDO corre: la boleta se emite después de cobrar, así
  * que sin este chequeo previo un tipeo dejaba la venta ya cobrada con la
@@ -413,16 +428,181 @@ function agregarPedidoAMesa() {
  *
  * Devuelve null si está bien, o el motivo del rechazo.
  */
+// Prefijos de RUC que SUNAT usa de verdad. Antes acá decía solo (10|20), y
+// eso rechazaba a los contribuyentes con RUC 15/16/17 (personas naturales
+// con asignación antigua): son el 7,4% del padrón real, y al cajero le
+// aparecía un error al tipear un RUC perfectamente válido.
+// Espejo de PREFIJOS_VALIDOS en backend/utils/padron.py.
+const PREFIJOS_RUC = /^(10|15|16|17|20)/;
+const PESOS_RUC = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];
+
+/**
+ * Dígito verificador del RUC — la misma cuenta que hace el backend.
+ *
+ * Se repite acá a propósito: atrapar el número mal tipeado ANTES de mandar
+ * nada le ahorra al cajero el viaje de ida y vuelta, y sobre todo evita
+ * emitir una boleta a un RUC inexistente con la venta ya cobrada.
+ */
+function digitoRucValido(ruc) {
+    if (!/^\d{11}$/.test(ruc)) return false;
+    let suma = 0;
+    for (let i = 0; i < 10; i++) suma += parseInt(ruc[i], 10) * PESOS_RUC[i];
+    let d = 11 - (suma % 11);
+    if (d === 10) d = 0;
+    if (d === 11) d = 1;
+    return d === parseInt(ruc[10], 10);
+}
+
 function validarDocumentoComprador(documento) {
     if (!documento) return null;  // vacío = Público General, válido
     if (!/^\d+$/.test(documento)) return 'El documento debe tener solo números';
     if (documento.length === 8) return null;
     if (documento.length === 11) {
-        return /^(10|20)/.test(documento)
-            ? null
-            : 'Un RUC de 11 dígitos debe empezar en 10 o 20';
+        if (!PREFIJOS_RUC.test(documento)) {
+            return 'Un RUC de 11 dígitos debe empezar en 10, 15, 16, 17 o 20';
+        }
+        if (!digitoRucValido(documento)) {
+            return 'Ese RUC no existe. Revisá que los 11 dígitos estén bien copiados';
+        }
+        return null;
     }
     return 'El documento debe tener 8 dígitos (DNI) u 11 dígitos (RUC)';
+}
+
+// ============ BÚSQUEDA AUTOMÁTICA DE RAZÓN SOCIAL ============
+
+let rucTimer = null;
+let docUltimoBuscado = null;
+
+/**
+ * Al tipear un documento completo, trae solo el nombre del comprador.
+ *
+ * REGLAS DE ESTA FUNCIÓN — pensadas para no agregarle carga al cajero, que
+ * está cobrando con gente esperando:
+ *
+ *  - Nadie tiene que apretar nada. Se dispara sola al completar 8 u 11 dígitos.
+ *  - NUNCA bloquea ni interrumpe: no abre modales, no lanza toasts, no
+ *    deshabilita el botón de cobrar. Es un dato que aparece al costado.
+ *  - Si algo falla (sin padrón instalado, sin red, servidor lento) NO se
+ *    muestra ningún error. El cajero no puede hacer nada al respecto en ese
+ *    momento, así que avisarle solo sería ruido: cobra igual, como siempre.
+ *  - "No lo encontramos" se dice en tono neutro y se abre el campo para
+ *    escribir el nombre, en vez de tratarlo como un problema.
+ */
+function onDocumentoInput(event) {
+    soloDigitos(event);
+    const valor = event.target.value;
+
+    clearTimeout(rucTimer);
+
+    const completo = valor.length === 8 || valor.length === 11;
+    if (!completo) {
+        if (docUltimoBuscado !== null) {
+            pintarInfoRuc('');
+            mostrarCampoNombreManual(false);
+            docUltimoBuscado = null;
+        }
+        actualizarEtiquetaComprobante(valor);
+        return;
+    }
+    actualizarEtiquetaComprobante(valor);
+    if (valor === docUltimoBuscado) return;
+
+    // Se espera a que deje de tipear: sin esto, corregir un dígito dispara
+    // una consulta por cada tecla.
+    rucTimer = setTimeout(() => consultarDocumentoComprador(valor), 350);
+}
+
+/**
+ * Un RUC SIEMPRE produce factura, nunca boleta: quien da su RUC lo hace para
+ * sustentar gasto o crédito fiscal. Mostrarlo antes de cobrar evita la
+ * sorpresa de recibir un comprobante distinto del que pidió.
+ */
+function actualizarEtiquetaComprobante(documento) {
+    const el = document.getElementById('cuenta-tipo-comprobante');
+    if (!el) return;
+    if (documento.length === 11) {
+        el.textContent = 'FACTURA F001';
+        el.className = 'comprobante-chip factura';
+    } else {
+        el.textContent = 'BOLETA B001';
+        el.className = 'comprobante-chip';
+    }
+}
+
+async function consultarDocumentoComprador(documento) {
+    // Un RUC mal tipeado se atrapa acá sin gastar una consulta. Un DNI no
+    // tiene dígito de control, así que solo se revisa el largo.
+    if (documento.length === 11 && !digitoRucValido(documento)) {
+        pintarInfoRuc('Revisá el número, no parece un RUC válido', 'aviso');
+        mostrarCampoNombreManual(false);
+        return;
+    }
+
+    docUltimoBuscado = documento;
+    pintarInfoRuc('Buscando...', 'buscando');
+
+    let datos;
+    try {
+        datos = await api.get(`/documento/${documento}`);
+    } catch (_) {
+        // Silencio deliberado. Sin padrón instalado el backend responde 503,
+        // y mostrar "servicio no disponible" mientras alguien espera su
+        // vuelto no ayuda en nada: la búsqueda es una comodidad, no un paso
+        // del cobro. Igual se ofrece escribir el nombre a mano.
+        pintarInfoRuc('');
+        mostrarCampoNombreManual(documento.length === 11);
+        return;
+    }
+
+    // Si el cajero siguió tipeando mientras la consulta viajaba, el
+    // resultado ya no corresponde a lo que hay en pantalla.
+    const actual = document.getElementById('cuenta-documento');
+    if (!actual || actual.value !== documento) return;
+
+    if (datos.encontrado) {
+        pintarInfoRuc(datos.nombre, datos.advertencia ? 'aviso' : 'ok');
+        if (datos.advertencia) {
+            pintarInfoRuc(`${datos.nombre} · ${datos.advertencia}`, 'aviso');
+        }
+        mostrarCampoNombreManual(false);
+        return;
+    }
+
+    // No está: se abre el campo para escribirlo. Es la única forma de emitir
+    // a nombre de un RUC recién inscrito o de un comensal que este
+    // restaurante nunca atendió.
+    const esRuc = datos.tipo === 'RUC';
+    pintarInfoRuc(
+        esRuc ? 'No figura en el padrón. Escribí la razón social.'
+              : 'No lo tenemos registrado. Escribí el nombre.',
+        'neutro'
+    );
+    mostrarCampoNombreManual(true, esRuc);
+}
+
+function mostrarCampoNombreManual(mostrar, esRuc) {
+    const grupo = document.getElementById('cuenta-nombre-manual-grupo');
+    const input = document.getElementById('cuenta-nombre-manual');
+    const label = document.getElementById('cuenta-nombre-manual-label');
+    if (!grupo || !input) return;
+
+    grupo.classList.toggle('hidden', !mostrar);
+    if (!mostrar) {
+        input.value = '';
+        return;
+    }
+    if (label) {
+        label.textContent = esRuc ? 'Razón social' : 'Nombre del cliente';
+    }
+    input.placeholder = esRuc ? 'DISTRIBUIDORA EJEMPLO SAC' : 'Juan Pérez';
+}
+
+function pintarInfoRuc(texto, tipo) {
+    const el = document.getElementById('cuenta-doc-info');
+    if (!el) return;
+    el.textContent = texto || '';
+    el.className = 'doc-info' + (texto ? ` ${tipo}` : '');
 }
 
 async function cobrarMesaActual() {
@@ -434,6 +614,10 @@ async function cobrarMesaActual() {
     // corre en paralelo) evita depender de que nadie más toque el modal
     // mientras esa llamada sigue en vuelo.
     const documento = document.getElementById('cuenta-documento').value.trim();
+    // Se captura junto al documento y por el mismo motivo: abrirCuentaMesa()
+    // limpia los dos apenas se toca otra mesa.
+    const campoNombre = document.getElementById('cuenta-nombre-manual');
+    const nombreManual = campoNombre ? campoNombre.value.trim() : '';
 
     // Antes de cobrar, no después: corregir un tipeo con la mesa todavía
     // abierta es trivial; con la venta ya cobrada, no.
@@ -472,7 +656,9 @@ async function cobrarMesaActual() {
     // (su propio try/catch resuelve todos los casos con un toast), así que
     // no dejar de esperarla acá no genera una promesa rechazada sin manejar.
     if (estado.usuario && estado.usuario.cliente_usar_sunat) {
-        generarBoletaTrasCobro(resultado, documento);
+        // El nombre escrito a mano viaja junto al documento: es lo que
+        // permite emitir a un RUC que el padrón local todavía no tiene.
+        generarBoletaTrasCobro(resultado, documento, nombreManual);
     }
 }
 
@@ -480,29 +666,97 @@ async function cobrarMesaActual() {
 // existe, o Facturación.pe está caído, la venta YA quedó cobrada igual —
 // solo se avisa que la boleta quedó pendiente/con error, reintentable
 // después desde /api/facturas/{id}/reintentar (ver backend/routes/facturas.py).
-async function generarBoletaTrasCobro(resultadoCobro, documento) {
+async function generarBoletaTrasCobro(resultadoCobro, documento, nombreManual) {
     try {
         const factura = await api.post('/facturas/generar', {
             comanda_ids: resultadoCobro.comanda_ids,
             documento_comprador: documento || null,
+            // Solo va cuando el cajero tuvo que escribirla: es la salida para
+            // un RUC recién inscrito que el padrón local todavía no tiene.
+            razon_social_manual: nombreManual || null,
         });
-        showToast(`Boleta ${factura.numero_boleta} generada`, 'success');
+        showToast(`${factura.numero_boleta} generada`, 'success');
+
+        // Un DNI escrito a mano se recuerda para este restaurante: la próxima
+        // visita de esa persona el nombre aparece solo, sin volver a tipearlo
+        // ni consultar un servicio de pago. Sin await ni manejo de error: si
+        // falla, lo único que se pierde es la comodidad de la próxima vez.
+        if (nombreManual && documento && documento.length === 8) {
+            api.post(`/documento/${documento}`, { nombre: nombreManual }).catch(() => {});
+        }
+
         // Recién acá existe un numero_boleta real (se reserva adentro del
         // endpoint) — no se puede imprimir antes sin arriesgarse a mostrar
         // un número que nunca se generó. No se espera el resultado: un
         // fallo de impresión no debe generar una segunda vuelta de nada.
         if (typeof imprimirBoletaVenta === 'function') imprimirBoletaVenta(factura);
     } catch (err) {
+        // Caso SUNAT >= S/ 700 sin comprador identificado. El backend lo
+        // manda con un código estable justamente para poder distinguirlo de
+        // cualquier otro fallo y explicarlo bien, en vez de un error rojo
+        // genérico que no dice qué hacer.
+        if (err.codigoNegocio === 'IDENTIFICAR_COMPRADOR') {
+            mostrarAvisoIdentificarComprador(err.message);
+            return;
+        }
+
+        // Caso con salida: el RUC no está en el padrón y falta la razón
+        // social. No se manda al cajero a Admin — se le pide el dato ahí
+        // mismo y se reintenta, que es el único momento en que el cliente
+        // sigue enfrente para dictárselo.
+        const faltaRazonSocial = !nombreManual
+            && typeof err.message === 'string'
+            && err.message.includes('razón social');
+
+        if (faltaRazonSocial) {
+            const nombre = prompt(
+                `El RUC ${documento} no figura en el padrón de SUNAT.\n\n` +
+                'Escribí la razón social tal como aparece en su ficha RUC:'
+            );
+            if (nombre && nombre.trim()) {
+                return generarBoletaTrasCobro(resultadoCobro, documento, nombre.trim());
+            }
+            showToast('Comprobante pendiente. Emitilo desde Admin > Boletas.', 'warning');
+            return;
+        }
+
         // No se promete reintento automático: la cola offline
         // (frontend/js/offline.js) cubre SOLO comandas nuevas, no facturas.
         // Decir "se genera sola al volver la señal" sería mentirle al cajero
-        // sobre una boleta que nadie va a emitir.
+        // sobre un comprobante que nadie va a emitir.
         const detalle = err instanceof NetworkError
             ? 'se cortó la conexión'
             : err.message;
-        showToast(`Cobro OK, pero la boleta NO se emitió (${detalle}). Emítela desde Admin.`, 'error');
+        showToast(`Cobro OK, pero el comprobante NO se emitió (${detalle}). Emítelo desde Admin.`, 'error');
     }
 }
+
+/**
+ * Aviso de la regla de los S/ 700.
+ *
+ * Va como panel y no como toast a propósito: un toast se va solo a los pocos
+ * segundos, y esto el cajero TIENE que leerlo y accionarlo — la venta está
+ * cobrada pero el comprobante quedó pendiente. Se cierra a mano.
+ *
+ * Lo primero que dice es que el cobro SÍ entró: esa es la duda inmediata de
+ * alguien parado en la caja con el cliente enfrente.
+ */
+function mostrarAvisoIdentificarComprador(mensaje) {
+    const panel = document.getElementById('aviso-sunat-700');
+    const texto = document.getElementById('aviso-sunat-700-texto');
+    if (!panel) {
+        showToast(mensaje, 'warning');
+        return;
+    }
+    if (texto && mensaje) texto.textContent = mensaje;
+    panel.classList.remove('hidden');
+}
+
+function cerrarAvisoSunat700() {
+    const panel = document.getElementById('aviso-sunat-700');
+    if (panel) panel.classList.add('hidden');
+}
+
 
 // ============ GESTIÓN DE MESAS (solo Admin) ============
 
