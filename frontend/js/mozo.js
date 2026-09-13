@@ -823,6 +823,9 @@ let cobroDocTimer = null;
  */
 function prepararCobro() {
     limpiarModalCobro();
+    // Siempre vuelve a "Sin documento": si el cobro anterior terminó en la
+    // pestaña de RUC y entremedio se apagó la facturación, dejarla activa
+    // mostraría un formulario sin su barra de pestañas y sin forma de salir.
     cambiarTabCobro('sin-doc');
 }
 
@@ -852,7 +855,18 @@ function limpiarModalCobro() {
     // que SUNAT no permite.
     ayuda.textContent = emite
         ? 'Se emite boleta a Público General, sin identificar al cliente.'
-        : 'Este restaurante no emite comprobantes electrónicos todavía.';
+        : '';
+
+    // Sin facturación activa no hay tres formas de cobrar: hay UNA. El
+    // DNI/RUC del comensal solo existe para ponerlo en un comprobante, así
+    // que sin comprobante pedirlo es hacerle perder tiempo al cajero —con
+    // el cliente esperando— por un dato que no va a ningún lado. Se ocultan
+    // las pestañas enteras y queda solo el botón Cobrar.
+    //
+    // Se oculta, no se deshabilita: una pestaña gris igual invita a
+    // tocarla y a preguntarse qué falta para habilitarla.
+    document.getElementById('cobro-tabs').classList.toggle('hidden', !emite);
+    ayuda.classList.toggle('hidden', !emite);
 
     // El tope de S/ 700 lo impone SUNAT, no la app. Avisarlo ACÁ —antes de
     // cobrar— le da al cajero la chance de pedir el documento con el cliente

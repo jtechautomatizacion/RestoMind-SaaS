@@ -56,6 +56,15 @@ button, a {
     --silla-b: #7C8291;
     --silla-a-ocupada: #FF9478;
     --silla-b-ocupada: #D9451F;
+    /* Tercer juego, solo para la Vista Unificada: "esperando la cuenta".
+       El ícono tiene que distinguir TRES situaciones, no dos — "la comida
+       está en cocina" y "hay plata sobre la mesa" se atienden distinto.
+       Ámbar, el mismo del resto de los avisos de cobro de la app. */
+    --mesa-top-a-cobrar: #FDE8B4;
+    --mesa-top-b-cobrar: #F5A623;
+    --mesa-top-c-cobrar: #B77400;
+    --silla-a-cobrar: #F7C66B;
+    --silla-b-cobrar: #C98A12;
     --accent-gradient: linear-gradient(135deg, #FF7A5C 0%, var(--accent) 55%, var(--accent-dark) 100%);
 }
 
@@ -85,6 +94,11 @@ button, a {
         --silla-b: #3A3B40;
         --silla-a-ocupada: #FF9478;
         --silla-b-ocupada: #B3391A;
+        --mesa-top-a-cobrar: #F7C66B;
+        --mesa-top-b-cobrar: #D99500;
+        --mesa-top-c-cobrar: #7A5200;
+        --silla-a-cobrar: #D9A93F;
+        --silla-b-cobrar: #8A6200;
         --accent-gradient: linear-gradient(135deg, #FF9478 0%, var(--accent) 55%, var(--accent-dark) 100%);
     }
 }
@@ -2324,6 +2338,16 @@ body {
     color: var(--accent-contrast);
 }
 
+/* Backend sirviendo código viejo (ver avisarSiElServidorEstaDesactualizado
+   en app.js). Rojo y no ámbar a propósito: no es un estado degradado que
+   se resuelve solo como "sin conexión", es algo que hay que ir a arreglar
+   — y mientras tanto, cualquier bug que se vea en pantalla puede ser un
+   fantasma. En producción nunca aparece. */
+.offline-banner.servidor-viejo {
+    background: var(--danger);
+    color: #FFFFFF;
+}
+
 /* ============ CAJA (Validador de Caja) ============ */
 
 .caja-card {
@@ -2737,36 +2761,85 @@ body {
 
 .vu-mesas-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
-    gap: 8px;
+    /* 96px y no 64: la mesa dejó de ser un cuadradito con un número y ahora
+       lleva ícono, monto y tiempo de espera. Sigue siendo auto-fill, así
+       que en una tablet ancha entran igual de muchas por fila. */
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 10px;
     max-height: 62vh;
     overflow-y: auto;
+    padding: 2px;  /* aire para que el halo de :focus no quede cortado */
 }
 
 .vu-mesa {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    gap: 2px;
-    aspect-ratio: 1;
-    padding: 4px;
+    gap: 4px;
+    padding: 10px 6px 8px;
     border: 1.5px solid var(--border);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius);
     background: var(--surface);
     color: var(--text);
     cursor: pointer;
-    transition: transform 0.12s, box-shadow 0.12s;
+    overflow: hidden;
+    transition: transform 0.12s, box-shadow 0.12s, border-color 0.2s;
 }
 
-.vu-mesa:active { transform: scale(0.94); }
+/* Franja de estado arriba. El color ya lo dice, pero una franja lo dice
+   también por POSICIÓN y GROSOR — se lee de reojo y sin depender del
+   matiz, que es lo que falla con daltonismo rojo/verde. */
+.vu-mesa-barra {
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 4px;
+    background: var(--border);
+    transition: background 0.2s;
+}
 
-.vu-mesa-num { font-size: 1.15rem; font-weight: 800; line-height: 1; }
+.vu-mesa-cabecera {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 5px;
+    width: 100%;
+}
+
+.vu-mesa-num {
+    font-size: 1.35rem;
+    font-weight: 800;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+.vu-mesa-icono {
+    width: 38px;
+    height: 38px;
+    display: block;
+}
+
+/* Los rellenos del ícono salen de acá, no de un atributo fill en el SVG:
+   el render de la vista unificada reconcilia en vez de reescribir, así que
+   cambiar la clase del botón repinta la mesa sin tocar el SVG. */
+.vu-mesa-tapa   { fill: url(#mesaTopLibre); }
+.vu-mesa-silla  { fill: url(#sillaLibre); }
+/* Mismos valores que .mesa-icono-* de la grilla clásica, a propósito: es
+   el mismo objeto visto en dos pantallas. */
+.vu-mesa-sombra { fill: rgba(0, 0, 0, 0.16); }
+.vu-mesa-brillo { fill: rgba(255, 255, 255, 0.55); }
+
+.vu-mesa.cocinando .vu-mesa-tapa  { fill: url(#mesaTopOcupada); }
+.vu-mesa.cocinando .vu-mesa-silla { fill: url(#sillaOcupada); }
+.vu-mesa.por-cobrar .vu-mesa-tapa  { fill: url(#mesaTopCobrar); }
+.vu-mesa.por-cobrar .vu-mesa-silla { fill: url(#sillaCobrar); }
 
 .vu-mesa-detalle {
-    font-size: 0.62rem;
-    font-weight: 700;
+    font-size: 0.74rem;
+    font-weight: 800;
     color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
 }
 
 /* Tres estados, no dos: "cocinando" (no hay nada que hacer todavía) es muy
@@ -2775,6 +2848,7 @@ body {
    matiz — daltonismo rojo/verde es justo el par que se usa acá. */
 .vu-mesa.libre { border-color: var(--success); }
 .vu-mesa.libre .vu-mesa-num { color: var(--success); }
+.vu-mesa.libre .vu-mesa-barra { background: var(--success); }
 
 .vu-mesa.cocinando {
     border-color: var(--accent);
@@ -2782,6 +2856,7 @@ body {
     background: var(--surface-alt);
 }
 .vu-mesa.cocinando .vu-mesa-num { color: var(--accent-dark); }
+.vu-mesa.cocinando .vu-mesa-barra { background: var(--accent); }
 
 .vu-mesa.por-cobrar {
     border-color: var(--warning);
@@ -2791,6 +2866,8 @@ body {
 }
 .vu-mesa.por-cobrar .vu-mesa-num { color: #92400E; }
 .vu-mesa.por-cobrar .vu-mesa-detalle { color: #92400E; }
+.vu-mesa.por-cobrar .vu-mesa-barra { background: var(--warning); }
+.vu-mesa.urgente .vu-mesa-barra { background: var(--danger); }
 
 /* ---- Lo que hace que la grilla se sienta viva ----
 
@@ -2804,7 +2881,7 @@ body {
 
 /* (a) El tiempo de espera: el dato que decide a qué mesa ir primero. */
 .vu-mesa-tiempo {
-    font-size: 0.58rem;
+    font-size: 0.66rem;
     font-weight: 800;
     letter-spacing: 0.02em;
     color: var(--text-muted);

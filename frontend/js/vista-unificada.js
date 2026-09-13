@@ -248,6 +248,30 @@ function renderUnificado() {
 }
 
 /**
+ * El mismo ícono 3D que usa la grilla clásica de Mesas (ver mozo.js): disco
+ * con gradiente radial, sombra elíptica en el piso, brillo especular
+ * arriba-izquierda y cuatro sillas. Reusarlo no es estética: es que la
+ * misma mesa se vea igual en las dos pantallas, así el dueño que alterna
+ * entre "Solo mesas" y "Todo en uno" no tiene que recalibrar la vista.
+ *
+ * A diferencia de mozo.js, acá los rellenos NO van como atributo `fill` en
+ * el SVG sino desde el CSS, según la clase de estado del botón. El render
+ * de esta vista reconcilia (no reescribe el nodo), así que cambiar una
+ * clase es todo lo que hace falta para repintar el ícono: nada que tocar
+ * en el SVG, y la transición de color la hace el navegador sola.
+ */
+const _VU_MESA_SVG = `
+    <svg class="vu-mesa-icono" viewBox="0 0 24 24" aria-hidden="true">
+        <ellipse class="vu-mesa-sombra" cx="12" cy="21.1" rx="6.6" ry="1.35"/>
+        <circle class="vu-mesa-silla" cx="12" cy="2.6" r="1.65"/>
+        <circle class="vu-mesa-silla" cx="12" cy="19.3" r="1.65"/>
+        <circle class="vu-mesa-silla" cx="2.6" cy="11" r="1.65"/>
+        <circle class="vu-mesa-silla" cx="21.4" cy="11" r="1.65"/>
+        <circle class="vu-mesa-tapa" cx="12" cy="11" r="6"/>
+        <ellipse class="vu-mesa-brillo" cx="9.4" cy="8.3" rx="2.5" ry="1.3"/>
+    </svg>`;
+
+/**
  * Hace cuánto espera cada mesa ocupada, en minutos.
  *
  * Se arma con lo que YA está en memoria (las comandas de cocina que
@@ -314,9 +338,13 @@ function vuRenderMesas(enCocina) {
         cont.innerHTML = estado.mesas.map((mesa, idx) => `
             <button type="button" class="vu-mesa" data-numero="${mesa.numero}"
                     onclick="vuAbrirMesa(${idx})">
-                <span class="vu-mesa-num">${mesa.numero}</span>
+                <span class="vu-mesa-barra" aria-hidden="true"></span>
+                <span class="vu-mesa-cabecera">
+                    <span class="vu-mesa-num">${mesa.numero}</span>
+                    <span class="vu-mesa-tiempo"></span>
+                </span>
+                ${_VU_MESA_SVG}
                 <span class="vu-mesa-detalle"></span>
-                <span class="vu-mesa-tiempo"></span>
             </button>
         `).join('');
     }
@@ -360,12 +388,16 @@ function vuRenderMesas(enCocina) {
         const elTiempo = btn.querySelector('.vu-mesa-tiempo');
         if (elTiempo.textContent !== tiempo) elTiempo.textContent = tiempo;
 
-        // Lo que el ícono no alcanza a decir, para lector de pantalla y
-        // para el tooltip de escritorio.
-        btn.title = est === 'libre'
-            ? `Mesa ${mesa.numero} libre · ${mesa.capacidad} personas`
-            : `Mesa ${mesa.numero} · ${detalle} · ${est === 'cocinando' ? 'en cocina' : 'esperando la cuenta'}`
-              + (espera != null ? ` · hace ${espera} min` : '');
+        // aria-label y NO title: el tooltip nativo del navegador aparece
+        // flotando sobre las mesas vecinas y tapa justo lo que se está
+        // mirando, además de no existir en una tablet (no hay hover). El
+        // aria-label da la misma información al lector de pantalla sin
+        // dibujar nada.
+        btn.setAttribute('aria-label', est === 'libre'
+            ? `Mesa ${mesa.numero} libre, ${mesa.capacidad} personas`
+            : `Mesa ${mesa.numero}, ${detalle}, `
+              + (est === 'cocinando' ? 'en cocina' : 'esperando la cuenta')
+              + (espera != null ? `, hace ${espera} minutos` : ''));
     });
 
     vuBadge('mesas', ocupadas);

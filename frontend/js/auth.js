@@ -233,6 +233,9 @@ async function initAuth() {
         aplicarUsuarioDeSesion(usuario);
         mostrarApp();
         init();
+        // Sin await: es un diagnóstico de desarrollo, no puede demorar
+        // el arranque de la app del restaurante.
+        avisarSiElServidorEstaDesactualizado();
     } catch (_) {
         limpiarSesion();
         mostrarLogin('Tu sesión expiró. Ingresa de nuevo.');

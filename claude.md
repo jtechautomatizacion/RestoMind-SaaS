@@ -1474,9 +1474,13 @@ ruido que además tapa un pendiente de verdad el día que sí se activa.
 
 - `mozo.js` solo intenta emitir boleta si el restaurante tiene
   `usar_sunat=true` — sin eso, cobrar ya no dispara el toast rojo.
-- El campo de DNI/RUC del cobro se oculta cuando el restaurante no emite:
-  pedirle el documento al cliente no tiene sentido si ese dato no va a
-  ningún lado.
+- **Las tres pestañas del cobro (Sin documento / Con RUC / Con DNI) se
+  ocultan enteras** cuando el restaurante no emite: queda solo el botón
+  Cobrar. El DNI/RUC del comensal existe únicamente para ponerlo en un
+  comprobante, así que sin comprobante pedirlo es hacerle perder tiempo al
+  cajero —con el cliente esperando— por un dato que no va a ningún lado.
+  Se ocultan, no se deshabilitan: una pestaña gris igual invita a tocarla
+  y a preguntarse qué falta para habilitarla.
 - `GET /facturas/pendientes` devuelve vacío para quien no emite (en vez de
   acumular boletas "pendientes" que nunca se van a generar).
 
@@ -1884,6 +1888,56 @@ defaultea (`${SUNAT_MODE:-beta}`, `${SUNAT_SOAP_TIMEOUT:-30}`), así que
 **no hace falta declararlas en ningún `.env` para desarrollo** — si algún
 día hace falta cambiarlas, van en un `.env` separado que se le pase a
 `docker compose` con `--env-file`, nunca en el `.env` de RestoMind.
+
+**e-bis) `--reload` NO RECARGA en esta máquina Windows, y eso se ve como
+un bug imposible en la app.** Medido, no supuesto (2026-09-13):
+
+```
+WARNING:  WatchFiles detected changes in 'backendpp.py'. Reloading...
+   ... y nunca más imprime "Started server process".
+```
+
+El vigilante detecta el cambio y el proceso nuevo jamás levanta. El viejo
+sigue respondiendo como si nada. Se descartó, una por una:
+
+- **No es el vigilante.** Pasa igual con `StatReload` y con `WatchFiles`
+  (el `.venv` estaba instalado sin el extra `[standard]` que
+  `requirements.txt` ya pedía —de ahí que cayera a StatReload—; con
+  `watchfiles` instalado el cuelgue es idéntico).
+- **No son los clientes con keep-alive.** Pasa con el navegador cerrado y
+  cero conexiones.
+- **No es el drenaje de conexiones.** Pasa igual con
+  `--timeout-graceful-shutdown 5`.
+- **No es el puerto ocupado.** Pasa en un puerto limpio recién liberado.
+
+**Cómo se ve desde el navegador, y por qué confunde tanto:** no se ve
+como "el servidor está viejo". Se ve como un bug del código que acabás de
+escribir — una ruta nueva que da 404, un rol nuevo que da 422, un campo
+que "no se guarda". Ya costó días tres veces (el 404 de
+`/api/configuracion`, y el 422 al crear la primera cuenta de asistente).
+
+**Qué hacer:** en esta máquina, **correr sin `--reload` y reiniciar a
+mano** — es un segundo y es confiable:
+
+```bash
+.venv/Scripts/python.exe -m uvicorn backend.app:app --host 0.0.0.0 --port 8000
+```
+
+**Cómo se detecta ahora, sin adivinar.** `GET /health` devuelve
+`codigo_desactualizado`: compara la hora de arranque del proceso contra la
+fecha de los `.py` en disco.
+
+```bash
+curl -s localhost:8000/health
+# {"status":"ok", ..., "codigo_desactualizado": true}   <- reiniciá
+```
+
+Y la PWA lo muestra sola: al arrancar consulta `/health` y, si el servidor
+está viejo, pinta un banner rojo *"El servidor está corriendo código
+viejo"* (`avisarSiElServidorEstaDesactualizado()` en `app.js`). **En
+producción es siempre `false`** —los archivos no cambian entre
+despliegues— así que el restaurante nunca lo ve; ahí el campo sirve como
+confirmación de que el servicio corre exactamente lo que se desplegó.
 
 **e) `--reload` sin acotar tumba el servidor solo, después de varias horas
 — el síntoma exacto de "no puedo entrar a mi ambiente de dev".** Ya

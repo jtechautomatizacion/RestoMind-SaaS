@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -63,6 +64,35 @@ _CODIGO_CARGADO_EN = datetime.utcnow()
 
 
 # Health check endpoint
+def _hay_codigo_mas_nuevo_en_disco() -> bool:
+    """
+    ¿Hay algún .py del backend modificado DESPUÉS de que arrancó este
+    proceso? Si lo hay, lo que está sirviendo no es lo que está en el disco.
+
+    Es la contraparte accionable de `cargado_en`: ese campo obliga a mirar
+    una fecha y decidir si "parece vieja"; este responde sí o no.
+
+    En el VPS siempre da False —los archivos no cambian entre despliegues—
+    así que no es un campo de desarrollo colado en producción: ahí es la
+    confirmación de que el servicio corre exactamente el código desplegado,
+    justo lo que se quiere saber después de un deploy.
+
+    Nunca levanta: si no se puede leer el directorio (permisos, ruta rara),
+    devuelve False. Un healthcheck que se cae por intentar diagnosticar es
+    peor que no tener el diagnóstico.
+    """
+    try:
+        raiz = Path(__file__).resolve().parent
+        for archivo in raiz.rglob("*.py"):
+            if "__pycache__" in archivo.parts:
+                continue
+            if datetime.utcfromtimestamp(archivo.stat().st_mtime) > _CODIGO_CARGADO_EN:
+                return True
+    except Exception:  # noqa: BLE001 — diagnosticar nunca puede tumbar /health
+        return False
+    return False
+
+
 @app.get("/health")
 async def health_check():
     """
@@ -97,6 +127,11 @@ async def health_check():
         # app.openapi() arma el esquema una sola vez y lo cachea, así que
         # solo la primera consulta paga ese costo.
         "rutas": len(app.openapi().get("paths", {})),
+        # El campo que convierte "fijate si cargado_en te parece viejo" en
+        # una respuesta. Comparar a ojo no alcanzó: esto volvió a pasar, y
+        # el síntoma fue un 422 al crear una cuenta con un rol nuevo —
+        # nada que sugiriera "el servidor no tomó tus cambios".
+        "codigo_desactualizado": _hay_codigo_mas_nuevo_en_disco(),
     }
 
 

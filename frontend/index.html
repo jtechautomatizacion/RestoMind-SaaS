@@ -223,6 +223,16 @@
                 <stop offset="0%" style="stop-color:var(--silla-a-ocupada)"/>
                 <stop offset="100%" style="stop-color:var(--silla-b-ocupada)"/>
             </linearGradient>
+            <!-- Tercer estado, solo Vista Unificada: mesa esperando la cuenta. -->
+            <radialGradient id="mesaTopCobrar" cx="35%" cy="28%" r="78%">
+                <stop offset="0%" style="stop-color:var(--mesa-top-a-cobrar)"/>
+                <stop offset="60%" style="stop-color:var(--mesa-top-b-cobrar)"/>
+                <stop offset="100%" style="stop-color:var(--mesa-top-c-cobrar)"/>
+            </radialGradient>
+            <linearGradient id="sillaCobrar" x1="10%" y1="0%" x2="90%" y2="100%">
+                <stop offset="0%" style="stop-color:var(--silla-a-cobrar)"/>
+                <stop offset="100%" style="stop-color:var(--silla-b-cobrar)"/>
+            </linearGradient>
         </defs>
     </svg>
 
@@ -428,7 +438,12 @@
                             <div id="cobro-espera-cocina" class="cobro-aviso hidden">
                                 Espera a que cocina entregue todo antes de cobrar.
                             </div>
-                            <div class="cobro-tabs" role="tablist">
+                            <!-- Las tres pestañas se OCULTAN enteras cuando el
+                                 restaurante no emite comprobantes: sin SUNAT activo,
+                                 el DNI/RUC del comensal no va a ningún lado, así que
+                                 pedirlo es hacerle perder tiempo al cajero por un
+                                 dato que nadie va a usar. Queda solo Cobrar. -->
+                            <div class="cobro-tabs" id="cobro-tabs" role="tablist">
                                 <button type="button" class="cobro-tab-btn active" data-tab="sin-doc" role="tab"
                                         onclick="cambiarTabCobro('sin-doc')">Sin documento</button>
                                 <button type="button" class="cobro-tab-btn" data-tab="con-ruc" role="tab"

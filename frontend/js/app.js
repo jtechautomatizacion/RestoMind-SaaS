@@ -85,6 +85,49 @@ function puedeVer(tab) {
     return tabsPermitidas().includes(tab);
 }
 
+// ============ AVISO DE SERVIDOR DESACTUALIZADO ============
+
+/**
+ * Avisa cuando el backend está sirviendo código más viejo que el que hay
+ * en el disco.
+ *
+ * Existe por un problema que ya costó días tres veces: `uvicorn --reload`
+ * detecta el cambio, imprime "Reloading..." y el proceso nuevo nunca
+ * levanta (verificado en Windows con cero clientes conectados, puerto
+ * limpio y los dos vigilantes de archivos — StatReload y WatchFiles). El
+ * servidor viejo sigue respondiendo como si nada, así que desde el
+ * navegador se ve un bug imposible: una ruta nueva que da 404, un rol
+ * nuevo que da 422, un campo que "no se guarda".
+ *
+ * El backend ya sabe la respuesta (`/health` compara la hora de arranque
+ * contra la fecha de los .py en disco). Lo único que faltaba era mostrarla
+ * donde se está mirando cuando aparece el síntoma.
+ *
+ * En producción `codigo_desactualizado` es SIEMPRE false —los archivos no
+ * cambian entre despliegues— así que este aviso no existe para el
+ * restaurante: es invisible salvo que de verdad haya un servidor viejo.
+ *
+ * Se consulta al ARRANCAR y nada más. Ese es justo el momento en que uno
+ * recarga la página para probar un cambio, y consultarlo en un intervalo
+ * sería gastar red del local para siempre por un problema de desarrollo.
+ */
+async function avisarSiElServidorEstaDesactualizado() {
+    try {
+        const resp = await fetch('/health', { cache: 'no-store' });
+        if (!resp.ok) return;
+        const salud = await resp.json();
+        if (!salud.codigo_desactualizado) return;
+
+        const banner = document.getElementById('offline-banner');
+        if (!banner) return;
+        banner.className = 'offline-banner servidor-viejo';
+        banner.textContent = 'El servidor está corriendo código viejo. Reinícialo: los cambios no están aplicados.';
+        banner.classList.remove('hidden');
+    } catch (_) {
+        // Sin red o /health caído: el banner de offline ya cubre ese caso.
+    }
+}
+
 // ============ API CLIENT ============
 
 // Minutos que hay que sumarle a la hora local para obtener UTC (Perú = 300).
