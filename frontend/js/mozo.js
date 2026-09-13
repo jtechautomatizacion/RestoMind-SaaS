@@ -328,22 +328,6 @@ async function abrirCuentaMesa(mesa) {
         && !estado.roles.includes('mozo')
         && !estado.roles.includes('admin');
     document.getElementById('btn-agregar-pedido').classList.toggle('hidden', soloCobra);
-    // Sin esto, el DNI/RUC tipeado para la mesa anterior quedaría precargado
-    // acá y terminaría en la boleta de un cliente distinto.
-    document.getElementById('cuenta-documento').value = '';
-    // Y con él, el nombre que se había traído de SUNAT: dejarlo visible
-    // sobre una mesa nueva haría creer que la boleta va a nombre de ese
-    // cliente cuando el campo ya está vacío. También se corta una búsqueda
-    // en vuelo, para que no pinte un resultado viejo sobre la mesa nueva.
-    clearTimeout(rucTimer);
-    docUltimoBuscado = null;
-    pintarInfoRuc('');
-    mostrarCampoNombreManual(false);
-    // Pedirle el documento al cliente no tiene sentido en un restaurante
-    // que no emite boletas desde acá: ese dato no iría a ningún lado.
-    document.getElementById('cuenta-documento-grupo').classList.toggle(
-        'hidden', !(estado.usuario && estado.usuario.cliente_usar_sunat));
-
     try {
         const comandas = await api.get(`/comandas?numero_mesa=${mesa.numero}`);
         const activas = comandas.filter(c => c.estado === 'cocina' || c.estado === 'entregado');
@@ -473,183 +457,6 @@ function validarDocumentoComprador(documento) {
 
 let rucTimer = null;
 let docUltimoBuscado = null;
-
-/**
- * Al tipear un documento completo, trae solo el nombre del comprador.
- *
- * REGLAS DE ESTA FUNCIÓN — pensadas para no agregarle carga al cajero, que
- * está cobrando con gente esperando:
- *
- *  - Nadie tiene que apretar nada. Se dispara sola al completar 8 u 11 dígitos.
- *  - NUNCA bloquea ni interrumpe: no abre modales, no lanza toasts, no
- *    deshabilita el botón de cobrar. Es un dato que aparece al costado.
- *  - Si algo falla (sin padrón instalado, sin red, servidor lento) NO se
- *    muestra ningún error. El cajero no puede hacer nada al respecto en ese
- *    momento, así que avisarle solo sería ruido: cobra igual, como siempre.
- *  - "No lo encontramos" se dice en tono neutro y se abre el campo para
- *    escribir el nombre, en vez de tratarlo como un problema.
- */
-function onDocumentoInput(event) {
-    soloDigitos(event);
-    const valor = event.target.value;
-
-    clearTimeout(rucTimer);
-
-    const completo = valor.length === 8 || valor.length === 11;
-    if (!completo) {
-        if (docUltimoBuscado !== null) {
-            pintarInfoRuc('');
-            mostrarCampoNombreManual(false);
-            docUltimoBuscado = null;
-        }
-        actualizarEtiquetaComprobante(valor);
-        return;
-    }
-    actualizarEtiquetaComprobante(valor);
-    if (valor === docUltimoBuscado) return;
-
-    // Se espera a que deje de tipear: sin esto, corregir un dígito dispara
-    // una consulta por cada tecla.
-    rucTimer = setTimeout(() => consultarDocumentoComprador(valor), 350);
-}
-
-/**
- * Un RUC SIEMPRE produce factura, nunca boleta: quien da su RUC lo hace para
- * sustentar gasto o crédito fiscal. Mostrarlo antes de cobrar evita la
- * sorpresa de recibir un comprobante distinto del que pidió.
- */
-function actualizarEtiquetaComprobante(documento) {
-    const el = document.getElementById('cuenta-tipo-comprobante');
-    if (!el) return;
-
-    // Régimen tributario del restaurante, que viaja en la sesión. El mozo no
-    // puede consultar /configuracion (es admin-only), y necesita saberlo para
-    // mostrar el comprobante correcto ANTES de cobrar.
-    const puedeFacturar = !!(estado.usuario && estado.usuario.cliente_emite_facturas);
-
-    if (documento.length === 11) {
-        if (puedeFacturar) {
-            el.textContent = 'Factura · F001';
-            el.className = 'comprobante-chip factura';
-            return;
-        }
-        // NUEVO RUS: tiene PROHIBIDO facturar. El comensal igual recibe
-        // boleta, llevando su RUC como documento del adquiriente (el
-        // catálogo 06 de SUNAT lo admite). Se dice explícitamente para que
-        // el cajero no prometa una factura que no va a poder entregar.
-        el.textContent = 'Boleta · RUC del comprador';
-        el.className = 'comprobante-chip ruc-en-boleta';
-        return;
-    }
-
-    if (documento.length === 8) {
-        el.textContent = 'Boleta · DNI';
-        el.className = 'comprobante-chip';
-        return;
-    }
-
-    el.textContent = 'Boleta · B001';
-    el.className = 'comprobante-chip';
-}
-
-async function consultarDocumentoComprador(documento) {
-    // Un RUC mal tipeado se atrapa acá sin gastar una consulta. Un DNI no
-    // tiene dígito de control, así que solo se revisa el largo.
-    if (documento.length === 11 && !digitoRucValido(documento)) {
-        pintarInfoRuc('Revisá el número, no parece un RUC válido', 'aviso');
-        mostrarCampoNombreManual(false);
-        return;
-    }
-
-    docUltimoBuscado = documento;
-    pintarInfoRuc('Buscando...', 'buscando');
-
-    let datos;
-    try {
-        datos = await api.get(`/documento/${documento}`);
-    } catch (_) {
-        // Silencio deliberado. Sin padrón instalado el backend responde 503,
-        // y mostrar "servicio no disponible" mientras alguien espera su
-        // vuelto no ayuda en nada: la búsqueda es una comodidad, no un paso
-        // del cobro. Igual se ofrece escribir el nombre a mano.
-        pintarInfoRuc('');
-        mostrarCampoNombreManual(documento.length === 11);
-        return;
-    }
-
-    // Si el cajero siguió tipeando mientras la consulta viajaba, el
-    // resultado ya no corresponde a lo que hay en pantalla.
-    const actual = document.getElementById('cuenta-documento');
-    if (!actual || actual.value !== documento) return;
-
-    if (datos.encontrado) {
-        pintarInfoRuc(datos.nombre, datos.advertencia ? 'aviso' : 'ok');
-        if (datos.advertencia) {
-            pintarInfoRuc(`${datos.nombre} · ${datos.advertencia}`, 'aviso');
-        }
-        mostrarCampoNombreManual(false);
-        return;
-    }
-
-    // No está: se abre el campo para escribirlo. Es la única forma de emitir
-    // a nombre de un RUC recién inscrito o de un comensal que este
-    // restaurante nunca atendió.
-    //
-    // Se usa la bandera explícita del backend en vez de deducirla de
-    // `encontrado`: es el backend quien sabe si ese comprobante necesita un
-    // nombre, y atarlo acá a una inferencia propia los desincroniza el día
-    // que esa regla cambie.
-    const esRuc = datos.tipo === 'RUC';
-    const pideNombre = datos.requiere_nombre_manual !== false;
-    pintarInfoRuc(
-        esRuc ? 'No figura en el padrón. Escribí la razón social.'
-              : 'No lo tenemos registrado. Escribí el nombre.',
-        'neutro'
-    );
-    mostrarCampoNombreManual(pideNombre, esRuc);
-}
-
-function mostrarCampoNombreManual(mostrar, esRuc) {
-    const grupo = document.getElementById('cuenta-nombre-manual-grupo');
-    const input = document.getElementById('cuenta-nombre-manual');
-    const label = document.getElementById('cuenta-nombre-manual-label');
-    if (!grupo || !input) return;
-
-    grupo.classList.toggle('hidden', !mostrar);
-    if (!mostrar) {
-        input.value = '';
-        return;
-    }
-    if (label) {
-        label.textContent = esRuc ? 'Razón social' : 'Nombre del cliente';
-    }
-    input.placeholder = esRuc ? 'DISTRIBUIDORA EJEMPLO SAC' : 'Juan Pérez';
-}
-
-function pintarInfoRuc(texto, tipo) {
-    const el = document.getElementById('cuenta-doc-info');
-    if (!el) return;
-    el.textContent = texto || '';
-    el.className = 'doc-info' + (texto ? ` ${tipo}` : '');
-}
-
-async function cobrarMesaActual() {
-    if (!mesaActual) return;
-
-    // Se captura ACÁ, antes de cualquier await — cerrarModalCuenta() no
-    // vacía este input, pero abrirCuentaMesa() sí lo hace apenas se toca
-    // otra mesa; leerlo ahora (no dentro de generarBoletaTrasCobro, que
-    // corre en paralelo) evita depender de que nadie más toque el modal
-    // mientras esa llamada sigue en vuelo.
-    const documento = document.getElementById('cuenta-documento').value.trim();
-    // Se captura junto al documento y por el mismo motivo: abrirCuentaMesa()
-    // limpia los dos apenas se toca otra mesa.
-    const campoNombre = document.getElementById('cuenta-nombre-manual');
-    const nombreManual = campoNombre ? campoNombre.value.trim() : '';
-
-    return ejecutarCobro(documento, nombreManual);
-}
-
 
 /**
  * Ejecuta el cobro y, si corresponde, emite el comprobante.
@@ -1048,11 +855,14 @@ function onCobroDocInput(event, tipo) {
 
 async function consultarDocCobro(tipo, numero) {
     let datos = null;
+    let sinPadron = false;
     try {
         datos = await api.get(`/documento/${numero}`);
-    } catch (_) {
-        // Sin padrón instalado el backend responde 503. Eso NO puede frenar
-        // un cobro: se abre el campo para escribir el nombre y se sigue.
+    } catch (err) {
+        // 503 = el padrón (1,6 GB) no está instalado en este servidor. NO
+        // puede frenar un cobro, pero tampoco puede fallar en silencio: sin
+        // explicación, el campo de nombre aparece vacío y parece un bug.
+        sinPadron = err.status === 503;
         datos = null;
     }
 
@@ -1076,9 +886,11 @@ async function consultarDocCobro(tipo, numero) {
         campoNombre.readOnly = false;
         pintarDocInfo(
             tipo,
-            tipo === 'ruc'
-                ? 'No figura en el padrón. Escribí la razón social.'
-                : 'No lo tenemos registrado. Escribí el nombre.',
+            sinPadron
+                ? 'El padrón de SUNAT no está instalado. Escribí el nombre a mano.'
+                : (tipo === 'ruc'
+                    ? 'No figura en el padrón. Escribí la razón social.'
+                    : 'No lo tenemos registrado. Escribí el nombre.'),
             'neutro'
         );
     }
@@ -1086,6 +898,7 @@ async function consultarDocCobro(tipo, numero) {
     // El comprobante que va a salir, dicho ANTES de cobrar: un RUC produce
     // factura solo si el restaurante puede emitirlas (ver el régimen en
     // actualizarEtiquetaComprobante).
+    if (tipo === 'ruc') actualizarEtiquetaComprobante(numero);
     document.getElementById(`cobro-${tipo}-resultado`).classList.remove('hidden');
     if (!encontrado || tipo === 'dni') campoNombre.focus();
 }

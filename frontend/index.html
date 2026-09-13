@@ -405,6 +405,13 @@
 
                     <!-- Aparece con el nombre resuelto, o vacío para escribirlo -->
                     <div id="cobro-ruc-resultado" class="hidden">
+                        <!-- Un RUC SIEMPRE produce factura... salvo en Nuevo RUS,
+                             que tiene prohibido facturar. Se dice ANTES de cobrar
+                             para que el cajero no prometa un comprobante que el
+                             restaurante no puede entregar. -->
+                        <div class="cobro-chip-fila">
+                            <span class="comprobante-chip" id="cuenta-tipo-comprobante">Boleta</span>
+                        </div>
                         <div class="cobro-empresa">
                             <span class="cobro-empresa-label">Empresa</span>
                             <input type="text" id="cobro-ruc-nombre" maxlength="200" autocomplete="off">
@@ -505,28 +512,6 @@
                             <div class="cuenta-total-global">
                                 <span class="label">Total a cobrar</span>
                                 <span class="value" id="cuenta-total">S/ 0.00</span>
-                                <!-- Un RUC SIEMPRE produce factura, nunca boleta.
-                                     Mostrarlo ANTES de cobrar evita la sorpresa de
-                                     recibir un comprobante distinto del pedido. -->
-                                <span class="comprobante-chip" id="cuenta-tipo-comprobante">BOLETA B001</span>
-                            </div>
-                            <div class="form-group" id="cuenta-documento-grupo" style="margin-bottom:8px;">
-                                <label for="cuenta-documento">DNI (8 dígitos) o RUC (11 dígitos) — opcional</label>
-                                <input type="text" id="cuenta-documento" inputmode="numeric" maxlength="11"
-                                       autocomplete="off"
-                                       oninput="onDocumentoInput(event)" placeholder="Vacío = Público General">
-                                <!-- Al completar un RUC aparece acá el nombre registrado en
-                                     SUNAT. Nunca bloquea el cobro: si no se puede consultar,
-                                     esta línea queda vacía y todo sigue igual. -->
-                                <div id="cuenta-doc-info" class="doc-info" aria-live="polite"></div>
-                            </div>
-
-                            <!-- Se abre solo cuando el documento NO se encontró: un RUC
-                                 recién inscrito, o un comensal que este restaurante
-                                 nunca atendió. Es la única forma de emitir igual. -->
-                            <div class="form-group hidden" id="cuenta-nombre-manual-grupo" style="margin-bottom:8px;">
-                                <label for="cuenta-nombre-manual" id="cuenta-nombre-manual-label">Razón social</label>
-                                <input type="text" id="cuenta-nombre-manual" maxlength="200" autocomplete="off">
                             </div>
                             <button id="btn-agregar-pedido" class="btn btn-secondary btn-large" style="margin-bottom:8px;" onclick="agregarPedidoAMesa()">
                                 + Agregar pedido

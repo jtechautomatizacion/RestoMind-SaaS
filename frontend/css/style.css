@@ -3397,3 +3397,16 @@ body {
     .cobro-tab { animation: none; }
     .cobro-tab-btn { transition: none; }
 }
+
+/* El chip del comprobante dentro de la pestaña RUC. Va arriba del nombre de
+   la empresa: es lo primero que el cajero necesita confirmar —qué documento
+   va a salir— antes de mirar a nombre de quién. */
+.cobro-chip-fila {
+    margin-bottom: 10px;
+}
+
+.cobro-chip-fila .comprobante-chip {
+    margin-left: 0;
+    font-size: 0.7rem;
+    padding: 5px 11px;
+}
