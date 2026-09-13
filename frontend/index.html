@@ -566,7 +566,8 @@
                         <div class="modal-scroll">
                             <p class="empty-hint" style="padding:0 0 12px;">
                                 Elige el rol una sola vez por dispositivo. El dueño ve todo;
-                                el mozo solo Mesas; el cajero solo cobra.
+                                el mozo solo Mesas; el cajero solo cobra. El asistente
+                                atiende solo, con las tres estaciones en una pantalla.
                             </p>
                             <div class="rol-opciones">
                                 <button class="rol-opcion" onclick="elegirRol('admin')">
@@ -584,6 +585,10 @@
                                 <button class="rol-opcion" onclick="elegirRol('jefe_cocina')">
                                     <strong>Cocina</strong>
                                     <span>Solo ve el monitor de cocina</span>
+                                </button>
+                                <button class="rol-opcion" onclick="elegirRol('asistente')">
+                                    <strong>Asistente</strong>
+                                    <span>Atiende solo: Mesas, Cocina y cobro en una pantalla</span>
                                 </button>
                             </div>
                         </div>
@@ -1314,6 +1319,22 @@
                                             <span>Cocina</span>
                                             <label class="switch">
                                                 <input type="checkbox" id="rol-check-jefe_cocina">
+                                                <span class="switch-track"></span>
+                                                <span class="switch-thumb"></span>
+                                            </label>
+                                        </div>
+                                        <!-- Asistente: EXCLUSIVO. Ya cubre las tres estaciones,
+                                             así que marcarlo apaga y bloquea los otros tres (y al
+                                             revés) — la misma regla que valida el backend en
+                                             ROLES_EXCLUSIVOS, acá hecha visible para que el admin
+                                             no descubra la restricción recién al guardar. -->
+                                        <div class="rol-switch-row rol-switch-destacada">
+                                            <span>
+                                                Asistente
+                                                <small class="rol-hint">Atiende solo: mesas, cocina y cobro en una pantalla</small>
+                                            </span>
+                                            <label class="switch">
+                                                <input type="checkbox" id="rol-check-asistente">
                                                 <span class="switch-track"></span>
                                                 <span class="switch-thumb"></span>
                                             </label>

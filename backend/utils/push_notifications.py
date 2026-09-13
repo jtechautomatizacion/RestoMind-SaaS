@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from backend.config import settings
 from backend.database import SessionLocal
 from backend.models import PushSubscription, Usuario
-from backend.utils.roles import tiene_rol
+from backend.utils.roles import ROL_ASISTENTE, tiene_rol
 
 # Si la inicialización de Firebase falla (corte de red justo en el primer
 # envío, credenciales que todavía no se montaron), se reintenta pasado este
@@ -87,9 +87,14 @@ def _tokens_a_notificar(db: Session, cliente_id: str) -> list:
         )
         .all()
     )
+    # 'asistente' entra por la misma razón que jefe_cocina: cubre la cocina.
+    # Es además quien MÁS lo necesita — atiende solo, así que si está en la
+    # sala tomando un pedido no hay nadie mirando la pantalla de cocina.
     return [
         token for token, rol in filas
-        if rol == "admin" or tiene_rol(rol, "jefe_cocina")
+        if rol == "admin"
+        or tiene_rol(rol, "jefe_cocina")
+        or tiene_rol(rol, ROL_ASISTENTE)
     ]
 
 

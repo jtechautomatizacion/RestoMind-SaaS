@@ -13,9 +13,45 @@ sola cuenta pueda cubrir varias tareas cuando el restaurante tiene poco
 personal (el caso real: una sola persona hace cocina Y cobra). Los datos
 existentes de un solo rol ("mozo") siguen siendo válidos sin migración:
 roles_de("mozo") == ["mozo"].
+
+'asistente' es un cuarto rol de staff que NO se combina: ver ROL_ASISTENTE
+más abajo.
 """
 
-ROLES_STAFF = ("mozo", "cajero", "jefe_cocina")
+# 'asistente' cubre las tres estaciones (mesas, cocina, cobro) en una sola
+# persona. No es azúcar sintáctico sobre "mozo,cajero,jefe_cocina": es la
+# cuenta de quien atiende SOLO, y es —junto con admin— la única a la que se
+# le ofrece la Vista Unificada ("Todo en uno").
+#
+# Esa distinción es el motivo de que exista. Un mozo, un cajero y un
+# cocinero trabajan en PARALELO sobre la misma sala: cada uno necesita su
+# pantalla enfocada en su tarea, y meterlos a todos en una vista de tres
+# columnas los haría pisarse (dos personas cobrando la misma mesa desde
+# dos "Todo en uno" distintos). El asistente es el caso contrario: no hay
+# con quién pisarse.
+ROL_ASISTENTE = "asistente"
+
+ROLES_STAFF = ("mozo", "cajero", "jefe_cocina", ROL_ASISTENTE)
+
+# Roles que NO se combinan con ningún otro. 'asistente' ya cubre todo lo que
+# cubren los demás, así que "asistente,mozo" no agrega nada y sí crea una
+# cuenta ambigua: ¿le toca la vista de uno o la del otro? Se rechaza en la
+# validación en vez de resolverse con una regla de desempate que nadie
+# recuerde después. ('admin' no está acá porque nunca pasa por este camino:
+# lo asigna el superadmin al crear el restaurante.)
+ROLES_EXCLUSIVOS = (ROL_ASISTENTE,)
+
+# Quién ve la Vista Unificada ("Todo en uno"). Es una LISTA EXPLÍCITA de
+# roles a propósito, no una regla derivada de "¿ve Mesas y ve Cocina?" como
+# antes: con la regla derivada, una cuenta 'cajero,jefe_cocina' —que existe
+# para que UNA persona cubra dos estaciones mientras OTRAS trabajan la
+# sala— caía adentro sin que nadie lo hubiera decidido.
+ROLES_VISTA_UNIFICADA = ("admin", ROL_ASISTENTE)
+
+
+def ve_vista_unificada(valor_rol: str) -> bool:
+    """¿Esta cuenta opera en modo 'Todo en uno'?"""
+    return any(r in ROLES_VISTA_UNIFICADA for r in roles_de(valor_rol))
 
 
 def roles_de(valor_rol: str) -> list:

@@ -2595,6 +2595,25 @@ body {
     border-top: 1px solid var(--border);
 }
 
+/* Rol incompatible con el que ya está marcado (ver aplicarExclusividadRoles
+   en admin.js). Se atenúa en vez de esconderse: el admin tiene que poder
+   ver que la opción existe y deducir por qué no está disponible. */
+.rol-switch-row.rol-switch-bloqueada {
+    opacity: 0.42;
+}
+
+.rol-switch-row .rol-hint {
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.rol-switch-row.rol-switch-destacada {
+    align-items: flex-start;
+}
+
 /* ============ UTILS ============ */
 
 .hidden {
@@ -2772,6 +2791,97 @@ body {
 }
 .vu-mesa.por-cobrar .vu-mesa-num { color: #92400E; }
 .vu-mesa.por-cobrar .vu-mesa-detalle { color: #92400E; }
+
+/* ---- Lo que hace que la grilla se sienta viva ----
+
+   Tres efectos, y cada uno significa algo. Nada de esto es decoración: una
+   animación que no informa cansa la vista en un turno de ocho horas, y
+   termina ignorándose justo cuando hace falta.
+
+   Todo se pinta con transform/box-shadow/opacity, las tres primitivas que
+   compone la GPU sin recalcular píxeles — misma restricción de rendimiento
+   de gama media/baja que rige el resto de esta hoja. */
+
+/* (a) El tiempo de espera: el dato que decide a qué mesa ir primero. */
+.vu-mesa-tiempo {
+    font-size: 0.58rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: var(--text-muted);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+/* (b) Hay plata esperando sobre la mesa. Latido lento y muy leve: se nota
+       con la vista periférica, que es como se mira una grilla de mesas
+       mientras se hace otra cosa, sin gritar desde el centro de la pantalla. */
+.vu-mesa.por-cobrar {
+    animation: vu-respira 2.6s ease-in-out infinite;
+}
+
+@keyframes vu-respira {
+    0%, 100% { box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.16); }
+    50%      { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.26); }
+}
+
+/* (c) Ya esperó demasiado (VU_MINUTOS_ALERTA, el mismo umbral que usa el
+       monitor de cocina). El latido se acelera y el tiempo se pinta en
+       rojo: la urgencia se lee por movimiento Y por color, no solo por
+       color — el par rojo/ámbar es difícil justo para quien no distingue
+       bien esos matices. */
+.vu-mesa.urgente {
+    border-color: var(--danger);
+    animation-duration: 1.3s;
+}
+
+.vu-mesa.urgente .vu-mesa-tiempo {
+    color: var(--danger);
+}
+
+.vu-mesa.cocinando.urgente {
+    animation: vu-respira-alerta 1.3s ease-in-out infinite;
+}
+
+@keyframes vu-respira-alerta {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.14); }
+    50%      { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0.28); }
+}
+
+/* (d) La mesa acaba de CAMBIAR de estado (salió de cocina, se cobró). Un
+       solo pulso, una vez: avisa que algo pasó ahí sin obligar a comparar
+       la pantalla con lo que uno recordaba de hace cinco segundos.
+       Funciona porque el render ya no destruye el nodo en cada vuelta
+       (ver vuRenderMesas) — antes esta animación se reiniciaba sola y no
+       llegaba a verse nunca. */
+.vu-mesa--cambio {
+    animation: vu-cambio 0.55s ease-out;
+}
+
+@keyframes vu-cambio {
+    0%   { transform: scale(1); }
+    35%  { transform: scale(1.13); }
+    100% { transform: scale(1); }
+}
+
+/* El toque tiene que ganarle a cualquier animación en curso: si el dedo
+   está sobre la mesa, lo que se ve es la respuesta al dedo. */
+.vu-mesa:active {
+    animation: none;
+    transform: scale(0.94);
+}
+
+/* Respeta la preferencia del sistema. La regla global de más abajo ya
+   acorta todas las animaciones, pero una que se repite para siempre hay
+   que APAGARLA, no acelerarla: a 0.01s queda parpadeando. El color y el
+   borde siguen diciendo lo mismo sin movimiento. */
+@media (prefers-reduced-motion: reduce) {
+    .vu-mesa,
+    .vu-mesa.por-cobrar,
+    .vu-mesa.cocinando.urgente,
+    .vu-mesa--cambio {
+        animation: none !important;
+    }
+}
 
 /* ---- Columnas 2 y 3: tarjetas ---- */
 

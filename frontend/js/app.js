@@ -24,6 +24,11 @@ const ROLES_PERMITIDOS = {
     mozo: ['mozo'],
     jefe_cocina: ['cocina'],
     cajero: ['mozo'],
+    // Cubre las tres estaciones, SIN Dashboard ni Administración: es
+    // personal de confianza que atiende solo, no el dueño. Los números del
+    // negocio (ganancias, márgenes, gastos) y la configuración fiscal
+    // siguen siendo del admin — ver backend/utils/roles.py.
+    asistente: ['mozo', 'cocina'],
 };
 
 const ROL_LABELS = {
@@ -31,7 +36,14 @@ const ROL_LABELS = {
     mozo: 'Mozo',
     jefe_cocina: 'Cocina',
     cajero: 'Cajero',
+    asistente: 'Asistente',
 };
+
+// Quién opera en modo "Todo en uno" (Vista Unificada). Lista explícita, no
+// una regla derivada de las pestañas: ver ROLES_VISTA_UNIFICADA en
+// backend/utils/roles.py para el porqué. Los dos lados tienen que decir lo
+// mismo, así que si cambia uno, cambia el otro.
+const ROLES_VISTA_UNIFICADA = ['admin', 'asistente'];
 
 function getRolesGuardados() {
     try {

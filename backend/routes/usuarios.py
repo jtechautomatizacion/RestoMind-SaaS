@@ -34,7 +34,10 @@ from backend.utils.roles import serializar_roles
 
 router = APIRouter()
 
-_ROL_LABELS = {"mozo": "Mozo", "cajero": "Cajero", "jefe_cocina": "Cocina", "admin": "Administrador"}
+_ROL_LABELS = {
+    "mozo": "Mozo", "cajero": "Cajero", "jefe_cocina": "Cocina",
+    "asistente": "Asistente", "admin": "Administrador",
+}
 
 
 def _generar_codigo_acceso(db: Session) -> str:

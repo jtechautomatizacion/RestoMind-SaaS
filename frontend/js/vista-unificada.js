@@ -11,12 +11,12 @@
  *
  * 1. Quién la ve sale de los ROLES que ya existen, no de una columna nueva
  *    en `clientes`. La condición es "esta cuenta ve Mesas Y ve Cocina"
- *    (`vistaUnificadaDisponible()`): un admin la cumple, y también una cuenta
- *    `mozo,jefe_cocina`. Un mozo puro no, y con razón — su columna de cocina
- *    estaría siempre vacía y cada consulta le devolvería un 403. Agregar un
- *    "modo de operación" en la base habría creado una segunda fuente de
- *    verdad sobre quién puede hacer qué, que tarde o temprano se contradice
- *    con los roles.
+ *    (`vistaUnificadaDisponible()`): admin y asistente, los dos roles de
+ *    quien atiende SOLO. Mozo, cajero y cocina NO — trabajan en paralelo
+ *    sobre la misma sala y cada uno necesita su pantalla enfocada; darles
+ *    una vista de tres columnas los haría pisarse. Sigue saliendo de los
+ *    ROLES que ya existen, no de un "modo de operación" en la base: eso
+ *    sería una segunda fuente de verdad sobre quién puede hacer qué.
  *
  * 2. Es un INTERRUPTOR, no un reemplazo. La grilla de mesas de siempre queda
  *    intacta y a un toque de distancia (la preferencia se guarda por
@@ -48,8 +48,24 @@ let vuTecladoBuffer = '';
 let vuTecladoTimer = null;
 let vuListenersPuestos = false;
 
+/**
+ * Quién opera en modo "Todo en uno".
+ *
+ * Antes era una regla DERIVADA ("¿ve Mesas y ve Cocina?"), y eso metía
+ * adentro a cuentas que nadie había decidido meter: una `cajero,jefe_cocina`
+ * existe para que UNA persona cubra dos estaciones mientras OTRAS trabajan
+ * la sala, y ahí la vista de tres columnas es un riesgo real — dos personas
+ * pueden cobrar la misma mesa desde dos "Todo en uno" distintos.
+ *
+ * Ahora es una lista explícita de roles (ROLES_VISTA_UNIFICADA en app.js,
+ * espejo de la del backend): admin y asistente, las dos cuentas de quien
+ * atiende SOLO. Mozo, cajero y cocina trabajan en paralelo sobre la misma
+ * sala, cada uno con su pantalla enfocada en su tarea.
+ */
 function vistaUnificadaDisponible() {
-    return typeof puedeVer === 'function' && puedeVer('mozo') && puedeVer('cocina');
+    if (typeof ROLES_VISTA_UNIFICADA === 'undefined') return false;
+    const roles = (estado && estado.roles) || [];
+    return roles.some(r => ROLES_VISTA_UNIFICADA.includes(r));
 }
 
 function initVistaUnificada() {
@@ -231,6 +247,55 @@ function renderUnificado() {
     vuRenderPie(enCocina, porCobrar);
 }
 
+/**
+ * Hace cuánto espera cada mesa ocupada, en minutos.
+ *
+ * Se arma con lo que YA está en memoria (las comandas de cocina que
+ * mantiene cocina.js + las entregadas que trae esta vista), sin pedirle
+ * nada nuevo al servidor: el wifi del local suele ser el cuello de botella
+ * real, y este dato no justifica una consulta más cada 5 segundos.
+ */
+function vuMinutosPorMesa() {
+    const ahora = Date.now();
+    const desde = new Map();
+    const anotar = (numeroMesa, creadoEn) => {
+        const t = Date.parse(creadoEn);
+        if (Number.isNaN(t)) return;
+        if (!desde.has(numeroMesa) || t < desde.get(numeroMesa)) desde.set(numeroMesa, t);
+    };
+    (estado.comandasCocina || []).forEach(c => anotar(c.numero_mesa, c.creado_en));
+    vuEntregadas.forEach(c => anotar(c.numero_mesa, c.creado_en));
+
+    const minutos = new Map();
+    desde.forEach((t, numeroMesa) => {
+        minutos.set(numeroMesa, Math.max(0, Math.floor((ahora - t) / 60000)));
+    });
+    return minutos;
+}
+
+// A partir de acá, una mesa que espera "ya es mucho". No es un umbral
+// inventado: es el mismo que usa el monitor de cocina para pintar una
+// comanda como atrasada (ver cocina.js), así que las dos pantallas dicen
+// lo mismo sobre la misma mesa.
+const VU_MINUTOS_ALERTA = 15;
+
+/**
+ * Render por RECONCILIACIÓN, no por innerHTML.
+ *
+ * Antes esta función reescribía la grilla entera cada 5 segundos. Eso es
+ * justo lo que la hacía sentir muerta, y por tres motivos concretos:
+ *
+ *   1. Toda animación CSS volvía a empezar de cero en cada vuelta, así que
+ *      ninguna alcanzaba a verse nunca.
+ *   2. Un dedo apoyado sobre una mesa perdía el `:active` a mitad del
+ *      toque, porque el nodo que estaba tocando dejaba de existir.
+ *   3. La grilla tiene scroll propio (max-height: 62vh) y reemplazar su
+ *      contenido lo devolvía arriba mientras alguien lo estaba usando.
+ *
+ * Ahora los botones se crean una vez y después solo se ACTUALIZA lo que
+ * cambió. Como el nodo sobrevive entre vueltas, las transiciones de CSS
+ * funcionan solas y un cambio de estado se puede destacar de verdad.
+ */
 function vuRenderMesas(enCocina) {
     const cont = document.getElementById('vu-mesas');
     if (!cont) return;
@@ -241,20 +306,67 @@ function vuRenderMesas(enCocina) {
         return;
     }
 
+    // La grilla se reconstruye solo si cambió el CONJUNTO de mesas (el
+    // admin agregó o quitó una), no en cada refresco de estado.
+    const firma = estado.mesas.map(m => m.numero).join(',');
+    if (cont.dataset.firma !== firma) {
+        cont.dataset.firma = firma;
+        cont.innerHTML = estado.mesas.map((mesa, idx) => `
+            <button type="button" class="vu-mesa" data-numero="${mesa.numero}"
+                    onclick="vuAbrirMesa(${idx})">
+                <span class="vu-mesa-num">${mesa.numero}</span>
+                <span class="vu-mesa-detalle"></span>
+                <span class="vu-mesa-tiempo"></span>
+            </button>
+        `).join('');
+    }
+
+    const minutos = vuMinutosPorMesa();
     let ocupadas = 0;
-    cont.innerHTML = estado.mesas.map((mesa, idx) => {
+
+    estado.mesas.forEach((mesa, idx) => {
+        const btn = cont.querySelector(`.vu-mesa[data-numero="${mesa.numero}"]`);
+        if (!btn) return;
+
         const est = vuEstadoMesa(mesa, enCocina);
         if (est !== 'libre') ocupadas++;
+
+        // El índice puede haberse corrido si el admin reordenó mesas, y el
+        // onclick quedó fijado al construir el nodo.
+        btn.setAttribute('onclick', `vuAbrirMesa(${idx})`);
+
+        // Cambio de estado: se marca para que el CSS lo destaque un
+        // instante. Es la única animación que se dispara sola acá, y
+        // señala algo que de verdad pasó — no es decoración.
+        const anterior = btn.dataset.estado;
+        if (anterior && anterior !== est) {
+            btn.classList.remove('vu-mesa--cambio');
+            void btn.offsetWidth;  // reinicia la animación
+            btn.classList.add('vu-mesa--cambio');
+        }
+        btn.dataset.estado = est;
+        btn.className = `vu-mesa ${est}${btn.classList.contains('vu-mesa--cambio') ? ' vu-mesa--cambio' : ''}`;
+
+        const espera = est === 'libre' ? null : minutos.get(mesa.numero);
+        if (espera != null && espera >= VU_MINUTOS_ALERTA) btn.classList.add('urgente');
+
         const detalle = est === 'libre'
             ? `${mesa.capacidad}p`
             : formatCurrency(mesa.cuenta_actual);
-        return `
-            <button type="button" class="vu-mesa ${est}" data-idx="${idx}" onclick="vuAbrirMesa(${idx})">
-                <span class="vu-mesa-num">${mesa.numero}</span>
-                <span class="vu-mesa-detalle">${detalle}</span>
-            </button>
-        `;
-    }).join('');
+        const elDetalle = btn.querySelector('.vu-mesa-detalle');
+        if (elDetalle.textContent !== detalle) elDetalle.textContent = detalle;
+
+        const tiempo = espera == null ? '' : (espera < 1 ? 'recién' : `${espera}'`);
+        const elTiempo = btn.querySelector('.vu-mesa-tiempo');
+        if (elTiempo.textContent !== tiempo) elTiempo.textContent = tiempo;
+
+        // Lo que el ícono no alcanza a decir, para lector de pantalla y
+        // para el tooltip de escritorio.
+        btn.title = est === 'libre'
+            ? `Mesa ${mesa.numero} libre · ${mesa.capacidad} personas`
+            : `Mesa ${mesa.numero} · ${detalle} · ${est === 'cocinando' ? 'en cocina' : 'esperando la cuenta'}`
+              + (espera != null ? ` · hace ${espera} min` : '');
+    });
 
     vuBadge('mesas', ocupadas);
 }

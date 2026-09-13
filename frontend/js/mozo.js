@@ -571,6 +571,23 @@ async function generarBoletaTrasCobro(resultadoCobro, documento, nombreManual) {
             return;
         }
 
+        // El restaurante dejó de emitir mientras esta sesión seguía abierta
+        // con el dato viejo. No es un fallo: la venta ya quedó en caja y
+        // así fue la decisión del dueño. Se refresca la sesión para que el
+        // resto de la pantalla (campo de documento, etiqueta del botón)
+        // deje de ofrecer algo que ya no corre, y se avisa sin alarma.
+        if (err.codigoNegocio === 'FACTURACION_DESACTIVADA') {
+            // El servidor es la fuente de verdad del switch, así que se
+            // relee de ahí en vez de parchear la copia local: el mismo
+            // camino que ya se usa al activarlo (ver auth.js).
+            if (typeof refrescarSesionDesdeServidor === 'function') {
+                await refrescarSesionDesdeServidor();
+            }
+            if (typeof actualizarEtiquetaComprobante === 'function') actualizarEtiquetaComprobante();
+            showToast('Venta registrada en caja. Este restaurante no emite comprobantes.', 'info');
+            return;
+        }
+
         // Caso con salida: el RUC no está en el padrón y falta la razón
         // social. No se manda al cajero a Admin — se le pide el dato ahí
         // mismo y se reintenta, que es el único momento en que el cliente

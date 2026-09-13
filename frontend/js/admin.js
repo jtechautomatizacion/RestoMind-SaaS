@@ -48,7 +48,18 @@ function initAdmin() {
     document.getElementById('compra-fecha').value = formatDateInput(new Date());
     _setupIconoPicker();
     _initSwitchNotificacionesAdmin();
+    _initSwitchesDeRol();
     refreshAdmin();
+}
+
+// Los switches de rol viven en el HTML estático, así que se enganchan una
+// sola vez al arrancar — no en cada apertura del modal, que dejaría un
+// listener nuevo pegado por cada vez que se abre.
+function _initSwitchesDeRol() {
+    ROLES_STAFF_UI.forEach(r => {
+        document.getElementById(`rol-check-${r}`)
+            ?.addEventListener('change', aplicarExclusividadRoles);
+    });
 }
 
 /**
@@ -1036,6 +1047,10 @@ function abrirModalNuevoUsuario() {
 
     document.getElementById('usuario-rol-group').classList.remove('hidden');
     document.getElementById('usuario-rol-fijo-group').classList.add('hidden');
+    // form.reset() desmarca los switches pero NO limpia el `disabled` que
+    // pudo dejar una edición anterior de un asistente: sin esto, la
+    // siguiente cuenta nueva abriría con roles bloqueados sin motivo.
+    aplicarExclusividadRoles();
 
     abrirModal('modal-usuario');
 }
@@ -1075,9 +1090,10 @@ function abrirModalEditarUsuario(usuarioId) {
         document.getElementById('usuario-rol-group').classList.remove('hidden');
         document.getElementById('usuario-rol-fijo-group').classList.add('hidden');
         const rolesActuales = usuario.roles || [usuario.rol];
-        ['mozo', 'cajero', 'jefe_cocina'].forEach(r => {
+        ROLES_STAFF_UI.forEach(r => {
             document.getElementById(`rol-check-${r}`).checked = rolesActuales.includes(r);
         });
+        aplicarExclusividadRoles();
     }
 
     abrirModal('modal-usuario');
@@ -1089,12 +1105,37 @@ function cerrarModalUsuario() {
     editingUsuarioId = null;
 }
 
-// Roles marcados en los 3 switches del modal (Mozo/Cajero/Cocina) — no
-// incluye 'admin', que nunca se ofrece acá (ver comentario en
-// abrirModalNuevoUsuario).
+// Los roles de staff que ofrece el modal, en el orden en que se ven. No
+// incluye 'admin': ese lo asigna el superadmin al crear el restaurante y
+// nunca se ofrece acá (ver abrirModalNuevoUsuario).
+const ROLES_STAFF_UI = ['mozo', 'cajero', 'jefe_cocina', 'asistente'];
+
+// 'asistente' ya cubre mesas + cocina + cobro, así que no se combina con
+// ningún otro (ROLES_EXCLUSIVOS en backend/utils/roles.py). El backend lo
+// rechaza con un 422, pero descubrirlo recién al guardar es una mala forma
+// de enterarse: acá los switches incompatibles se apagan y se bloquean en
+// el momento, así el estado imposible no llega a existir en pantalla.
+const ROLES_EXCLUSIVOS_UI = ['asistente'];
+
+function aplicarExclusividadRoles() {
+    const marcados = _rolesMarcados();
+    const hayExclusivo = marcados.some(r => ROLES_EXCLUSIVOS_UI.includes(r));
+    ROLES_STAFF_UI.forEach(r => {
+        const check = document.getElementById(`rol-check-${r}`);
+        if (!check) return;
+        const esExclusivo = ROLES_EXCLUSIVOS_UI.includes(r);
+        // Con un exclusivo marcado se bloquea todo lo demás; con cualquier
+        // rol normal marcado se bloquea el exclusivo.
+        const bloquear = hayExclusivo ? !esExclusivo : (esExclusivo && marcados.length > 0);
+        check.disabled = bloquear;
+        if (bloquear) check.checked = false;
+        check.closest('.rol-switch-row')?.classList.toggle('rol-switch-bloqueada', bloquear);
+    });
+}
+
 function _rolesMarcados() {
-    return ['mozo', 'cajero', 'jefe_cocina'].filter(
-        r => document.getElementById(`rol-check-${r}`).checked
+    return ROLES_STAFF_UI.filter(
+        r => document.getElementById(`rol-check-${r}`)?.checked
     );
 }
 

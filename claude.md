@@ -45,7 +45,8 @@
 
 > **Para análisis técnico COMPLETO del sistema:**  
 > → [`LOGIN_ANALYSIS.md`](LOGIN_ANALYSIS.md) — flujo de auth, tokens, permisos, seguridad  
-> → [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) — checklist para despliegue en producción
+> → [`PRODUCTION_READINESS.md`](PRODUCTION_READINESS.md) — checklist para despliegue en producción  
+> → [`docs/TESTS.md`](docs/TESTS.md) — mapa de la suite: qué riesgo cubre cada test, y qué queda fuera
 
 ---
 
@@ -1515,6 +1516,95 @@ justamente quien más necesita ver sus números.
 
 ---
 
+## 👤 ROL `asistente` — quien atiende SOLO sin ser el dueño
+
+**Contexto:** los cuatro roles originales (admin, mozo, cajero,
+jefe_cocina) cubren un restaurante con equipo. Faltaba el caso de la
+persona de confianza que cubre TODO el local sola cuando el dueño no está:
+toma el pedido, lo cocina y lo cobra. Armarlo como `mozo,cajero,jefe_cocina`
+funcionaba a medias y dejaba una pregunta sin respuesta — ¿le toca la vista
+enfocada o la de tres columnas?
+
+### Qué es y qué no
+
+| | Admin | Asistente | Mozo / Cajero / Cocina |
+|---|---|---|---|
+| Mesas | ✅ | ✅ | según rol |
+| Cocina | ✅ | ✅ | según rol |
+| Cobrar | ✅ | ✅ | cajero/mozo |
+| **"Todo en uno"** | ✅ | ✅ | ❌ **nunca** |
+| Dashboard (ganancias) | ✅ | ❌ | ❌ |
+| Administración / caja / SUNAT | ✅ | ❌ | ❌ |
+
+**Es personal, no el dueño.** Atiende toda la sala, pero las ganancias, los
+márgenes, el arqueo de caja, la gestión de cuentas y la configuración
+fiscal siguen siendo del admin. Ese corte es lo que justifica que sea un
+rol propio y no "un admin con menos pestañas".
+
+### No se combina con ningún otro rol
+
+`ROLES_EXCLUSIVOS = ("asistente",)`. Ya cubre mesas + cocina + cobro, así
+que combinarlo no agrega permisos y sí crea una cuenta ambigua. Se rechaza
+en la validación (422) en vez de resolverse con una regla de desempate que
+nadie va a recordar dentro de un año. El frontend además apaga y bloquea
+los switches incompatibles en el momento (`aplicarExclusividadRoles()` en
+`admin.js`), para que el admin no descubra la restricción recién al
+guardar.
+
+### Recibe los avisos de cocina
+
+Por la misma puerta que `jefe_cocina` — cubre la cocina — y es quien más lo
+necesita: mientras toma un pedido en la sala, no hay nadie mirando esa
+pantalla.
+
+### Sin migración
+
+`Usuario.rol` ya guardaba un CSV de roles; `asistente` es un valor más.
+Ninguna cuenta existente cambia.
+
+Cubierto por `tests/integration/test_rol_asistente.py` (17 tests).
+
+---
+
+## 🔌 EL SWITCH DE FACTURACIÓN SE HACE VALER EN EL SERVIDOR
+
+`Cliente.usar_sunat` apagado = "modo informal": se cobra, la venta entra a
+caja, y **no se emite ningún comprobante**.
+
+**Hasta la v4.0 esa regla vivía SOLO en un `if` de `mozo.js`.** Alcanzaba
+para no molestar al cajero con toasts, pero no impedía nada: el estado del
+switch viaja en la sesión que se guardó **al loguearse**, así que cualquier
+dispositivo abierto desde antes de apagarlo seguía mandando cobros a
+emitir. Verificado en su momento: con el switch en `False`, el backend
+devolvía **201**, creaba la Factura y consumía el correlativo.
+
+Ahora `_exigir_facturacion_activa()` (`backend/routes/facturas.py`) corta en
+`/facturas/generar` y en `/facturas/{id}/reintentar`:
+
+```
+409  {"codigo": "FACTURACION_DESACTIVADA", "mensaje": "..."}
+```
+
+Tres detalles que no son casuales:
+
+- **409 y no 403.** No es un problema de permisos del usuario (el admin
+  tampoco puede): es que el recurso no corresponde en el estado actual del
+  restaurante. El frontend lo distingue por `codigo` y lo trata como lo que
+  es —una venta que no lleva comprobante— en vez de un error rojo de
+  emisión.
+- **Corta ANTES de tocar correlativos.** Un número consumido por un intento
+  rechazado deja un hueco permanente en la serie, y SUNAT las exige
+  consecutivas.
+- **Una boleta YA aceptada se sigue devolviendo.** Apagar el switch corta
+  las emisiones nuevas; no borra la historia ni deja al restaurante sin
+  acceso a sus propios comprobantes.
+
+Del lado del cajero, el 409 releé la sesión desde el servidor
+(`refrescarSesionDesdeServidor()`) para que el resto de la pantalla deje de
+ofrecer algo que ya no corre.
+
+---
+
 ## 🖥️ VISTA UNIFICADA ("Todo en uno")
 
 **Contexto:** con roles reales y caja obligatoria, el flujo de un dueño que
@@ -1528,14 +1618,26 @@ una sola pantalla de tres columnas, siempre visibles.
 ### Tres decisiones que conviene no deshacer sin leer esto
 
 1. **Quién la ve sale de los ROLES que ya existen, no de una columna nueva en
-   `clientes`.** La condición es "esta cuenta ve Mesas Y ve Cocina"
-   (`vistaUnificadaDisponible()`): un admin la cumple, y también una cuenta
-   `mozo,jefe_cocina`. Un mozo puro no la ve — su columna de cocina estaría
-   siempre vacía y cada consulta le devolvería un 403. Un "modo de
-   operación" en la base habría creado una segunda fuente de verdad sobre
-   quién puede hacer qué, que tarde o temprano se contradice con los roles
-   (mismo argumento que llevó a descartar `modo_operacion` en el interruptor
-   de facturación, arriba).
+   `clientes`** — pero de una LISTA EXPLÍCITA de roles, no de una regla
+   derivada. `ROLES_VISTA_UNIFICADA = ("admin", "asistente")`
+   (`backend/utils/roles.py`, con su espejo en `app.js`).
+
+   **Esto cambió, y el motivo importa.** Antes la condición era derivada:
+   "esta cuenta ve Mesas Y ve Cocina". Sonaba elegante y metía adentro a
+   cuentas que nadie había decidido meter — una `cajero,jefe_cocina` existe
+   para que UNA persona cubra dos estaciones *mientras otras trabajan la
+   sala*, y ahí una vista de tres columnas por cabeza es un riesgo concreto:
+   dos personas pueden cobrar la misma mesa desde dos "Todo en uno"
+   distintos.
+
+   **Mozo, cajero y cocina NUNCA operan en "Todo en uno"** — trabajan en
+   paralelo sobre la misma sala y cada uno necesita su pantalla enfocada en
+   su tarea. "Todo en uno" es para quien atiende SOLO: el dueño (`admin`) o
+   su `asistente`.
+
+   Sigue saliendo de los roles y no de un `modo_operacion` en la base: eso
+   sería una segunda fuente de verdad sobre quién puede hacer qué (mismo
+   argumento que llevó a descartarlo en el interruptor de facturación).
 2. **Es un interruptor, no un reemplazo.** La grilla de mesas de siempre
    (`mozo-mesas`) queda intacta y a un toque de distancia — el switch
    "Solo mesas" / "Todo en uno" vive junto a ella, y la preferencia se
@@ -1868,10 +1970,10 @@ corre 304/304 en verde sin ningún cambio en `backend/config.py`.
 
 ---
 
-**Versión:** 4.0 (Facturación SUNAT en la nube)  
+**Versión:** 4.1 (rol `asistente` + switch de facturación blindado)  
 **Estado:** ✅ **COMPLETAMENTE FUNCIONAL Y AUDITADO** — Autenticación, Facturación, Caja, Notificaciones Push, Inventario probados y operativos  
 **Última Actualización:** 2026-09-13  
-**Tests:** 304/304 pasando (`python -m pytest -q`)  
+**Tests:** 340/340 pasando (`python -m pytest -q`) — el mapa de qué cubre cada archivo, y qué NO cubre la suite, está en [`docs/TESTS.md`](docs/TESTS.md)  
 **Cobertura:** Autenticación JWT dual + Rate limiting + Auditoría + Facturación SUNAT en la nube (boleta/factura según régimen, correlativos separados por serie) + Padrón Reducido local + Dashboard Financiero + Validador de Caja + Notificaciones Push + Inventario + Vista Unificada
 
 ### ✅ Stack Completo Implementado

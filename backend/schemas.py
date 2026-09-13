@@ -5,7 +5,7 @@ from typing import Annotated, List, Literal, Optional
 from datetime import date, datetime, timezone
 
 from backend.utils.padron import digito_verificador_ok
-from backend.utils.roles import ROLES_STAFF, roles_de
+from backend.utils.roles import ROLES_EXCLUSIVOS, ROLES_STAFF, roles_de
 
 
 def _a_iso_utc(valor: datetime) -> str:
@@ -51,6 +51,14 @@ def _validar_roles_staff(roles: List[str]) -> List[str]:
     invalidos = [r for r in roles if r not in ROLES_STAFF]
     if invalidos:
         raise ValueError(f"Rol inválido: {invalidos[0]}")
+    # 'asistente' ya cubre mesas + cocina + cobro, así que combinarlo con
+    # otro rol no agrega permisos y sí crea una cuenta ambigua (ver
+    # ROLES_EXCLUSIVOS en backend/utils/roles.py).
+    exclusivos = [r for r in roles if r in ROLES_EXCLUSIVOS]
+    if exclusivos and len(roles) > 1:
+        raise ValueError(
+            f"El rol '{exclusivos[0]}' ya cubre todas las tareas: no se combina con otros"
+        )
     return roles
 
 
@@ -394,7 +402,7 @@ class UsuarioCreate(BaseModel):
     nombre: str = Field(..., min_length=1, max_length=100)
     email: str = Field(..., min_length=1, max_length=150)
     password: str = Field(..., min_length=6, max_length=200)
-    rol: str = Field(..., pattern="^(admin|mozo|jefe_cocina|cajero)$")
+    rol: str = Field(..., pattern="^(admin|mozo|jefe_cocina|cajero|asistente)$")
 
 
 class UsuarioUpdate(BaseModel):
@@ -405,7 +413,7 @@ class UsuarioUpdate(BaseModel):
     # para editar personal. 'roles' (lista) es el camino real para eso: una
     # cuenta de staff puede cubrir varias tareas a la vez (ej. cocina Y
     # caja), ver backend/utils/roles.py.
-    rol: Optional[str] = Field(default=None, pattern="^(admin|mozo|jefe_cocina|cajero)$")
+    rol: Optional[str] = Field(default=None, pattern="^(admin|mozo|jefe_cocina|cajero|asistente)$")
     roles: Optional[List[str]] = Field(default=None, min_length=1)
     estado: Optional[str] = Field(default=None, pattern="^(activo|inactivo)$")
 

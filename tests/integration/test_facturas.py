@@ -853,3 +853,102 @@ def test_una_cuenta_borrada_no_deja_un_codigo_suelto_en_el_tique(
     resp = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids})
     assert resp.status_code == 201, resp.text
     assert resp.json()["cajero_nombre"] is None
+
+
+# ---------------------------------------------------------------------------
+# EL SWITCH APAGADO ("modo informal")
+#
+# `usar_sunat=False` es la configuración por defecto y la de un restaurante
+# que todavía no formalizó: cobra, la venta entra a caja, y NO se emite
+# ningún comprobante.
+#
+# Hasta la v4.0 esa regla vivía SOLO en un `if` de mozo.js. Eso alcanzaba
+# para no molestar al cajero, pero no impedía nada: el estado del switch
+# viaja en la sesión guardada AL LOGUEARSE, así que cualquier dispositivo
+# abierto desde antes de apagarlo seguía emitiendo a SUNAT — y consumiendo
+# correlativos de una serie que después no se rearma sin huecos.
+# ---------------------------------------------------------------------------
+
+
+def test_con_la_facturacion_apagada_cobrar_no_emite_nada(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud
+):
+    """EL test de esta sección: el cobro entra a caja y ahí termina."""
+    cliente_con_ruc.usar_sunat = False
+    test_db.commit()
+
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    resp = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids})
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["codigo"] == "FACTURACION_DESACTIVADA"
+
+    # Nada emitido y —lo que más importa— NINGÚN correlativo consumido.
+    assert test_db.query(Factura).count() == 0
+    test_db.refresh(cliente_con_ruc)
+    assert cliente_con_ruc.boleta_correlativo_actual == 0
+    assert cliente_con_ruc.factura_correlativo_actual == 0
+
+
+def test_el_cobro_en_si_NO_se_bloquea_con_la_facturacion_apagada(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas
+):
+    """La contracara, y el punto de todo el modo informal: la plata entra
+    igual. Si esto falla, apagar el switch dejó al restaurante sin poder
+    vender."""
+    cliente_con_ruc.usar_sunat = False
+    test_db.commit()
+
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    assert comanda_ids  # la mesa se cobró y se liberó sin tocar facturación
+
+    from backend.models import Comanda
+    cobradas = test_db.query(Comanda).filter(Comanda.id.in_(comanda_ids)).all()
+    assert all(c.estado == "cobrado" for c in cobradas)
+
+
+def test_apagar_el_switch_no_permite_reenviar_a_SUNAT_una_pendiente(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud, monkeypatch
+):
+    """Una boleta que quedó pendiente NO se puede reintentar con la
+    facturación apagada: sería un envío nuevo a SUNAT a nombre de un
+    restaurante que decidió no emitir."""
+    from backend.utils.sunat_cloud import SunatCloudError
+    import backend.routes.facturas as mod
+
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    monkeypatch.setattr(
+        mod, "emitir_boleta_cloud",
+        lambda **kw: (_ for _ in ()).throw(SunatCloudError("servicio caído")),
+    )
+    resp = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids})
+    assert resp.status_code in (201, 502)
+    factura = test_db.query(Factura).one()
+    assert factura.estado == "pendiente"
+
+    cliente_con_ruc.usar_sunat = False
+    test_db.commit()
+
+    resp = test_client.post(f"/api/facturas/{factura.id}/reintentar")
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["codigo"] == "FACTURACION_DESACTIVADA"
+
+
+def test_una_boleta_YA_ACEPTADA_se_sigue_pudiendo_consultar_e_imprimir(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud
+):
+    """Apagar el switch corta las emisiones NUEVAS, no borra la historia:
+    una boleta ya aceptada por SUNAT existió y se tiene que poder
+    reimprimir. Sin esto, apagar la facturación dejaría al restaurante sin
+    acceso a sus propios comprobantes."""
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    factura_id = test_client.post(
+        "/api/facturas/generar", json={"comanda_ids": comanda_ids}
+    ).json()["id"]
+
+    cliente_con_ruc.usar_sunat = False
+    test_db.commit()
+
+    resp = test_client.post(f"/api/facturas/{factura_id}/reintentar")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["numero_boleta"]

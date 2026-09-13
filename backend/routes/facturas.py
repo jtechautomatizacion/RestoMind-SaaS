@@ -257,6 +257,39 @@ def _emitir(factura: Factura, cliente: Cliente, detalles: list) -> None:
 UMBRAL_IDENTIFICAR_COMPRADOR = 700.00
 
 
+def _exigir_facturacion_activa(cliente: Cliente) -> None:
+    """
+    El interruptor `usar_sunat` es una decisión FISCAL, así que se hace
+    valer en el servidor.
+
+    Hasta acá vivía solamente en un `if` de mozo.js. Eso alcanzaba para no
+    molestar al cajero con toasts, pero no para impedir nada: el estado del
+    switch viaja en la sesión que se guardó AL LOGUEARSE, así que un
+    dispositivo que quedó abierto desde antes de apagarlo seguía mandando
+    cobros a emitir — comprobantes reales a SUNAT, a nombre de un
+    restaurante que ya había decidido no emitir, quemando correlativos de
+    una serie que después no se puede rearmar sin huecos.
+
+    409 y no 403: no es un problema de permisos del usuario (el admin
+    tampoco puede), es que el recurso no corresponde en el estado actual
+    del restaurante. El frontend lo distingue por `codigo` para tratarlo
+    como lo que es —una venta que simplemente no lleva comprobante— y no
+    como un fallo de emisión.
+    """
+    if not cliente.usar_sunat:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "codigo": "FACTURACION_DESACTIVADA",
+                "mensaje": (
+                    "Este restaurante tiene la facturación electrónica desactivada. "
+                    "La venta se registró en caja; no se emite comprobante. "
+                    "Para emitir, activá Boletas en Administración."
+                ),
+            },
+        )
+
+
 def _resolver_comprobante(
     documento: Optional[str],
     total: float,
@@ -439,6 +472,10 @@ def generar_factura(
                    "Pídele al dueño del sistema que lo configure antes de emitir boletas.",
         )
 
+    # Antes de mirar comandas o correlativos: si el restaurante no emite,
+    # acá se termina. Ver _exigir_facturacion_activa.
+    _exigir_facturacion_activa(cliente)
+
     comandas = (
         db.query(Comanda)
         .filter(Comanda.id.in_(payload.comanda_ids), Comanda.cliente_id == cliente_id)
@@ -583,6 +620,11 @@ def reintentar_factura(
 
     if not cliente.ruc:
         raise HTTPException(status_code=400, detail="Este restaurante no tiene RUC configurado")
+
+    # Una boleta YA aceptada se sigue devolviendo (el corto-circuito de
+    # ESTADOS_OK está arriba): apagar el switch no borra lo emitido. Lo que
+    # no puede pasar es un envío NUEVO a SUNAT con la facturación apagada.
+    _exigir_facturacion_activa(cliente)
 
     detalles = _detalles_guardados(db, factura)
 
