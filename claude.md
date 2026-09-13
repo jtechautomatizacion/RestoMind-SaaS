@@ -1570,6 +1570,47 @@ Cubierto por `tests/integration/test_rol_asistente.py` (17 tests).
 
 ---
 
+## 🖨️ QUÉ SE IMPRIME, SEGÚN EL MODO
+
+El interruptor `usar_sunat` no decide solo si se emite un comprobante:
+cambia el flujo de papel del local entero.
+
+### Con SUNAT — dos papeles al pedir, boleta al cobrar
+
+Sin cambios respecto de siempre:
+
+1. **Al mandar la comanda:** ticket de COCINA (qué preparar, sin precios)
+   y PRE-CUENTA con precios. Uno por impresora.
+2. **Al cobrar:** la boleta electrónica, con su número ya emitido.
+
+### Sin SUNAT — UNA hoja, y el total en grande
+
+`_ticketPreventaHTML()` en `frontend/js/print.js`.
+
+Un restaurante sin facturación electrónica tiene otro flujo real: **la
+hoja se le entrega al comensal, él la lleva a la caja, y el cajero cobra
+contra ella.** De ahí las tres decisiones del diseño:
+
+- **El TOTAL manda.** Va en cuerpo grande y en su propio recuadro, no
+  perdido al final de una columna de importes: es el número que dos
+  personas distintas van a leer y comparar en un mostrador, a veces de pie
+  y con poca luz.
+- **Es UNA sola impresión.** Antes se imprimían dos también en este modo.
+  Un local sin facturación suele ser el dueño solo o con una persona: el
+  pedido ya se ve en la pantalla de Cocina, y el segundo papel era papel
+  tirado. **Nota operativa:** cocina deja de tener su ticket en papel en
+  este modo; depende de la pantalla.
+- **En ninguna parte se parece a una boleta.** "PRE-VENTA", "NO ES
+  COMPROBANTE DE PAGO" y "ENTREGUE ESTA HOJA EN CAJA" están puestos para
+  que ni el comensal ni un fiscalizador puedan confundirla. Entregar algo
+  con aspecto de comprobante sin serlo sale mucho más caro que imprimir
+  de más.
+
+Al cobrar en este modo no se imprime nada: no hay comprobante que emitir
+(ver el interruptor, más abajo).
+
+---
+
 ## 🔌 EL SWITCH DE FACTURACIÓN SE HACE VALER EN EL SERVIDOR
 
 `Cliente.usar_sunat` apagado = "modo informal": se cobra, la venta entra a

@@ -265,10 +265,10 @@ async function enviarComanda() {
         // no sirve para nada.
         if (puedeVer('cocina') && typeof refreshCocina === 'function') refreshCocina();
 
-        // Dos papeles, uno por impresora: cocina (qué preparar) y la copia
-        // del mozo (con precios, para su propio registro).
-        if (typeof imprimirComandaCocinaYMozo === 'function') {
-            imprimirComandaCocinaYMozo(comanda);
+        // Qué se imprime depende del modo del restaurante (con SUNAT: dos
+        // papeles; sin SUNAT: una sola hoja de pre-venta) — ver print.js.
+        if (typeof imprimirComandaNueva === 'function') {
+            imprimirComandaNueva(comanda);
         }
     } catch (err) {
         if (err instanceof NetworkError) {
@@ -282,8 +282,8 @@ async function enviarComanda() {
             showToast('Sin conexión: pedido guardado, se enviará solo al volver la señal', 'warning');
             cerrarModal();
 
-            if (typeof imprimirComandaCocinaYMozo === 'function') {
-                imprimirComandaCocinaYMozo(comandaLocal);
+            if (typeof imprimirComandaNueva === 'function') {
+                imprimirComandaNueva(comandaLocal);
             }
             return;
         }

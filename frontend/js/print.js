@@ -152,6 +152,123 @@ function _ticketPrecuentaHTML(comanda, negocio, mozoNombre) {
 </html>`;
 }
 
+/**
+ * HOJA DE PRE-VENTA — el único papel del modo sin SUNAT.
+ *
+ * En ese modo no hay comprobante electrónico, así que el flujo real del
+ * local es otro: esta hoja se le entrega AL COMENSAL, él la lleva a la
+ * caja, y el cajero cobra contra ella. Por eso acá manda el TOTAL: es el
+ * número que dos personas distintas van a leer y comparar en un mostrador,
+ * a veces de pie y con poca luz. Va en cuerpo grande y con su propio
+ * recuadro, no perdido al final de una columna de importes.
+ *
+ * Es UNA sola impresión, a diferencia del modo con SUNAT (que imprime el
+ * papel de cocina y la pre-cuenta por separado). Un restaurante que
+ * trabaja sin facturación electrónica suele ser el dueño solo o con una
+ * persona: ahí el pedido se ve en la pantalla de Cocina, y el segundo
+ * papel era papel tirado.
+ *
+ * Lo que NO dice, y es deliberado: en ninguna parte se parece a una boleta.
+ * "PRE-VENTA", "NO ES COMPROBANTE DE PAGO" y la instrucción de llevarla a
+ * caja están puestas para que nadie —ni el comensal ni un fiscalizador—
+ * pueda confundirla con un comprobante. Entregar algo con aspecto de
+ * boleta sin serlo es un problema mucho más caro que imprimir de más.
+ */
+function _ticketPreventaHTML(comanda, negocio, atendidoPor) {
+    const fecha = new Date(comanda.creado_en || Date.now());
+    const fechaHoraStr = fecha.toLocaleString('es-PE', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+    });
+
+    const filas = comanda.platos.map(p => `
+        <tr>
+            <td class="nombre">${escapeHtml(p.nombre)}</td>
+            <td class="cant">${p.cantidad}</td>
+            <td class="precio">${p.subtotal.toFixed(2)}</td>
+        </tr>
+    `).join('');
+
+    const lineaTitular = negocio.razon_social ? `<div>${escapeHtml(negocio.razon_social)}</div>` : '';
+    const lineaDireccion = negocio.direccion ? `<div>${escapeHtml(negocio.direccion)}</div>` : '';
+    const lineaRuc = negocio.ruc ? `<div>RUC: ${escapeHtml(negocio.ruc)}</div>` : '';
+    const lineaEmail = negocio.email ? `<div>${escapeHtml(negocio.email)}</div>` : '';
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+    @page { size: 80mm auto; margin: 4mm; }
+    * { box-sizing: border-box; }
+    body { font-family: 'Courier New', Courier, monospace; margin: 0; padding: 0; color: #000; font-size: 12px; }
+    .centro { text-align: center; }
+    .linea { border-top: 1px dashed #000; margin: 6px 0; }
+    .datos-negocio div { margin: 1px 0; }
+    .datos-negocio .comercial { font-weight: 700; font-size: 14px; }
+    .tipo { margin-top: 6px; font-weight: 700; letter-spacing: 1px; }
+    .aviso { font-size: 10px; }
+    .campos { display: flex; justify-content: space-between; font-size: 11.5px; }
+    table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 4px; }
+    th { text-align: left; font-size: 10.5px; border-bottom: 1px solid #000; padding-bottom: 3px; }
+    th.num, td.cant, td.precio { text-align: right; }
+    td { padding: 3px 0; vertical-align: top; }
+
+    /* El total: lo único que se lee de lejos en este papel. */
+    .total-caja {
+        margin-top: 10px;
+        border: 3px solid #000;
+        padding: 8px 6px 10px;
+        text-align: center;
+    }
+    .total-caja .rotulo { font-size: 11px; font-weight: 700; letter-spacing: 1px; }
+    .total-caja .monto { font-size: 30px; font-weight: 900; line-height: 1.1; margin-top: 2px; }
+
+    .instruccion {
+        margin-top: 10px;
+        text-align: center;
+        font-size: 11.5px;
+        font-weight: 700;
+        border: 1px dashed #000;
+        padding: 6px 4px;
+    }
+    .pie { margin-top: 12px; text-align: center; font-size: 10px; }
+</style>
+</head>
+<body>
+    <div class="centro datos-negocio">
+        ${lineaTitular}
+        <div class="comercial">${escapeHtml(negocio.nombre)}</div>
+        ${lineaDireccion}
+        ${lineaRuc}
+        ${lineaEmail}
+        <div class="tipo">PRE-VENTA</div>
+        <div class="aviso">NO ES COMPROBANTE DE PAGO</div>
+    </div>
+    <div class="linea"></div>
+    <div class="campos">
+        <span>MESA: ${comanda.numero_mesa}</span>
+        <span>N&ordm; ${comanda.id ?? '-'}</span>
+    </div>
+    <div class="campos">
+        <span>${fechaHoraStr}</span>
+        <span>${escapeHtml(atendidoPor || '-')}</span>
+    </div>
+    <div class="linea"></div>
+    <table>
+        <thead><tr><th>Articulo</th><th class="num">Cant</th><th class="num">Importe</th></tr></thead>
+        <tbody>${filas}</tbody>
+    </table>
+    <div class="total-caja">
+        <div class="rotulo">TOTAL A PAGAR</div>
+        <div class="monto">S/ ${comanda.total_cuenta.toFixed(2)}</div>
+    </div>
+    <div class="instruccion">ENTREGUE ESTA HOJA EN CAJA</div>
+    <div class="pie">GRACIAS POR SU PREFERENCIA</div>
+</body>
+</html>`;
+}
+
 function _imprimirHTML(html) {
     return new Promise(resolve => {
         const iframe = document.createElement('iframe');
@@ -362,7 +479,23 @@ async function imprimirBoletaVenta(factura) {
     }
 }
 
-async function imprimirComandaCocinaYMozo(comanda) {
+/**
+ * Qué se imprime al mandar una comanda. Depende del MODO del restaurante.
+ *
+ *   CON SUNAT   -> dos papeles, uno por impresora: cocina (qué preparar,
+ *                  sin precios) y la pre-cuenta con precios. Al cobrar se
+ *                  suma la boleta electrónica. Este camino NO se toca.
+ *
+ *   SIN SUNAT   -> UNA hoja: la pre-venta para el comensal, con el total
+ *                  en grande (ver _ticketPreventaHTML). Él la lleva a caja
+ *                  y el cajero cobra contra ella, sin comprobante. El
+ *                  pedido igual le llega a cocina por pantalla.
+ *
+ * El modo sale de `cliente_usar_sunat` en la sesión — el mismo dato que ya
+ * decide si al cobrar se emite boleta y si se piden DNI/RUC (ver mozo.js).
+ * Una sola fuente de verdad para las tres decisiones.
+ */
+async function imprimirComandaNueva(comanda) {
     try {
         const negocio = {
             nombre: estado.usuario?.cliente_nombre || 'RestoMind',
@@ -371,9 +504,15 @@ async function imprimirComandaCocinaYMozo(comanda) {
             ruc: estado.usuario?.cliente_ruc || null,
             email: estado.usuario?.cliente_email || null,
         };
+        const quien = estado.usuario?.nombre;
+
+        if (!estado.usuario?.cliente_usar_sunat) {
+            await _imprimirHTML(_ticketPreventaHTML(comanda, negocio, quien));
+            return;
+        }
 
         const ticketCocina = _ticketHTML('COCINA', comanda, { conPrecios: false });
-        const ticketMozo = _ticketPrecuentaHTML(comanda, negocio, estado.usuario?.nombre);
+        const ticketMozo = _ticketPrecuentaHTML(comanda, negocio, quien);
 
         // Secuencial: dos print() al mismo tiempo se pisan entre sí, y en la
         // práctica cada uno necesita que el mozo elija una impresora distinta.

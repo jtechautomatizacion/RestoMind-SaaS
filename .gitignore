@@ -8,7 +8,15 @@ __pycache__/
 !.env.example
 instance/
 restomind.db
-restomind.db.backup-*
+# Cualquier copia de la BD, se llame como se llame. El patrón anterior era
+# solo "restomind.db.backup-*" y por eso se coló un "restomind.db.bak-..."
+# al repo: una base REAL, con sus clientes, comprobantes y hashes de
+# contraseña. Un glob que cubre un solo nombre de backup es un glob que
+# tarde o temprano no cubre el que alguien escribió a mano.
+restomind.db.*
+*.db.bak
+*.db.bak-*
+*.db.backup-*
 # Con modo WAL activado (backend/database.py) SQLite mantiene estos dos
 # archivos auxiliares junto al .db mientras el proceso está corriendo —
 # runtime, no algo para versionar, igual que el .db mismo.
@@ -18,13 +26,6 @@ restomind.db-wal
 # separado). Son artefactos de ejecución local, no del repo — y un traceback
 # puede llevar rutas o datos de la BD real.
 *.log
-
-# Archivos que el agente de la PC del restaurante genera o completa.
-# config.json lleva el TOKEN de ese local en claro; descargados.txt es el
-# registro de qué comprobantes ya se entregaron, propio de esa máquina.
-# Solo se versiona config.example.json, con placeholders.
-agente/config.json
-agente/descargados.txt
 
 # Fotos subidas por el usuario: son datos de instancia, no del repo.
 # El endpoint las crea al vuelo (backend/routes/platos.py); solo se

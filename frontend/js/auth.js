@@ -179,11 +179,6 @@ async function loginStaff(event) {
     }
 }
 
-async function manejarLogin(event) {
-    // Función legacy para compatibilidad (ahora se llamará loginAdmin o loginStaff según la pestaña)
-    return loginAdmin(event);
-}
-
 function aplicarUsuarioDeSesion(usuario) {
     estado.clienteId = usuario.cliente_id;
     estado.usuario = usuario;

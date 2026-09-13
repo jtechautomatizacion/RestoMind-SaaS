@@ -78,7 +78,3 @@ async function marcarListo(comandaId) {
         showToast(err.message || 'Error al marcar como listo', 'error');
     }
 }
-
-function stopCocinaRefresh() {
-    if (cocinaRefreshInterval) clearInterval(cocinaRefreshInterval);
-}
