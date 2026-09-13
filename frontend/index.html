@@ -359,100 +359,6 @@
                 </div>
 
 
-        <!-- MODAL DE COBRO: elegir a nombre de quién va el comprobante.
-             Se abre DESDE el modal de cuenta (botón Cobrar), no lo reemplaza:
-             ahí se revisa el detalle, acá se decide el comprobante. Separar
-             los dos evita que un toque accidental en "Cobrar" pase por alto
-             la revisión de lo consumido. -->
-        <div id="modal-cobro" class="modal hidden">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2>Cobrar mesa <span id="cobro-mesa-numero"></span></h2>
-                    <button class="btn-close" onclick="cerrarModalCobro()">✕</button>
-                </div>
-
-                <div class="cobro-total-fila">
-                    <span>Total</span>
-                    <strong id="cobro-total">S/ 0.00</strong>
-                </div>
-
-                <div class="cobro-tabs" role="tablist">
-                    <button type="button" class="cobro-tab-btn active" data-tab="sin-doc" role="tab"
-                            onclick="cambiarTabCobro('sin-doc')">Sin documento</button>
-                    <button type="button" class="cobro-tab-btn" data-tab="con-ruc" role="tab"
-                            onclick="cambiarTabCobro('con-ruc')">Con RUC</button>
-                    <button type="button" class="cobro-tab-btn" data-tab="con-dni" role="tab"
-                            onclick="cambiarTabCobro('con-dni')">Con DNI</button>
-                </div>
-
-                <!-- SIN DOCUMENTO -->
-                <div id="cobro-tab-sin-doc" class="cobro-tab active">
-                    <p class="cobro-ayuda" id="cobro-sin-doc-ayuda"></p>
-                    <div id="cobro-sin-doc-tope" class="cobro-aviso hidden"></div>
-                    <button type="button" class="btn btn-success btn-large" id="btn-cobrar-sin-doc"
-                            onclick="cobrarDesdeModal('sin-doc')">Cobrar</button>
-                </div>
-
-                <!-- CON RUC -->
-                <div id="cobro-tab-con-ruc" class="cobro-tab hidden">
-                    <div class="form-group">
-                        <label for="cobro-ruc">RUC (11 dígitos)</label>
-                        <input type="text" id="cobro-ruc" inputmode="numeric" maxlength="11"
-                               autocomplete="off" placeholder="20123456789"
-                               oninput="onCobroDocInput(event, 'ruc')">
-                        <div id="cobro-ruc-info" class="doc-info" aria-live="polite"></div>
-                    </div>
-
-                    <!-- Aparece con el nombre resuelto, o vacío para escribirlo -->
-                    <div id="cobro-ruc-resultado" class="hidden">
-                        <!-- Un RUC SIEMPRE produce factura... salvo en Nuevo RUS,
-                             que tiene prohibido facturar. Se dice ANTES de cobrar
-                             para que el cajero no prometa un comprobante que el
-                             restaurante no puede entregar. -->
-                        <div class="cobro-chip-fila">
-                            <span class="comprobante-chip" id="cuenta-tipo-comprobante">Boleta</span>
-                        </div>
-                        <div class="cobro-empresa">
-                            <span class="cobro-empresa-label">Empresa</span>
-                            <input type="text" id="cobro-ruc-nombre" maxlength="200" autocomplete="off">
-                        </div>
-                        <div class="cobro-botonera">
-                            <button type="button" class="btn btn-success btn-large"
-                                    onclick="cobrarDesdeModal('con-ruc')">Sí, cobrar</button>
-                            <button type="button" class="btn btn-secondary"
-                                    onclick="revisarDocumento('ruc')">Revisar</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- CON DNI -->
-                <div id="cobro-tab-con-dni" class="cobro-tab hidden">
-                    <div class="form-group">
-                        <label for="cobro-dni">DNI (8 dígitos)</label>
-                        <input type="text" id="cobro-dni" inputmode="numeric" maxlength="8"
-                               autocomplete="off" placeholder="73081441"
-                               oninput="onCobroDocInput(event, 'dni')">
-                        <div id="cobro-dni-info" class="doc-info" aria-live="polite"></div>
-                    </div>
-
-                    <div id="cobro-dni-resultado" class="hidden">
-                        <div class="form-group">
-                            <label for="cobro-dni-nombre">Nombre del cliente</label>
-                            <input type="text" id="cobro-dni-nombre" maxlength="200"
-                                   autocomplete="off" placeholder="Ej: Juan Pérez">
-                        </div>
-                        <div class="cobro-botonera">
-                            <button type="button" class="btn btn-success btn-large"
-                                    onclick="cobrarDesdeModal('con-dni')">Cobrar</button>
-                            <button type="button" class="btn btn-secondary"
-                                    onclick="revisarDocumento('dni')">Revisar</button>
-                        </div>
-                    </div>
-                </div>
-
-                <button type="button" class="btn-texto" onclick="cerrarModalCobro()">Cancelar</button>
-            </div>
-        </div>
 
                 <!-- Aviso de la regla de los S/ 700. Panel y no toast a
                      propósito: un toast se va solo, y esto el cajero TIENE que
@@ -513,11 +419,92 @@
                                 <span class="label">Total a cobrar</span>
                                 <span class="value" id="cuenta-total">S/ 0.00</span>
                             </div>
-                            <button id="btn-agregar-pedido" class="btn btn-secondary btn-large" style="margin-bottom:8px;" onclick="agregarPedidoAMesa()">
+<div id="cobro-bloque">
+                            <!-- A quién se le emite el comprobante. Vive DENTRO de la cuenta,
+                                 no en un modal aparte: abrir una ventana encima de
+                                 otra obliga a cerrar dos cosas para volver a la mesa,
+                                 y en un celular tapa el detalle que el cajero acaba
+                                 de revisar. Una sola pantalla, un solo camino. -->
+                            <div id="cobro-espera-cocina" class="cobro-aviso hidden">
+                                Espera a que cocina entregue todo antes de cobrar.
+                            </div>
+                            <div class="cobro-tabs" role="tablist">
+                                <button type="button" class="cobro-tab-btn active" data-tab="sin-doc" role="tab"
+                                        onclick="cambiarTabCobro('sin-doc')">Sin documento</button>
+                                <button type="button" class="cobro-tab-btn" data-tab="con-ruc" role="tab"
+                                        onclick="cambiarTabCobro('con-ruc')">Con RUC</button>
+                                <button type="button" class="cobro-tab-btn" data-tab="con-dni" role="tab"
+                                        onclick="cambiarTabCobro('con-dni')">Con DNI</button>
+                            </div>
+
+                            <!-- SIN DOCUMENTO -->
+                            <div id="cobro-tab-sin-doc" class="cobro-tab active">
+                                <p class="cobro-ayuda" id="cobro-sin-doc-ayuda"></p>
+                                <div id="cobro-sin-doc-tope" class="cobro-aviso hidden"></div>
+                                <button type="button" class="btn btn-success btn-large" id="btn-cobrar-sin-doc"
+                                        onclick="cobrarDesdeModal('sin-doc')">Cobrar</button>
+                            </div>
+
+                            <!-- CON RUC -->
+                            <div id="cobro-tab-con-ruc" class="cobro-tab hidden">
+                                <div class="form-group">
+                                    <label for="cobro-ruc">RUC (11 dígitos)</label>
+                                    <input type="text" id="cobro-ruc" inputmode="numeric" maxlength="11"
+                                           autocomplete="off" placeholder="20123456789"
+                                           oninput="onCobroDocInput(event, 'ruc')">
+                                    <div id="cobro-ruc-info" class="doc-info" aria-live="polite"></div>
+                                </div>
+
+                                <!-- Aparece con el nombre resuelto, o vacío para escribirlo -->
+                                <div id="cobro-ruc-resultado" class="hidden">
+                                    <!-- Un RUC SIEMPRE produce factura... salvo en Nuevo RUS,
+                                         que tiene prohibido facturar. Se dice ANTES de cobrar
+                                         para que el cajero no prometa un comprobante que el
+                                         restaurante no puede entregar. -->
+                                    <div class="cobro-chip-fila">
+                                        <span class="comprobante-chip" id="cuenta-tipo-comprobante">Boleta</span>
+                                    </div>
+                                    <div class="cobro-empresa">
+                                        <span class="cobro-empresa-label">Empresa</span>
+                                        <input type="text" id="cobro-ruc-nombre" maxlength="200" autocomplete="off">
+                                    </div>
+                                    <div class="cobro-botonera">
+                                        <button type="button" class="btn btn-success btn-large"
+                                                onclick="cobrarDesdeModal('con-ruc')">Sí, cobrar</button>
+                                        <button type="button" class="btn btn-secondary"
+                                                onclick="revisarDocumento('ruc')">Revisar</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- CON DNI -->
+                            <div id="cobro-tab-con-dni" class="cobro-tab hidden">
+                                <div class="form-group">
+                                    <label for="cobro-dni">DNI (8 dígitos)</label>
+                                    <input type="text" id="cobro-dni" inputmode="numeric" maxlength="8"
+                                           autocomplete="off" placeholder="73081441"
+                                           oninput="onCobroDocInput(event, 'dni')">
+                                    <div id="cobro-dni-info" class="doc-info" aria-live="polite"></div>
+                                </div>
+
+                                <div id="cobro-dni-resultado" class="hidden">
+                                    <div class="form-group">
+                                        <label for="cobro-dni-nombre">Nombre del cliente</label>
+                                        <input type="text" id="cobro-dni-nombre" maxlength="200"
+                                               autocomplete="off" placeholder="Ej: Juan Pérez">
+                                    </div>
+                                    <div class="cobro-botonera">
+                                        <button type="button" class="btn btn-success btn-large"
+                                                onclick="cobrarDesdeModal('con-dni')">Cobrar</button>
+                                        <button type="button" class="btn btn-secondary"
+                                                onclick="revisarDocumento('dni')">Revisar</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            </div>
+                            <button id="btn-agregar-pedido" class="btn btn-secondary" style="margin-top:10px;" onclick="agregarPedidoAMesa()">
                                 + Agregar pedido
-                            </button>
-                            <button id="btn-cobrar" class="btn btn-success btn-large" onclick="abrirModalCobro()">
-                                Cobrar y liberar mesa
                             </button>
                         </div>
                     </div>

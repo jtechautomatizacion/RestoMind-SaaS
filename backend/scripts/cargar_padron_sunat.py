@@ -283,8 +283,8 @@ def construir(destino: Path, archivo: str | None, limite: int | None) -> None:
     tam = temporal.stat().st_size / 1048576
 
     # Cambio atómico: hasta esta línea, las consultas siguen usando la base
-    # anterior. os.replace no deja un instante en que el archivo no exista.
-    os.replace(temporal, destino)
+    # anterior. No queda ningún instante en que el archivo no exista.
+    _reemplazar(temporal, destino)
     # El WAL de la base vieja quedaría huérfano y confundiría a SQLite.
     for sufijo in ("-wal", "-shm"):
         viejo = Path(str(destino) + sufijo)
@@ -295,6 +295,68 @@ def construir(destino: Path, archivo: str | None, limite: int | None) -> None:
     print()
     print(f"[OK] {total:,} contribuyentes en {destino}")
     print(f"     {tam:,.0f} MB  ·  {minutos:.1f} minutos")
+
+
+
+def _reemplazar(temporal: Path, destino: Path) -> None:
+    """
+    Pone el archivo nuevo en lugar del viejo, incluso si otro proceso lo
+    tiene abierto.
+
+    `os.replace` alcanza en Linux: sobrescribir un archivo abierto es legal,
+    el proceso que lo tenía abierto sigue leyendo el contenido anterior. En
+    WINDOWS no — y el servidor de desarrollo mantiene una conexión de solo
+    lectura al padrón, así que el cambio fallaba con
+
+        PermissionError: [WinError 5] Acceso denegado
+
+    ...DESPUÉS de cargar 18 millones de filas y construir el índice. Diez
+    minutos de trabajo perdidos en el último paso.
+
+    Windows sí deja RENOMBRAR un archivo abierto. Así que se corre el viejo a
+    un costado y recién entonces entra el nuevo. El proceso que lo tenía
+    abierto sigue leyendo el archivo renombrado hasta que cierre — igual que
+    en Linux — y ese sobrante se borra en la próxima carga.
+    """
+    try:
+        os.replace(temporal, destino)
+        return
+    except PermissionError:
+        pass
+
+    anterior = Path(str(destino) + ".anterior")
+    if anterior.exists():
+        try:
+            anterior.unlink()
+        except OSError:
+            pass
+
+    try:
+        os.replace(destino, anterior)
+        os.replace(temporal, destino)
+        print(f"[OK] La base anterior quedó como {anterior.name} (estaba en uso).")
+        return
+    except OSError:
+        pass
+
+    # SQLite bloquea el archivo incluso para renombrarlo, así que en Windows
+    # no hay forma de cambiarlo con el servidor corriendo.
+    #
+    # NO se borra lo construido: son 1,5 GB y varios minutos de trabajo. Se
+    # deja donde está y se explica el único paso que falta, en vez de un
+    # traceback que no dice qué hacer.
+    raise SystemExit("\n".join([
+        "",
+        "[!] El padrón se construyó COMPLETO, pero no se pudo poner en su lugar:",
+        f"    el servidor tiene abierto {destino.name}, y Windows no permite",
+        "    reemplazar un archivo en uso (en Linux esto no pasa).",
+        "",
+        "    NO se perdió nada. Para terminar:",
+        "      1. Detené el servidor (Ctrl+C en la ventana de uvicorn)",
+        f"      2. move {temporal} {destino}",
+        "      3. Volvé a levantarlo",
+        "",
+    ]))
 
 
 def main() -> None:

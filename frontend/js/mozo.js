@@ -332,6 +332,9 @@ async function abrirCuentaMesa(mesa) {
         const comandas = await api.get(`/comandas?numero_mesa=${mesa.numero}`);
         const activas = comandas.filter(c => c.estado === 'cocina' || c.estado === 'entregado');
         renderCuentaMesa(activas);
+        // Las pestañas de cobro viven dentro de este modal: se dejan en
+        // limpio acá, al abrir la mesa, y no en un paso aparte.
+        prepararCobro();
         abrirModal('modal-cuenta');
     } catch (err) {
         showToast('No se pudo cargar la cuenta de la mesa', 'error');
@@ -340,15 +343,19 @@ async function abrirCuentaMesa(mesa) {
 
 function renderCuentaMesa(comandas) {
     const container = document.getElementById('cuenta-comandas');
-    const btnCobrar = document.getElementById('btn-cobrar');
+    // Sin pedidos no hay nada que cobrar: se ocultan las pestañas enteras en
+    // vez de dejarlas visibles y muertas. Antes se deshabilitaba un botón
+    // único; ahora el cobro son tres caminos y esconderlos es más honesto
+    // que apagarlos uno por uno.
+    const cobro = document.getElementById('cobro-bloque');
 
     if (comandas.length === 0) {
         container.innerHTML = '<p class="empty-hint">Esta mesa no tiene pedidos activos.</p>';
         document.getElementById('cuenta-total').textContent = formatCurrency(0);
-        btnCobrar.disabled = true;
-        btnCobrar.style.opacity = '0.5';
+        if (cobro) cobro.classList.add('hidden');
         return;
     }
+    if (cobro) cobro.classList.remove('hidden');
 
     let total = 0;
     let hayEnCocina = false;
@@ -380,15 +387,24 @@ function renderCuentaMesa(comandas) {
 
     document.getElementById('cuenta-total').textContent = formatCurrency(total);
 
-    if (hayEnCocina) {
-        btnCobrar.disabled = true;
-        btnCobrar.style.opacity = '0.5';
-        btnCobrar.textContent = 'Espera a que cocina entregue todo';
-    } else {
-        btnCobrar.disabled = false;
-        btnCobrar.style.opacity = '1';
-        btnCobrar.textContent = 'Cobrar y liberar mesa';
-    }
+    // No se cobra comida que el cliente todavía no recibió: POST
+    // /mesas/{id}/cobrar rechaza con 400 si queda algo en cocina. Se bloquea
+    // acá, con el motivo a la vista, en vez de dejar tocar un botón que va a
+    // fallar.
+    bloquearCobroPorCocina(hayEnCocina);
+}
+
+
+function bloquearCobroPorCocina(hayEnCocina) {
+    const aviso = document.getElementById('cobro-espera-cocina');
+    if (aviso) aviso.classList.toggle('hidden', !hayEnCocina);
+
+    document.querySelectorAll('.cobro-tabs, .cobro-tab').forEach(el => {
+        el.classList.toggle('hidden', hayEnCocina);
+    });
+    // La pestaña activa vuelve a mostrarse sola al desbloquear: el forEach de
+    // arriba las oculta todas, así que hay que repintar cuál está activa.
+    if (!hayEnCocina) cambiarTabCobro(cobroTabActiva);
 }
 
 function cerrarModalCuenta() {
@@ -739,6 +755,36 @@ async function eliminarMesa(mesaId) {
 }
 
 
+/**
+ * Qué comprobante va a salir, dicho ANTES de cobrar.
+ *
+ * Un RUC produce FACTURA... salvo en Nuevo RUS, que tiene PROHIBIDO
+ * facturar: ahí el comensal recibe boleta con su RUC como documento del
+ * adquiriente (el catálogo 06 de SUNAT lo admite). El régimen viaja en la
+ * sesión porque quien cobra suele ser un mozo, y /configuracion es
+ * admin-only.
+ */
+function actualizarEtiquetaComprobante(documento) {
+    const el = document.getElementById('cuenta-tipo-comprobante');
+    if (!el) return;
+
+    const puedeFacturar = !!(estado.usuario && estado.usuario.cliente_emite_facturas);
+
+    if (documento.length === 11) {
+        if (puedeFacturar) {
+            el.textContent = 'Factura · F001';
+            el.className = 'comprobante-chip factura';
+        } else {
+            el.textContent = 'Boleta · RUC del comprador';
+            el.className = 'comprobante-chip ruc-en-boleta';
+        }
+        return;
+    }
+    el.textContent = documento.length === 8 ? 'Boleta · DNI' : 'Boleta · B001';
+    el.className = 'comprobante-chip';
+}
+
+
 // ============ MODAL DE COBRO: A NOMBRE DE QUIÉN VA EL COMPROBANTE ============
 //
 // Tres pestañas en vez de un solo campo donde el cajero tipea y el sistema
@@ -754,20 +800,13 @@ async function eliminarMesa(mesaId) {
 let cobroTabActiva = 'sin-doc';
 let cobroDocTimer = null;
 
-function abrirModalCobro() {
-    if (!mesaActual) return;
-
-    document.getElementById('cobro-mesa-numero').textContent = mesaActual.numero;
-    document.getElementById('cobro-total').textContent = formatCurrency(mesaActual.cuenta_actual || 0);
-
+/**
+ * Prepara las pestañas de cobro. Se llama al ABRIR la cuenta, no en un paso
+ * aparte: las pestañas viven dentro de ese mismo modal.
+ */
+function prepararCobro() {
     limpiarModalCobro();
     cambiarTabCobro('sin-doc');
-    abrirModal('modal-cobro');
-}
-
-function cerrarModalCobro() {
-    clearTimeout(cobroDocTimer);
-    document.getElementById('modal-cobro').classList.add('hidden');
 }
 
 function limpiarModalCobro() {
@@ -812,10 +851,10 @@ function limpiarModalCobro() {
 
 function cambiarTabCobro(tab) {
     cobroTabActiva = tab;
-    document.querySelectorAll('#modal-cobro .cobro-tab-btn').forEach(b => {
+    document.querySelectorAll('.cobro-tab-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.tab === tab);
     });
-    document.querySelectorAll('#modal-cobro .cobro-tab').forEach(p => {
+    document.querySelectorAll('.cobro-tab').forEach(p => {
         p.classList.toggle('hidden', p.id !== `cobro-tab-${tab}`);
     });
 
@@ -946,6 +985,5 @@ async function cobrarDesdeModal(tab) {
         }
     }
 
-    cerrarModalCobro();
     await ejecutarCobro(documento, nombre);
 }
