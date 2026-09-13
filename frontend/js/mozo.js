@@ -647,6 +647,26 @@ async function cobrarMesaActual() {
     const campoNombre = document.getElementById('cuenta-nombre-manual');
     const nombreManual = campoNombre ? campoNombre.value.trim() : '';
 
+    return ejecutarCobro(documento, nombreManual);
+}
+
+
+/**
+ * Ejecuta el cobro y, si corresponde, emite el comprobante.
+ *
+ * Es el ÚNICO lugar donde se cobra: tanto el campo de documento de la
+ * cuenta como el modal de pestañas terminan acá. Duplicar este flujo sería
+ * duplicar la lógica de dinero, que es donde no se pueden tener dos
+ * versiones que se desincronicen.
+ *
+ * COBRAR Y FACTURAR SIGUEN SIENDO DOS PASOS, a propósito. Fundirlos en una
+ * sola llamada haría que un rechazo de SUNAT tumbara el cobro — y la plata
+ * ya cambió de mano. Así, el cobro entra siempre y el comprobante queda
+ * recuperable desde Admin > Boletas si falla.
+ */
+async function ejecutarCobro(documento, nombreManual) {
+    if (!mesaActual) return;
+
     // Antes de cobrar, no después: corregir un tipeo con la mesa todavía
     // abierta es trivial; con la venta ya cobrada, no.
     const errorDocumento = validarDocumentoComprador(documento);
@@ -909,4 +929,210 @@ async function eliminarMesa(mesaId) {
     } catch (err) {
         showToast(err.message || 'No se pudo eliminar la mesa', 'error');
     }
+}
+
+
+// ============ MODAL DE COBRO: A NOMBRE DE QUIÉN VA EL COMPROBANTE ============
+//
+// Tres pestañas en vez de un solo campo donde el cajero tipea y el sistema
+// adivina por la cantidad de dígitos. La diferencia práctica: el cajero
+// ELIGE antes de tipear, así que ve de entrada qué comprobante va a salir en
+// vez de descubrirlo cuando el número ya está puesto.
+//
+// NO reemplaza al modal de cuenta: ahí se revisa el detalle de lo consumido,
+// acá se decide el comprobante. Y NO fusiona cobrar con facturar — siguen
+// siendo dos llamadas, para que un rechazo de SUNAT no tumbe un cobro que ya
+// ocurrió (ver ejecutarCobro).
+
+let cobroTabActiva = 'sin-doc';
+let cobroDocTimer = null;
+
+function abrirModalCobro() {
+    if (!mesaActual) return;
+
+    document.getElementById('cobro-mesa-numero').textContent = mesaActual.numero;
+    document.getElementById('cobro-total').textContent = formatCurrency(mesaActual.cuenta_actual || 0);
+
+    limpiarModalCobro();
+    cambiarTabCobro('sin-doc');
+    abrirModal('modal-cobro');
+}
+
+function cerrarModalCobro() {
+    clearTimeout(cobroDocTimer);
+    document.getElementById('modal-cobro').classList.add('hidden');
+}
+
+function limpiarModalCobro() {
+    clearTimeout(cobroDocTimer);
+    ['cobro-ruc', 'cobro-dni', 'cobro-ruc-nombre', 'cobro-dni-nombre'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.value = ''; el.readOnly = false; }
+    });
+    ['cobro-ruc-resultado', 'cobro-dni-resultado'].forEach(id => {
+        document.getElementById(id).classList.add('hidden');
+    });
+    pintarDocInfo('ruc', '');
+    pintarDocInfo('dni', '');
+
+    // La pestaña "Sin documento" dice cosas distintas según si el
+    // restaurante emite y según el monto. Se arma acá, con los datos de la
+    // mesa que se está por cobrar.
+    const emite = !!(estado.usuario && estado.usuario.cliente_usar_sunat);
+    const total = mesaActual ? (mesaActual.cuenta_actual || 0) : 0;
+    const ayuda = document.getElementById('cobro-sin-doc-ayuda');
+    const tope = document.getElementById('cobro-sin-doc-tope');
+
+    // "Sin documento" NO es "sin comprobante": un restaurante que emite
+    // igual genera boleta, a nombre de Público General. Decir "sin boleta"
+    // sería sugerir que se puede vender sin comprobante, que es justo lo
+    // que SUNAT no permite.
+    ayuda.textContent = emite
+        ? 'Se emite boleta a Público General, sin identificar al cliente.'
+        : 'Este restaurante no emite comprobantes electrónicos todavía.';
+
+    // El tope de S/ 700 lo impone SUNAT, no la app. Avisarlo ACÁ —antes de
+    // cobrar— le da al cajero la chance de pedir el documento con el cliente
+    // todavía enfrente; descubrirlo después deja la venta sin comprobante.
+    const superaTope = emite && total >= 700;
+    tope.classList.toggle('hidden', !superaTope);
+    if (superaTope) {
+        tope.textContent = 'Desde S/ 700 SUNAT exige identificar al cliente. '
+            + 'Pedile el DNI o el RUC en las otras pestañas.';
+    }
+    document.getElementById('btn-cobrar-sin-doc').disabled = superaTope;
+}
+
+function cambiarTabCobro(tab) {
+    cobroTabActiva = tab;
+    document.querySelectorAll('#modal-cobro .cobro-tab-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.tab === tab);
+    });
+    document.querySelectorAll('#modal-cobro .cobro-tab').forEach(p => {
+        p.classList.toggle('hidden', p.id !== `cobro-tab-${tab}`);
+    });
+
+    const foco = { 'con-ruc': 'cobro-ruc', 'con-dni': 'cobro-dni' }[tab];
+    if (foco) document.getElementById(foco).focus();
+}
+
+/**
+ * Valida y consulta mientras el cajero tipea.
+ *
+ * Se espera a que deje de escribir (350ms) en vez de consultar por tecla:
+ * corregir un dígito dispararía una consulta por cada pulsación, y esa
+ * consulta tiene cuota por IP en el backend.
+ */
+function onCobroDocInput(event, tipo) {
+    soloDigitos(event);
+    const largo = tipo === 'ruc' ? 11 : 8;
+    const valor = event.target.value;
+
+    clearTimeout(cobroDocTimer);
+    document.getElementById(`cobro-${tipo}-resultado`).classList.add('hidden');
+
+    if (valor.length !== largo) {
+        pintarDocInfo(tipo, '');
+        return;
+    }
+    // Un RUC mal tipeado se atrapa acá sin gastar consulta. Un DNI no tiene
+    // dígito de control, así que solo se revisa el largo.
+    if (tipo === 'ruc' && !digitoRucValido(valor)) {
+        pintarDocInfo(tipo, 'Revisá el número, no parece un RUC válido', 'aviso');
+        return;
+    }
+
+    pintarDocInfo(tipo, 'Buscando...', 'buscando');
+    cobroDocTimer = setTimeout(() => consultarDocCobro(tipo, valor), 350);
+}
+
+async function consultarDocCobro(tipo, numero) {
+    let datos = null;
+    try {
+        datos = await api.get(`/documento/${numero}`);
+    } catch (_) {
+        // Sin padrón instalado el backend responde 503. Eso NO puede frenar
+        // un cobro: se abre el campo para escribir el nombre y se sigue.
+        datos = null;
+    }
+
+    // Si el cajero siguió tipeando mientras la consulta viajaba, el
+    // resultado ya no corresponde a lo que hay en pantalla.
+    const actual = document.getElementById(`cobro-${tipo}`);
+    if (!actual || actual.value !== numero) return;
+
+    const campoNombre = document.getElementById(`cobro-${tipo}-nombre`);
+    const encontrado = !!(datos && datos.encontrado);
+
+    if (encontrado) {
+        campoNombre.value = datos.nombre;
+        // De solo lectura cuando el dato es oficial (padrón) o ya guardado:
+        // si se viera editable, alguien intentaría corregirlo creyendo que
+        // eso cambia algo.
+        campoNombre.readOnly = tipo === 'ruc';
+        pintarDocInfo(tipo, datos.advertencia || 'Verificado', datos.advertencia ? 'aviso' : 'ok');
+    } else {
+        campoNombre.value = '';
+        campoNombre.readOnly = false;
+        pintarDocInfo(
+            tipo,
+            tipo === 'ruc'
+                ? 'No figura en el padrón. Escribí la razón social.'
+                : 'No lo tenemos registrado. Escribí el nombre.',
+            'neutro'
+        );
+    }
+
+    // El comprobante que va a salir, dicho ANTES de cobrar: un RUC produce
+    // factura solo si el restaurante puede emitirlas (ver el régimen en
+    // actualizarEtiquetaComprobante).
+    document.getElementById(`cobro-${tipo}-resultado`).classList.remove('hidden');
+    if (!encontrado || tipo === 'dni') campoNombre.focus();
+}
+
+function revisarDocumento(tipo) {
+    const input = document.getElementById(`cobro-${tipo}`);
+    input.value = '';
+    input.readOnly = false;
+    input.focus();
+    document.getElementById(`cobro-${tipo}-resultado`).classList.add('hidden');
+    pintarDocInfo(tipo, '');
+}
+
+function pintarDocInfo(tipo, texto, clase) {
+    const el = document.getElementById(`cobro-${tipo}-info`);
+    if (!el) return;
+    el.textContent = texto || '';
+    el.className = 'doc-info' + (texto ? ` ${clase}` : '');
+}
+
+/**
+ * Punto de salida de las tres pestañas: arma (documento, nombre) y delega en
+ * el MISMO ejecutor que usa el campo de la cuenta. La lógica de dinero vive
+ * en un solo lugar.
+ */
+async function cobrarDesdeModal(tab) {
+    let documento = '';
+    let nombre = '';
+
+    if (tab === 'con-ruc' || tab === 'con-dni') {
+        const tipo = tab === 'con-ruc' ? 'ruc' : 'dni';
+        documento = document.getElementById(`cobro-${tipo}`).value.trim();
+        nombre = document.getElementById(`cobro-${tipo}-nombre`).value.trim();
+
+        if (!documento) {
+            showToast(tipo === 'ruc' ? 'Falta el RUC' : 'Falta el DNI', 'warning');
+            return;
+        }
+        // Un RUC sin razón social no se puede facturar: SUNAT la exige. Con
+        // DNI el nombre es opcional — una boleta es válida sin él.
+        if (tipo === 'ruc' && !nombre) {
+            showToast('Falta la razón social', 'warning');
+            document.getElementById('cobro-ruc-nombre').focus();
+            return;
+        }
+    }
+
+    cerrarModalCobro();
+    await ejecutarCobro(documento, nombre);
 }

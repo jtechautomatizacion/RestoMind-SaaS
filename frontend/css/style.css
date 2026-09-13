@@ -3267,3 +3267,133 @@ body {
 .modal-content.aviso-sunat p {
     color: #14532D;
 }
+
+/* ============ MODAL DE COBRO (3 pestañas) ============
+   Ver el bloque de abrirModalCobro() en frontend/js/mozo.js. */
+
+.cobro-total-fila {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+    background: var(--bg);
+    border-radius: var(--radius-md);
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.cobro-total-fila strong {
+    font-size: 1.35rem;
+    color: var(--money);
+    font-variant-numeric: tabular-nums;
+}
+
+.cobro-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+    border-bottom: 2px solid var(--border);
+}
+
+.cobro-tab-btn {
+    flex: 1;
+    /* 44px: el mínimo táctil cómodo con el pulgar, mismo criterio que el
+       resto de la app. */
+    min-height: 44px;
+    padding: 10px 6px;
+    border: none;
+    border-bottom: 3px solid transparent;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: color 0.18s, border-color 0.18s;
+    /* En 360px las tres etiquetas entran justas: se permite romper antes
+       que desbordar el modal. */
+    overflow-wrap: anywhere;
+    line-height: 1.25;
+}
+
+.cobro-tab-btn.active {
+    color: var(--accent-dark);
+    border-bottom-color: var(--accent);
+}
+
+.cobro-tab {
+    animation: cobro-entra 0.18s ease-out;
+}
+
+@keyframes cobro-entra {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.cobro-ayuda {
+    margin: 0 0 14px;
+    font-size: 0.83rem;
+    line-height: 1.45;
+    color: var(--text-muted);
+    text-wrap: balance;
+}
+
+/* Aviso del tope de S/ 700. Ámbar: no es un error del cajero, es una regla
+   de SUNAT que conviene ver ANTES de cobrar. */
+.cobro-aviso {
+    margin-bottom: 14px;
+    padding: 11px 13px;
+    border-radius: var(--radius-sm);
+    background: var(--warning-bg);
+    color: #92400E;
+    font-size: 0.8rem;
+    line-height: 1.45;
+}
+
+.cobro-empresa {
+    padding: 12px 13px;
+    margin-bottom: 14px;
+    background: var(--surface-alt);
+    border-radius: var(--radius-sm);
+}
+
+.cobro-empresa-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.cobro-empresa input {
+    width: 100%;
+    font-weight: 700;
+}
+
+/* Un campo de solo lectura tiene que VERSE de solo lectura: si parece
+   editable, alguien intenta corregirlo y no pasa nada. */
+#modal-cobro input[readonly] {
+    background: var(--bg);
+    color: var(--text-muted);
+    cursor: default;
+}
+
+.cobro-botonera {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 8px;
+}
+
+/* Bajo 360px los dos botones lado a lado dejan el principal demasiado
+   angosto para el pulgar; se apilan, con "Cobrar" arriba. */
+@media (max-width: 360px) {
+    .cobro-botonera { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cobro-tab { animation: none; }
+    .cobro-tab-btn { transition: none; }
+}
