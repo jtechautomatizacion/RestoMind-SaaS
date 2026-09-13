@@ -3226,3 +3226,44 @@ body {
     font-size: 0.8rem;
     line-height: 1.45;
 }
+
+/* Chip "Boleta · RUC del comprador" — Nuevo RUS.
+   Azul y NO verde a propósito: verde es el chip de factura, y el cajero
+   tiene que ver de un golpe que este comprobante es OTRA cosa. Un azul
+   sobrio dice "esto es correcto y deliberado", mientras que un ámbar o un
+   rojo harían pensar que algo salió mal — y no salió mal: es exactamente
+   lo que la ley le permite emitir a un contribuyente del Nuevo RUS. */
+.comprobante-chip.ruc-en-boleta {
+    background: #1E40AF;
+    color: #FFFFFF;
+}
+
+/* Bajo 360px (un Galaxy A51 en vertical entra justo) el chip más largo
+   —"Boleta · RUC del comprador"— no cabe en la misma línea que el total.
+   Se le permite romper y pasar a línea propia en vez de empujar el importe
+   fuera de la pantalla, que es el dato que el cajero está mirando. */
+@media (max-width: 380px) {
+    .comprobante-chip {
+        display: block;
+        margin-left: 0;
+        margin-top: 6px;
+        width: fit-content;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        white-space: normal;
+        line-height: 1.35;
+    }
+}
+
+/* Panel de la regla de S/ 700 — fondo verde.
+   Lo PRIMERO que tiene que quedar claro es que la plata entró: el cajero
+   está parado frente al cliente y esa es su duda inmediata. El pendiente
+   del comprobante va abajo, en ámbar, como lo secundario que es. */
+.modal-content.aviso-sunat {
+    background: var(--success-bg);
+    border: 1px solid var(--success);
+}
+
+.modal-content.aviso-sunat p {
+    color: #14532D;
+}

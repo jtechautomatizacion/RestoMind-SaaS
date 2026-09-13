@@ -138,6 +138,11 @@ class UsuarioMe(BaseModel):
     # que no factura desde acá — sin esto le salía un toast rojo en cada
     # cobro (ver generarBoletaTrasCobro en frontend/js/mozo.js).
     cliente_usar_sunat: bool = False
+    # ¿Este restaurante puede emitir FACTURAS o solo boletas? Lo necesita el
+    # MOZO al cobrar, para mostrar qué comprobante va a salir ANTES de
+    # confirmar — y un mozo no puede consultar /configuracion, que es
+    # admin-only. Por eso viaja en la sesión, igual que cliente_usar_sunat.
+    cliente_emite_facturas: bool = False
     cliente_razon_social: Optional[str] = None
     cliente_direccion: Optional[str] = None
     cliente_email: Optional[str] = None

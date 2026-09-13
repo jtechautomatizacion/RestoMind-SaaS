@@ -521,13 +521,35 @@ function onDocumentoInput(event) {
 function actualizarEtiquetaComprobante(documento) {
     const el = document.getElementById('cuenta-tipo-comprobante');
     if (!el) return;
+
+    // Régimen tributario del restaurante, que viaja en la sesión. El mozo no
+    // puede consultar /configuracion (es admin-only), y necesita saberlo para
+    // mostrar el comprobante correcto ANTES de cobrar.
+    const puedeFacturar = !!(estado.usuario && estado.usuario.cliente_emite_facturas);
+
     if (documento.length === 11) {
-        el.textContent = 'FACTURA F001';
-        el.className = 'comprobante-chip factura';
-    } else {
-        el.textContent = 'BOLETA B001';
-        el.className = 'comprobante-chip';
+        if (puedeFacturar) {
+            el.textContent = 'Factura · F001';
+            el.className = 'comprobante-chip factura';
+            return;
+        }
+        // NUEVO RUS: tiene PROHIBIDO facturar. El comensal igual recibe
+        // boleta, llevando su RUC como documento del adquiriente (el
+        // catálogo 06 de SUNAT lo admite). Se dice explícitamente para que
+        // el cajero no prometa una factura que no va a poder entregar.
+        el.textContent = 'Boleta · RUC del comprador';
+        el.className = 'comprobante-chip ruc-en-boleta';
+        return;
     }
+
+    if (documento.length === 8) {
+        el.textContent = 'Boleta · DNI';
+        el.className = 'comprobante-chip';
+        return;
+    }
+
+    el.textContent = 'Boleta · B001';
+    el.className = 'comprobante-chip';
 }
 
 async function consultarDocumentoComprador(documento) {
@@ -572,13 +594,19 @@ async function consultarDocumentoComprador(documento) {
     // No está: se abre el campo para escribirlo. Es la única forma de emitir
     // a nombre de un RUC recién inscrito o de un comensal que este
     // restaurante nunca atendió.
+    //
+    // Se usa la bandera explícita del backend en vez de deducirla de
+    // `encontrado`: es el backend quien sabe si ese comprobante necesita un
+    // nombre, y atarlo acá a una inferencia propia los desincroniza el día
+    // que esa regla cambie.
     const esRuc = datos.tipo === 'RUC';
+    const pideNombre = datos.requiere_nombre_manual !== false;
     pintarInfoRuc(
         esRuc ? 'No figura en el padrón. Escribí la razón social.'
               : 'No lo tenemos registrado. Escribí el nombre.',
         'neutro'
     );
-    mostrarCampoNombreManual(true, esRuc);
+    mostrarCampoNombreManual(pideNombre, esRuc);
 }
 
 function mostrarCampoNombreManual(mostrar, esRuc) {
