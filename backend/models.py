@@ -406,6 +406,17 @@ class Factura(Base):
     numero_documento_comprador = Column(String, nullable=True)
     nombre_comprador = Column(String, nullable=True)
 
+    # Nombre legible de quien atendió la venta, congelado al emitir.
+    #
+    # No se deriva de Comanda.creado_por al imprimir: ese campo guarda el
+    # 'sub' del JWT, que es el email del admin pero el CÓDIGO DE ACCESO de
+    # seis dígitos para el staff (ver auth.py:login_staff) — imprimir eso
+    # daría "482913" en el papel del cliente. Tampoco se toma del usuario
+    # logueado en el navegador: reimprimir una boleta vieja desde otra
+    # cuenta cambiaría quién figura como cajero en un documento fiscal ya
+    # emitido.
+    cajero_nombre = Column(String, nullable=True)
+
     # Resultado del emisor usado (ver backend/config.py: emisor_facturacion).
     # pdf_url/qr_code/codigo_hash solo se llenan con el emisor "facturacion_pe"
     # (confirma con SUNAT en el momento); archivo_local solo con "sfs_local".

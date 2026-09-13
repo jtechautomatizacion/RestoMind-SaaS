@@ -360,6 +360,24 @@ def migrate():
             else:
                 print("[OK] Columna 'cdr_xml' ya existe")
 
+        # facturas.cajero_nombre: quién atendió la venta, en texto legible.
+        #
+        # Se congela al emitir en vez de resolverse al imprimir, por dos
+        # razones distintas (ver models.py:Factura.cajero_nombre): el 'sub'
+        # del JWT no es un nombre para el staff, y una reimpresión desde
+        # otra cuenta no puede cambiar quién figura en un documento fiscal
+        # ya emitido. NULL en las boletas viejas dice la verdad: ese dato
+        # no se guardó cuando se emitieron, y no hay de dónde inventarlo.
+        cols_facturas_cajero = [row[1] for row in cursor.execute("PRAGMA table_info(facturas)").fetchall()]
+        if cols_facturas_cajero:
+            if "cajero_nombre" not in cols_facturas_cajero:
+                print("Agregando columna 'cajero_nombre' a facturas...")
+                cursor.execute("ALTER TABLE facturas ADD COLUMN cajero_nombre TEXT")
+                conn.commit()
+                print("[OK] Columna 'cajero_nombre' agregada")
+            else:
+                print("[OK] Columna 'cajero_nombre' ya existe")
+
         # clientes.factura_correlativo_actual: numeración de la serie F001,
         # separada de la de boletas (B001). Ver el comentario extenso en
         # models.py:Cliente — compartir un contador entre dos series deja a

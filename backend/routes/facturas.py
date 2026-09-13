@@ -44,7 +44,7 @@ from sqlalchemy.orm import Session
 from backend.config import settings
 from backend.database import get_db
 from backend.dependencies import get_cliente_id, get_tz_offset, get_usuario_actual
-from backend.models import Cliente, Comanda, Factura, FacturaComanda
+from backend.models import Cliente, Comanda, Factura, FacturaComanda, Usuario
 from backend.schemas import (
     FacturaDetalleItem,
     FacturaGenerarRequest,
@@ -106,6 +106,7 @@ def _factura_to_response(factura: Factura, cliente: Cliente, detalles: list) -> 
         tipo_documento_comprador=factura.tipo_documento_comprador or "0",
         numero_documento_comprador=factura.numero_documento_comprador or "00000000",
         nombre_comprador=factura.nombre_comprador or "CLIENTES VARIOS",
+        cajero_nombre=factura.cajero_nombre,
         detalles=[
             FacturaDetalleItem(
                 descripcion=item["descripcion"],
@@ -332,7 +333,15 @@ def _resolver_comprobante(
     # una infracción del emisor, y le da al comprador un crédito fiscal que
     # no corresponde.
     if not emite_facturas:
-        return "03", "B001", "6", documento, (razon_social_manual or "").strip() or "-"
+        # La razón social se busca igual que para una factura: que el
+        # comprobante sea boleta no vuelve anónimo al comprador. Si el
+        # padrón no la tiene, se emite igual con "-" — a diferencia de la
+        # factura, una boleta es válida sin el nombre del adquiriente, así
+        # que un padrón sin instalar no puede frenar la venta.
+        nombre_boleta = (razon_social_manual or "").strip()
+        if not nombre_boleta:
+            nombre_boleta = _razon_social_del_padron(documento) or ""
+        return "03", "B001", "6", documento, nombre_boleta or "-"
 
     # Factura. SUNAT no acepta una factura sin razón social, así que hay que
     # conseguirla sí o sí.
@@ -350,6 +359,34 @@ def _resolver_comprobante(
         )
 
     return "01", "F001", "6", documento, nombre
+
+
+def _nombre_del_cajero(db: Session, comandas: List[Comanda], cliente_id: str) -> Optional[str]:
+    """
+    Quién atendió la venta, para el papel que recibe el cliente.
+
+    Sale de Comanda.creado_por —quien tomó el pedido—, no de quien está
+    logueado al emitir: son la misma persona en un restaurante que atiende
+    solo, pero no cuando el mozo toma la mesa y el admin cobra, y el nombre
+    que corresponde en el tique es el de quien atendió.
+
+    creado_por guarda el 'sub' del JWT, que es el email del admin pero el
+    código de acceso del staff, así que hay que resolverlo contra las dos
+    columnas de Usuario —siempre acotado al cliente_id— igual que en
+    movimientos.py y push_notifications.py. Si esa cuenta ya no existe
+    (alguien la eliminó), se devuelve None y el tique imprime "-" en vez
+    de un código de seis dígitos sin significado.
+    """
+    subs = [c.creado_por for c in comandas if c.creado_por]
+    if not subs:
+        return None
+    # La primera comanda de la mesa: quien abrió la atención.
+    sub = subs[0]
+    usuario = db.query(Usuario).filter(
+        Usuario.cliente_id == cliente_id,
+        (Usuario.email == sub) | (Usuario.celular == sub),
+    ).first()
+    return usuario.nombre if usuario else None
 
 
 def _razon_social_del_padron(ruc: str) -> Optional[str]:
@@ -481,6 +518,7 @@ def generar_factura(
         tipo_documento_comprador=tipo_doc,
         numero_documento_comprador=numero_doc,
         nombre_comprador=nombre_comprador,
+        cajero_nombre=_nombre_del_cajero(db, comandas, cliente_id),
         estado="pendiente",
     )
     db.add(factura)

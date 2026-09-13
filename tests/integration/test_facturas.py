@@ -741,3 +741,115 @@ def test_los_montos_coinciden_con_la_boleta_real_EB01_1297():
     assert subtotal == 127.12
     assert igv == 22.88
     assert round(subtotal + igv, 2) == 150.00
+
+
+# ---------------------------------------------------------------------------
+# Lo que el cliente recibe EN PAPEL
+#
+# El tique impreso es lo único que el comensal se lleva, y hasta acá tenía
+# dos campos que no decían nada: CLIENTE salía siempre "-" aunque el RUC
+# estuviera en el padrón, y CAJERO salía de la cuenta logueada en el
+# navegador —no de quien atendió—, así que una reimpresión desde otra
+# cuenta cambiaba quién figuraba en un comprobante ya emitido.
+# ---------------------------------------------------------------------------
+
+
+def test_en_NUEVO_RUS_la_boleta_con_RUC_trae_la_razon_social_del_padron(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud, padron
+):
+    """
+    Que el comprobante sea boleta y no factura no vuelve anónimo al
+    comprador: si el padrón tiene el RUC, el nombre va en el papel y en el
+    XML. Es el caso del restaurante real (Nuevo RUS) con un comensal que da
+    su RUC.
+    """
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    resp = test_client.post("/api/facturas/generar", json={
+        "comanda_ids": comanda_ids, "documento_comprador": RUC_EN_PADRON,
+    })
+    assert resp.status_code == 201, resp.text
+
+    assert resp.json()["nombre_comprador"] == "DISTRIBUIDORA EL SOL SAC"
+    assert test_db.query(Factura).one().nombre_comprador == "DISTRIBUIDORA EL SOL SAC"
+
+
+def test_un_DNI_no_inventa_un_nombre(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud, padron
+):
+    """RENIEC no es una fuente disponible acá, y una boleta es válida sin el
+    nombre del adquiriente. El papel dice "-", que es la verdad — no un
+    nombre sacado de ningún lado."""
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    resp = test_client.post("/api/facturas/generar", json={
+        "comanda_ids": comanda_ids, "documento_comprador": "12345678",
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["nombre_comprador"] == "-"
+
+
+def test_el_nombre_escrito_a_mano_le_gana_al_padron(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud, padron
+):
+    """El cajero tiene al cliente enfrente; el padrón puede estar
+    desactualizado. Si alguien escribió el nombre, ese es el que vale."""
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    resp = test_client.post("/api/facturas/generar", json={
+        "comanda_ids": comanda_ids,
+        "documento_comprador": RUC_EN_PADRON,
+        "razon_social_manual": "NOMBRE QUE DIO EL CLIENTE SAC",
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["nombre_comprador"] == "NOMBRE QUE DIO EL CLIENTE SAC"
+
+
+def test_el_cajero_del_tique_es_quien_tomo_el_pedido(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud
+):
+    """
+    CAJERO sale del nombre REAL de la cuenta que creó la comanda, resuelto
+    en el servidor al emitir.
+
+    Comanda.creado_por guarda el 'sub' del JWT — el email del admin, pero el
+    código de acceso de seis dígitos del staff. Imprimirlo crudo pondría
+    "482913" en el papel del cliente.
+    """
+    from backend.models import Usuario
+    from backend.auth import hash_password
+
+    test_db.add(Usuario(
+        id="u-mozo-tique", cliente_id=cliente_con_ruc.id, nombre="Pedro Quispe",
+        email=None, celular="482913", password_hash=hash_password("123456"), rol="mozo",
+    ))
+    test_db.commit()
+
+    # La comanda la toma el mozo (su 'sub' es el código de acceso)...
+    from backend.dependencies import get_usuario_actual
+    from backend.app import app
+    app.dependency_overrides[get_usuario_actual] = lambda: "482913"
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    # ...y el admin emite. El tique tiene que decir quién ATENDIÓ.
+    app.dependency_overrides[get_usuario_actual] = lambda: "admin@test.local"
+
+    resp = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids})
+    assert resp.status_code == 201, resp.text
+
+    assert resp.json()["cajero_nombre"] == "Pedro Quispe"
+    assert "482913" not in str(resp.json()["cajero_nombre"])
+    assert test_db.query(Factura).one().cajero_nombre == "Pedro Quispe"
+
+
+def test_una_cuenta_borrada_no_deja_un_codigo_suelto_en_el_tique(
+    test_client, test_db, cliente_con_ruc, test_platos, test_mesas, emisor_cloud
+):
+    """Si la cuenta que tomó el pedido ya no existe, el campo queda vacío y
+    el tique imprime "-" — nunca el código de acceso crudo."""
+    from backend.dependencies import get_usuario_actual
+    from backend.app import app
+
+    app.dependency_overrides[get_usuario_actual] = lambda: "999111"  # nadie
+    comanda_ids = _crear_y_cobrar_mesa(test_client, test_platos)
+    app.dependency_overrides[get_usuario_actual] = lambda: "admin@test.local"
+
+    resp = test_client.post("/api/facturas/generar", json={"comanda_ids": comanda_ids})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["cajero_nombre"] is None

@@ -965,6 +965,9 @@ class FacturaResponse(BaseModel):
     tipo_documento_comprador: str
     numero_documento_comprador: str
     nombre_comprador: str
+    # Quién atendió la venta. Opcional porque las boletas emitidas antes de
+    # que existiera la columna no lo tienen: el tique imprime "-" ahí.
+    cajero_nombre: Optional[str] = None
     detalles: List["FacturaDetalleItem"] = Field(default_factory=list)
 
 

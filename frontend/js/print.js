@@ -194,9 +194,9 @@ function _imprimirHTML(html) {
  * el cliente coincide con el archivo que procesa el Facturador.
  *
  * Campos que el modelo de referencia trae y que a propósito NO están acá:
- *  - Nombre real del cliente por DNI/RUC: implicaría consultar RENIEC/SUNAT
- *    en el momento, justo lo que la regla de negocio evita (ver
- *    backend/routes/facturas.py:_resolver_comprador) — se imprime "-".
+ *  - Nombre real del titular de un DNI: RENIEC no es una fuente disponible
+ *    acá, así que ahí sí se imprime "-". Para un RUC el nombre SÍ sale
+ *    (razón social del padrón, resuelta en el backend al emitir).
  *  - "Son: ... con 00/100 Soles" (monto en letras): conversor número→texto
  *    en español no implementado todavía.
  *  - Link de verificación del comprobante: pertenece a otro proveedor;
@@ -214,10 +214,14 @@ function _ticketBoletaHTML(factura, cajeroNombre, contingencia) {
 
     const tieneDocumento = factura.tipo_documento_comprador !== '0';
     const etiquetaDoc = factura.tipo_documento_comprador === '6' ? 'RUC' : 'DNI';
-    // Sin nombre real (ver nota arriba): "-" cuando hay documento, igual que
-    // queda guardado en Factura.nombre_comprador.
+    // El nombre viene del BACKEND (Factura.nombre_comprador: razón social
+    // del padrón para un RUC, o lo que el cajero escribió a mano), nunca se
+    // arma acá — el papel tiene que decir lo mismo que el XML que se le
+    // mandó a SUNAT. "-" es el valor real cuando no se pudo conseguir
+    // (un DNI, o un RUC que el padrón no tiene).
+    const nombreComprador = (factura.nombre_comprador || '').trim();
     const lineaCliente = tieneDocumento
-        ? `<div>CLIENTE: -</div><div>${etiquetaDoc}: ${escapeHtml(factura.numero_documento_comprador)}</div>`
+        ? `<div>CLIENTE: ${escapeHtml(nombreComprador || '-')}</div><div>${etiquetaDoc}: ${escapeHtml(factura.numero_documento_comprador)}</div>`
         : `<div>CLIENTE: Publico General</div>`;
 
     // Mismo encabezado que la pre-cuenta (titular / comercial / dirección) —
@@ -264,7 +268,7 @@ function _ticketBoletaHTML(factura, cajeroNombre, contingencia) {
         <div>Numero: ${factura.numero_boleta}</div>
     </div>
     <div class="campos">
-        <div>CAJERO: ${escapeHtml(cajeroNombre || '-')}</div>
+        <div>CAJERO: ${escapeHtml(factura.cajero_nombre || cajeroNombre || '-')}</div>
         <div>MESA: ${factura.numero_mesa}</div>
         ${lineaCliente}
     </div>
