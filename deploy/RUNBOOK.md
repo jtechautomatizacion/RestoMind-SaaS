@@ -6,18 +6,41 @@ de qué necesita cualquier despliegue (independiente del hosting), ver
 
 ---
 
-## ⚠️ Antes de empezar: facturación SUNAT
+## ⚠️ Antes de empezar: esto NO se despliega por FTP
 
-Si vas a emitir boletas electrónicas desde este VPS, primero decidí esto —
-no es un paso de infraestructura, es una decisión de negocio:
+El código llega al servidor con `git clone`, no arrastrando carpetas con
+FileZilla. No es preferencia de estilo — arrastrar el proyecto **no
+funciona**:
 
-`emisor_facturacion=sfs_local` (el modo gratis) depende de que el
-Facturador SUNAT corra en la **misma máquina** que RestoMind, vigilando una
-carpeta local. Un VPS en la nube no tiene eso. Si vas a facturar en vivo
-desde acá, tenés que cambiar `EMISOR_FACTURACION=facturacion_pe` en el
-`.env` (integración por API, S/ 0.20/boleta, ya implementada). Si preferís
-seguir con el modo gratis, el Facturador tiene que seguir corriendo en una
-PC del restaurante — este VPS no reemplaza esa pieza.
+- `venv/` son ~12.400 archivos con rutas absolutas de Windows adentro. En
+  Linux no ejecuta; hay que recrearlo con `python3 -m venv` en el servidor.
+- `.env` de desarrollo tiene el `SECRET_KEY` de desarrollo. Subirlo firma
+  los JWT de producción con un secreto que ya circuló.
+- `restomind.db` local trae las ventas de prueba. En producción, mentira
+  contable.
+- `data/sunat_padron.db` pesa 1,5 GB. Subirlo por SFTP tarda horas; se
+  reconstruye en el VPS en ~25 minutos desde la fuente de SUNAT.
+
+Con `git clone` el servidor sabe **exactamente** qué versión corre
+(`git log -1`), se actualiza con un `git pull`, y se vuelve atrás con un
+`git checkout` si algo sale mal. Arrastrando archivos, nada de eso existe.
+
+**Dónde SÍ sirve FileZilla**, y es imprescindible: subir el **certificado
+digital** (`.pfx`) y las credenciales SOL de cada restaurante a
+`certs/<cliente_id>/`. Esos archivos están en `.gitignore` a propósito —
+quien los tiene puede facturar a nombre del negocio— así que git nunca los
+va a llevar. También sirve para bajarte los backups fuera del VPS.
+
+## ⚠️ Facturación SUNAT desde v4.0
+
+Ya no hay decisión que tomar acá: `sunat_cloud` es el único emisor. El
+comprobante se arma como XML UBL 2.1, se firma con el certificado del
+restaurante y se envía por SOAP **desde el servidor**. No hace falta
+ninguna PC con Windows en el local.
+
+Eso sí, agrega una pieza al despliegue: el contenedor `sunat-service`
+(paso 3b). Sin él el backend arranca igual, pero el primer cobro con
+boleta falla con `SunatCloudError`.
 
 ---
 
@@ -76,7 +99,17 @@ SECRET_KEY=<pegar acá>
 CORS_ORIGINS=["https://TU_DOMINIO"]
 
 APP_URL=https://TU_DOMINIO
+
+# Token compartido entre RestoMind y el contenedor sunat-service.
+# Generar OTRO NUEVO, distinto al de desarrollo:
+# python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+SUNAT_SERVICE_TOKEN=<pegar acá>
+SUNAT_SERVICE_URL=http://127.0.0.1:8100
 ```
+
+`SUNAT_SERVICE_TOKEN` vacío no impide arrancar: el error aparece recién en
+el primer cobro con boleta. Completalo ahora y no dentro de tres semanas
+con un comensal esperando el comprobante.
 
 Y, si aplica en este momento: credenciales SMTP (para el correo de
 bienvenida — ver `backend/email.py`, no envía nada si faltan), credenciales
@@ -96,6 +129,68 @@ curl http://127.0.0.1:8000/health    # {"status":"ok",...}
 ```
 
 Si algo falla: `journalctl -u restomind -n 100 --no-pager`.
+
+## 3b. Contenedor de emisión SUNAT
+
+El token es **el mismo** que pusiste en `SUNAT_SERVICE_TOKEN` del `.env`:
+RestoMind lo manda en cada pedido y el contenedor lo verifica. Los dos leen
+el mismo archivo, así que no hay que repetirlo en ningún lado.
+
+```bash
+cd /home/restomind/app
+docker compose up -d --build          # tarda unos minutos la primera vez
+docker compose ps                     # "healthy"
+curl -sf http://127.0.0.1:8100/health && echo OK
+```
+
+Arranca en **beta** (el ambiente de pruebas de SUNAT: no emite comprobantes
+reales). Recién cuando hayas emitido una boleta de prueba de punta a punta,
+pasalo a producción:
+
+```bash
+SUNAT_MODE=prod docker compose up -d
+```
+
+`SUNAT_MODE` **nunca** va en el `.env` — la lee el contenedor, no el
+backend, y `Settings` rechaza toda variable que no declara: una sola línea
+`SUNAT_MODE=` en ese archivo deja la app sin arrancar con
+`extra_forbidden`.
+
+Antes de emitir hace falta el certificado digital en
+`certs/<cliente_id>/` (el volumen que el contenedor monta de solo lectura).
+Ese es el archivo que **sí** se sube con FileZilla — ver `docs/SUNAT_SETUP.md`.
+
+## 3c. Padrón de RUC
+
+Sin esto, cobrar con RUC no autocompleta la razón social. No bloquea la
+venta, pero el cajero tiene que tipear el nombre a mano cada vez.
+
+```bash
+sudo -u restomind /home/restomind/app/venv/bin/python \
+     -m backend.scripts.cargar_padron_sunat
+```
+
+Descarga ~374 MB de SUNAT y construye 18,4 millones de filas en ~25
+minutos. Usa `temp_store=FILE`, así que no le pide RAM al servidor: podés
+dejarlo corriendo mientras seguís con el resto (mejor dentro de `tmux` o
+`screen`, para que no muera si se corta el SSH).
+
+## 3d. Dejar la base limpia para producción
+
+Si la base del VPS arrancó vacía, saltealo. Si migraste una base con la
+carta ya cargada **y las ventas de prueba encima**, este paso conserva el
+catálogo y borra la historia:
+
+```bash
+cd /home/restomind/app
+sudo -u restomind venv/bin/python -m backend.scripts.preparar_produccion --revisar
+sudo -u restomind venv/bin/python -m backend.scripts.preparar_produccion --ejecutar
+```
+
+Hace un respaldo antes de tocar nada y pide escribir `PRODUCCION` para
+confirmar. Deja los correlativos en 0: sin eso la primera boleta real
+saldría como B001-31 y la serie arrancaría con un hueco que SUNAT exige
+que no exista.
 
 ## 4. DNS
 

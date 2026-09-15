@@ -49,6 +49,25 @@ echo "==> Instalando Nginx, certbot, git, build-essential, sqlite3, ufw"
 # `sqlite3 ... .backup` (ver deploy/backup_db.sh).
 apt install -y nginx certbot python3-certbot-nginx git build-essential sqlite3 ufw
 
+echo "==> Instalando Docker (para el contenedor sunat-service)"
+# Desde v4.0 la emisión SUNAT vive en un contenedor aparte, porque sunat-py
+# fija cryptography<45 y el backend usa la 50 (ver docker-compose.yml). Sin
+# Docker el backend arranca igual, pero el primer cobro con boleta muere con
+# SunatCloudError — un fallo que aparece recién con un comensal esperando.
+#
+# Se usan los paquetes de Ubuntu y no el repositorio de docker.com por el
+# mismo criterio que hizo elegir el Python del sistema en vez del PPA de
+# deadsnakes: una dependencia externa menos en el arranque de cada servidor.
+apt install -y docker.io docker-compose-v2
+systemctl enable --now docker
+
+# NOTA DELIBERADA: el usuario '${APP_USER}' NO se agrega al grupo 'docker'.
+# Ese grupo equivale a root (quien puede crear un contenedor puede montar /
+# y salir del aislamiento), así que sumarlo anularía el motivo por el que el
+# script crea un usuario sin privilegios. `docker compose` se corre como
+# root desde ${APP_DIR}; 'restart: unless-stopped' lo devuelve solo tras un
+# reinicio, sin que nadie tenga que entrar al servidor.
+
 echo "==> Configurando el firewall (ufw)"
 ufw allow OpenSSH
 ufw allow 80/tcp
