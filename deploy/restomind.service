@@ -19,13 +19,36 @@ Restart=on-failure
 RestartSec=5
 
 # Endurecimiento estándar de systemd — no le da a este proceso más de lo
-# que necesita (no puede escalar privilegios, ni tocar /home de otros
-# usuarios, ni el resto del sistema de archivos salvo lo que declara acá).
+# que necesita (no puede escalar privilegios ni tocar el resto del sistema
+# de archivos salvo lo que declara acá).
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ProtectHome=true
 ReadWritePaths=/home/restomind/app
+
+# ProtectHome debe quedar EN false, y no es un descuido.
+#
+# `ProtectHome=true` monta /home vacío para el servicio. Como esta app vive
+# en /home/restomind/app, systemd deja de ver su propio ExecStart y el
+# arranque muere con:
+#
+#     restomind.service: Main process exited, code=exited, status=203/EXEC
+#
+# 203/EXEC no dice "no puedo ver el archivo", así que el síntoma parece un
+# binario roto o un venv mal armado — y el binario corre perfecto a mano,
+# lo que manda a buscar el problema al lugar equivocado. Costó un rato de
+# despliegue real encontrarlo.
+#
+# `ReadWritePaths=` NO alcanza para destaparlo: la ruta del ExecStart se
+# resuelve dentro del namespace ya con /home enmascarado.
+#
+# Lo que ProtectHome protege igual sigue cubierto: el servicio corre como
+# 'restomind', un usuario sin privilegios que por permisos de archivo no
+# puede leer el home de nadie más. La alternativa "limpia" sería mover la
+# app a /opt o /srv, pero eso cambia rutas en setup_vps.sh, deploy.sh,
+# nginx.conf.template y el RUNBOOK entero — más superficie de error que
+# la que resuelve.
+ProtectHome=false
 
 [Install]
 WantedBy=multi-user.target

@@ -243,18 +243,38 @@ navegador y probá un login real.
 
 ## 7. Backups automáticos
 
+Primero a mano, para confirmar que funciona antes de confiarle el respaldo
+a una tarea que nadie mira:
+
 ```bash
-sudo -u restomind crontab -e
+mkdir -p /home/restomind/backups
+chown restomind:restomind /home/restomind/backups
+sudo -u restomind bash /home/restomind/app/deploy/backup_db.sh
 ```
 
-Agregar:
+Después, la tarea diaria. Va en `/etc/cron.d/` y **no** con `crontab -e`:
+ese comando abre un editor interactivo, así que no se puede automatizar ni
+correr desde un script (falla en silencio dejando el crontab vacío — pasó
+en un despliegue real). Un archivo plano se escribe, se lee y se versiona:
 
-```
-0 3 * * * /home/restomind/app/deploy/backup_db.sh >> /home/restomind/backups/backup.log 2>&1
+```bash
+cat > /etc/cron.d/restomind-backup <<'EOF'
+# Backup diario de la base de RestoMind (3:00 AM). Ver deploy/backup_db.sh
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+0 3 * * * restomind /home/restomind/app/deploy/backup_db.sh >> /home/restomind/backups/backup.log 2>&1
+EOF
+
+chmod 644 /etc/cron.d/restomind-backup
+systemctl restart cron
 ```
 
-Corré `deploy/backup_db.sh` una vez a mano para confirmar que funciona
-antes de dejarlo en cron.
+> Ojo: en `/etc/cron.d` el **sexto campo es el usuario** (`restomind`), a
+> diferencia de un crontab de usuario donde ese lugar ya es el comando.
+
+**Esto NO es todavía un backup.** Los archivos quedan en el mismo disco que
+la base: si el VPS se pierde, se pierden los dos. Bajate una copia fuera del
+servidor periódicamente (FileZilla sirve) o mandala a otro lado.
 
 ---
 

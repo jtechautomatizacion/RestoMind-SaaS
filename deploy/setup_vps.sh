@@ -47,7 +47,15 @@ echo "==> Instalando Nginx, certbot, git, build-essential, sqlite3, ufw"
 # build-essential + sqlite3: por si algún paquete de requirements.txt no
 # trae wheel prearmado para esta arquitectura, y para el backup con
 # `sqlite3 ... .backup` (ver deploy/backup_db.sh).
-apt install -y nginx certbot python3-certbot-nginx git build-essential sqlite3 ufw
+#
+# sudo, curl, nano y cron NO vienen en la imagen "Ubuntu Server Minimal".
+# Los cuatro se daban por sentados y los cuatro faltaron en un despliegue
+# real: sin `sudo` este mismo script muere en la línea que clona el repo
+# (se entra como root, y root no necesita sudo, así que la imagen no lo
+# trae); sin `curl` no se puede verificar /health; sin `nano` no se puede
+# editar el .env; sin `cron` el backup nocturno nunca corre.
+apt install -y nginx certbot python3-certbot-nginx git build-essential \
+               sqlite3 ufw sudo curl nano cron ca-certificates
 
 echo "==> Instalando Docker (para el contenedor sunat-service)"
 # Desde v4.0 la emisión SUNAT vive en un contenedor aparte, porque sunat-py
@@ -86,6 +94,15 @@ else
     echo "    ${APP_DIR} ya existe, se omite el clone (usá deploy/deploy.sh para actualizar)"
 fi
 
+# adduser crea el home en 0750: nadie fuera del grupo puede ni ATRAVESARLO.
+# Nginx corre como www-data y sirve el frontend directo del checkout
+# (location /static/ -> /home/restomind/app/frontend/, ver
+# nginx.conf.template), así que sin este permiso toda la interfaz responde
+# 403 mientras la API por el proxy funciona perfecto — un síntoma que manda
+# a buscar el problema a la config de Nginx en vez de a los permisos.
+# 0711 deja atravesar sin poder listar el contenido del home.
+chmod 711 "/home/${APP_USER}"
+
 echo "==> Creando entorno virtual e instalando dependencias"
 sudo -u "${APP_USER}" python3 -m venv "${APP_DIR}/venv"
 sudo -u "${APP_USER}" "${APP_DIR}/venv/bin/pip" install --upgrade pip
@@ -97,6 +114,7 @@ if [ ! -f "${APP_DIR}/.env" ]; then
     sudo -u "${APP_USER}" sed -i \
         -e 's/^ENVIRONMENT=.*/ENVIRONMENT=production/' \
         -e 's/^DEBUG=.*/DEBUG=false/' \
+        -e 's/^DATABASE_ECHO=.*/DATABASE_ECHO=false/' \
         -e 's|^SECRET_KEY=.*|SECRET_KEY=TODO_GENERAR_CON_python_-c_"import secrets; print(secrets.token_urlsafe(48))"|' \
         -e 's|^CORS_ORIGINS=.*|CORS_ORIGINS=["https://TODO_TU_DOMINIO"]|' \
         "${APP_DIR}/.env"
