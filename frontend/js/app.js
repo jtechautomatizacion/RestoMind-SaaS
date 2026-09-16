@@ -577,6 +577,79 @@ function cerrarModalCompra() {
     editingCompraId = null;
 }
 
+// ============ TEMA (oscuro / claro) ============
+//
+// El tema YA quedó aplicado por el script inline del <head>, antes del
+// primer pintado. Lo de acá NO vuelve a decidirlo: sincroniza lo que aquel
+// script no podía tocar (la barra de estado y el botón, que todavía no
+// existían) y mantiene la app pegada al sistema operativo mientras el
+// usuario no haya elegido a mano.
+
+const TEMA_KEY = 'restomind-theme';
+
+// Mismos valores que --bg de cada tema en style.css. Es lo que pinta la
+// barra de estado de Android con la app instalada: sin actualizarlo, al
+// cambiar de tema queda una franja del color anterior arriba de todo, que
+// es exactamente el detalle que delata a una web empaquetada como APK.
+const TEMA_BARRA = { dark: '#0F1317', light: '#F4F6F8' };
+
+function temaActual() {
+    return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+}
+
+function applyTheme(tema) {
+    // Cualquier valor raro cae en 'dark', que es el default de la app: un
+    // localStorage manipulado no puede dejarla sin tema.
+    const valido = tema === 'light' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', valido);
+
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', TEMA_BARRA[valido]);
+
+    const btn = document.getElementById('themeToggle');
+    if (btn) {
+        // El ícono lo cambia el CSS; acá solo el texto para lector de
+        // pantalla, que sí tiene que decir qué va a PASAR al tocarlo.
+        const rotulo = valido === 'dark' ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro';
+        btn.setAttribute('title', rotulo);
+        btn.setAttribute('aria-label', rotulo);
+    }
+}
+
+function toggleTheme() {
+    const nuevo = temaActual() === 'dark' ? 'light' : 'dark';
+    applyTheme(nuevo);
+    try {
+        localStorage.setItem(TEMA_KEY, nuevo);
+    } catch (e) {
+        // Modo privado o almacenamiento bloqueado: el cambio vale para esta
+        // sesión y se pierde al recargar. Preferible a romper el botón.
+    }
+}
+
+function initTheme() {
+    applyTheme(temaActual());
+
+    // Mientras no haya elección manual, seguir al sistema EN VIVO: si el
+    // celular pasa a oscuro al anochecer, la app acompaña sin recargar.
+    // Una vez que el usuario tocó el botón, su elección manda y esto deja
+    // de intervenir.
+    try {
+        const consulta = window.matchMedia('(prefers-color-scheme: light)');
+        const alCambiarElSistema = (evento) => {
+            let guardado = null;
+            try { guardado = localStorage.getItem(TEMA_KEY); } catch (_) { /* ignorar */ }
+            if (guardado === 'light' || guardado === 'dark') return;
+            applyTheme(evento.matches ? 'light' : 'dark');
+        };
+        if (consulta.addEventListener) consulta.addEventListener('change', alCambiarElSistema);
+        else if (consulta.addListener) consulta.addListener(alCambiarElSistema);  // Safari viejo
+    } catch (e) { /* matchMedia ausente: queda el tema ya aplicado */ }
+}
+
+document.addEventListener('DOMContentLoaded', initTheme);
+
+
 // ============ UTILIDADES ============
 
 function formatCurrency(num) {

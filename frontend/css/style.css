@@ -18,90 +18,178 @@ button, a {
     touch-action: manipulation;
 }
 
+/* ===========================================================================
+   TEMAS — oscuro por defecto, claro opcional
+   ===========================================================================
+
+   El objetivo declarado es que esto se empaquete como APK y se sienta una
+   app nativa de Android, no una web pintada. Por eso la paleta sigue
+   Material 3, con tres decisiones que no conviene deshacer sin leer esto:
+
+   1. LAS SUPERFICIES SON GRISES AZULADOS QUE SUBEN DE TONO, NO NEGRO PURO.
+      MD3 expresa elevación con tono (#0F1317 -> #171C21 -> #1F262D), no con
+      sombras marcadas. El negro puro sobre AMOLED da bordes duros y hace
+      que las sombras desaparezcan: todo queda plano y "web".
+
+   2. EL PRIMARIO SE INVIERTE ENTRE TEMAS, Y ES A PROPÓSITO.
+      En claro es azul profundo con texto blanco encima; en oscuro es azul
+      CLARO con texto oscuro encima. Así lo hace Android: un botón relleno
+      en tema oscuro es claro, no oscuro. Mantener el mismo azul profundo en
+      ambos temas deja los botones hundidos contra el fondo y es lo que
+      delata a una web disfrazada.
+      Funciona porque en TODA la hoja, `background: var(--accent)` va
+      siempre con `color: var(--accent-contrast)` — verificado, sin
+      excepciones con texto.
+
+   3. EL PRIMARIO ES AZUL Y NO NARANJA/ROJO, POR SEMÁNTICA.
+      Esta app ya usa color con significado: ámbar = "esperando la cuenta",
+      verde = éxito, rojo = peligro, teal = dinero. Un primario cálido
+      compite con esos avisos justo donde importan (la Vista Unificada, con
+      las tres columnas a la vez). El azul deja esa franja del círculo
+      cromático libre para lo que comunica estado.
+
+   El tema por defecto es OSCURO (este bloque `:root`). El claro vive en
+   `[data-theme="light"]`, y además se aplica solo si el sistema operativo
+   lo pide y el usuario no eligió explícitamente (ver el bloque
+   `prefers-color-scheme` más abajo).
+   =========================================================================== */
 :root {
-    --bg: #F6F4F1;
-    --surface: #FFFFFF;
-    --surface-alt: #FFF0EA;
-    --text: #1A1A1A;
-    --text-muted: #6B7280;
-    --border: #ECE7E1;
-    --accent: #FF5A3C;
-    --accent-dark: #E0431F;
-    --accent-contrast: #FFFFFF;
-    --success: #16A34A;
-    --success-bg: #DCFCE7;
-    --danger: #E23744;
-    --danger-bg: #FDE7E8;
-    --warning: #F59E0B;
-    --warning-bg: #FEF3C7;
-    --money: #0E7C7B;
+    --bg: #0F1317;
+    --surface: #171C21;
+    --surface-alt: #1F262D;
+    --text: #E4E7EA;
+    --text-muted: #9AA4AF;
+    --border: #2B333C;
+    --accent: #7FB0F2;
+    --accent-dark: #A8C9FA;
+    --accent-contrast: #0A2440;
+    /* Los semánticos se aclaran en oscuro: se usan mucho como TEXTO, y el
+       verde/rojo de tema claro sobre #0F1317 queda por debajo del mínimo
+       legible. */
+    --success: #4ADE80;
+    --success-bg: #0E2A1B;
+    --danger: #FB7185;
+    --danger-bg: #331519;
+    --warning: #FBBF24;
+    --warning-bg: #332708;
+    --money: #2DD4BF;
+    /* Texto que va ENCIMA de un fondo semántico relleno (un chip rojo, una
+       barra verde). Alcanza UN token para los cuatro porque dentro de cada
+       tema comparten banda de luminosidad: acá los cuatro son claros, así
+       que encima va texto oscuro. Antes esos lugares tenían `color: white`
+       escrito a mano — correcto mientras el tema claro era el único, y
+       texto blanco sobre verde claro apenas se lee al invertir. */
+    --on-semantic: #10151B;
     --radius-lg: 20px;
     --radius-md: 14px;
     --radius-sm: 10px;
-    --shadow-sm: 0 1px 3px rgba(20, 20, 20, 0.07);
-    --shadow-md: 0 6px 20px rgba(20, 20, 20, 0.10);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45);
+    --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.55);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
     --nav-height: 64px;
     --topbar-height: 52px;
 
     /* Gradientes 3D del ícono de mesa (mozo.js) y accents con relieve.
        Solo linear/radial-gradient — sin filter/blur, mismo costo de
        pintado que un color plano, apto para gama baja. */
-    --mesa-top-a: #FFFFFF;
-    --mesa-top-b: #E7E2DA;
-    --mesa-top-c: #C7BFB2;
-    --mesa-top-a-ocupada: #FFC1AC;
-    --mesa-top-b-ocupada: #FF5A3C;
-    --mesa-top-c-ocupada: #C43718;
-    --silla-a: #AEB4BE;
-    --silla-b: #7C8291;
-    --silla-a-ocupada: #FF9478;
-    --silla-b-ocupada: #D9451F;
+    --mesa-top-a: #39424D;
+    --mesa-top-b: #2A323B;
+    --mesa-top-c: #1B222A;
+    --mesa-top-a-ocupada: #BBD5F7;
+    --mesa-top-b-ocupada: #7FB0F2;
+    --mesa-top-c-ocupada: #3D6DA8;
+    --silla-a: #525C68;
+    --silla-b: #39424D;
+    --silla-a-ocupada: #A8C9FA;
+    --silla-b-ocupada: #4E80BE;
     /* Tercer juego, solo para la Vista Unificada: "esperando la cuenta".
        El ícono tiene que distinguir TRES situaciones, no dos — "la comida
        está en cocina" y "hay plata sobre la mesa" se atienden distinto.
        Ámbar, el mismo del resto de los avisos de cobro de la app. */
-    --mesa-top-a-cobrar: #FDE8B4;
-    --mesa-top-b-cobrar: #F5A623;
-    --mesa-top-c-cobrar: #B77400;
-    --silla-a-cobrar: #F7C66B;
-    --silla-b-cobrar: #C98A12;
-    --accent-gradient: linear-gradient(135deg, #FF7A5C 0%, var(--accent) 55%, var(--accent-dark) 100%);
+    --mesa-top-a-cobrar: #F3D07A;
+    --mesa-top-b-cobrar: #E8B33D;
+    --mesa-top-c-cobrar: #8A6A15;
+    --silla-a-cobrar: #E0BE63;
+    --silla-b-cobrar: #8A6A15;
+    --accent-gradient: linear-gradient(135deg, #A8C9FA 0%, var(--accent) 55%, #5C93DC 100%);
 }
 
-@media (prefers-color-scheme: dark) {
-    :root {
-        --bg: #121212;
-        --surface: #1C1C1E;
-        --surface-alt: #2A1D18;
-        --text: #F2F2F2;
-        --text-muted: #9CA3AF;
-        --border: #2E2E30;
-        --accent: #FF6B4E;
-        --accent-dark: #FF8465;
-        --success-bg: #0F2A1B;
-        --danger-bg: #331417;
-        --warning-bg: #332707;
-        --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
-        --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.5);
+/* TEMA CLARO.
+   La paleta vive UNA sola vez, acá. No hay un `@media
+   (prefers-color-scheme: light)` que la repita, y es deliberado: el script
+   de arranque (inline en el <head> de index.html, antes de esta hoja)
+   siempre estampa un `data-theme` explícito en <html> — el guardado en
+   localStorage, o el que pide el sistema operativo si el usuario todavía no
+   eligió. Duplicar la paleta en un media query dejaría dos lugares que
+   tienen que decir lo mismo para siempre, y el día que alguien toque uno
+   solo el bug aparece únicamente en los dispositivos configurados en claro:
+   el más difícil de reproducir. */
+:root[data-theme="light"] {
+    --bg: #F4F6F8;
+    --surface: #FFFFFF;
+    --surface-alt: #EDF1F5;
+    --text: #161D26;
+    --text-muted: #5C6773;
+    --border: #DCE3EA;
+    /* El primario se DA VUELTA respecto del tema oscuro: acá es el azul
+       profundo, con texto blanco encima (ver punto 2 del bloque de arriba). */
+    --accent: #1B5EA8;
+    --accent-dark: #16497F;
+    --accent-contrast: #FFFFFF;
+    --success: #15803D;
+    --success-bg: #DCFCE7;
+    --danger: #DC2626;
+    --danger-bg: #FEE2E2;
+    --warning: #B45309;
+    --warning-bg: #FEF3C7;
+    --money: #0E7C7B;
+    /* Acá los cuatro semánticos son oscuros, así que encima va blanco. */
+    --on-semantic: #FFFFFF;
+    --shadow-sm: 0 1px 3px rgba(16, 24, 32, 0.08);
+    --shadow-md: 0 6px 20px rgba(16, 24, 32, 0.12);
+    --shadow-lg: 0 12px 32px rgba(16, 24, 32, 0.16);
 
-        --mesa-top-a: #3A3A3C;
-        --mesa-top-b: #2A2A2C;
-        --mesa-top-c: #1A1A1B;
-        --mesa-top-a-ocupada: #FF9478;
-        --mesa-top-b-ocupada: #FF6B4E;
-        --mesa-top-c-ocupada: #8A2A12;
-        --silla-a: #55565C;
-        --silla-b: #3A3B40;
-        --silla-a-ocupada: #FF9478;
-        --silla-b-ocupada: #B3391A;
-        --mesa-top-a-cobrar: #F7C66B;
-        --mesa-top-b-cobrar: #D99500;
-        --mesa-top-c-cobrar: #7A5200;
-        --silla-a-cobrar: #D9A93F;
-        --silla-b-cobrar: #8A6200;
-        --accent-gradient: linear-gradient(135deg, #FF9478 0%, var(--accent) 55%, var(--accent-dark) 100%);
+    --mesa-top-a: #FFFFFF;
+    --mesa-top-b: #E4E9EF;
+    --mesa-top-c: #C3CCD6;
+    --mesa-top-a-ocupada: #BBD5F7;
+    --mesa-top-b-ocupada: #3D7DC4;
+    --mesa-top-c-ocupada: #1B4C85;
+    --silla-a: #AEB6C0;
+    --silla-b: #7C8592;
+    --silla-a-ocupada: #8FB8EA;
+    --silla-b-ocupada: #1F5FA8;
+    --mesa-top-a-cobrar: #FDE8B4;
+    --mesa-top-b-cobrar: #D99500;
+    --mesa-top-c-cobrar: #8A6200;
+    --silla-a-cobrar: #E8C25E;
+    --silla-b-cobrar: #A87A0A;
+    --accent-gradient: linear-gradient(135deg, #2E7BC8 0%, var(--accent) 55%, var(--accent-dark) 100%);
+}
+
+/* El cambio de tema se anima solo en lo que es barato de componer (color y
+   fondo). No se pone `transition: all`: arrastraría transform y box-shadow
+   de toda la app en cada toque del botón, que es justo el costo de
+   repintado que este sistema de diseño evita para gama baja. */
+@media (prefers-reduced-motion: no-preference) {
+    body,
+    .top-bar,
+    .bottom-nav,
+    .card,
+    .modal-content {
+        transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
     }
 }
+
+/* Botón de tema. Reusa .icon-btn (misma caja táctil de 44px que el resto de
+   la barra); acá solo se resuelve cuál de los dos íconos se ve.
+   Van los DOS en el HTML y se alterna con CSS en vez de reescribir el SVG
+   desde JS: sin parpadeo, y el ícono correcto ya está pintado en el primer
+   frame porque <html> viene con su data-theme desde antes de la hoja. */
+.theme-toggle .theme-icon-sol { display: none; }
+.theme-toggle .theme-icon-luna { display: block; }
+:root[data-theme="light"] .theme-toggle .theme-icon-sol { display: block; }
+:root[data-theme="light"] .theme-toggle .theme-icon-luna { display: none; }
 
 html, body {
     height: 100%;
@@ -1108,7 +1196,7 @@ body {
     width: 100%;
     padding: 14px;
     background: var(--success);
-    color: white;
+    color: var(--on-semantic);
     border: none;
     border-radius: var(--radius-md);
     font-size: 15px;
@@ -1516,7 +1604,7 @@ body {
 .top-plato-bar {
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, var(--accent), #FF7D63);
+    background: linear-gradient(90deg, var(--accent), var(--accent-dark));
     transition: width 0.3s ease;
 }
 
@@ -1689,7 +1777,7 @@ body {
 
 .btn-success {
     background: var(--success);
-    color: white;
+    color: var(--on-semantic);
 }
 
 .btn-large {
@@ -2304,9 +2392,9 @@ body {
     animation: toast-in 0.2s ease-out;
 }
 
-.toast.success { background: var(--success); color: white; }
-.toast.error { background: var(--danger); color: white; }
-.toast.warning { background: var(--warning); color: white; }
+.toast.success { background: var(--success); color: var(--on-semantic); }
+.toast.error { background: var(--danger); color: var(--on-semantic); }
+.toast.warning { background: var(--warning); color: var(--on-semantic); }
 
 @keyframes toast-in {
     from { opacity: 0; transform: translateY(-8px); }
@@ -2337,7 +2425,7 @@ body {
 
 .offline-banner.offline {
     background: var(--warning);
-    color: #1A1A1A;
+    color: var(--on-semantic);
 }
 
 .offline-banner.syncing {
@@ -2352,7 +2440,7 @@ body {
    fantasma. En producción nunca aparece. */
 .offline-banner.servidor-viejo {
     background: var(--danger);
-    color: #FFFFFF;
+    color: var(--on-semantic);
 }
 
 /* ============ CAJA (Validador de Caja) ============ */
@@ -3048,7 +3136,7 @@ body {
     border-radius: var(--radius-sm);
     font-size: 0.85rem;
     font-weight: 800;
-    color: #FFFFFF;
+    color: var(--on-semantic);
     cursor: pointer;
     transition: transform 0.12s, filter 0.12s;
 }
@@ -3364,7 +3452,7 @@ body {
 
 .comprobante-chip.factura {
     background: var(--money);
-    color: #FFFFFF;
+    color: var(--on-semantic);
 }
 
 /* ============ AVISO DE LA REGLA DE S/ 700 ============ */

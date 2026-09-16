@@ -3,14 +3,50 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="theme-color" content="#FF5A3C">
+    <!-- Valor inicial = --bg del tema oscuro (el default). applyTheme() en
+         app.js lo reescribe al cambiar de tema: es lo que pinta la barra de
+         estado de Android con la app instalada. -->
+    <meta name="theme-color" content="#0F1317">
     <meta name="description" content="RestoMind - Sistema inteligente de comandas">
     <link rel="manifest" href="/static/manifest.json">
-    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' rx='36' fill='%23FF5A3C'/><text x='90' y='90' font-size='72' fill='%23fff' text-anchor='middle' dy='.32em' font-family='sans-serif' font-weight='800'>R</text></svg>">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' rx='36' fill='%231B5EA8'/><text x='90' y='90' font-size='72' fill='%23fff' text-anchor='middle' dy='.32em' font-family='sans-serif' font-weight='800'>R</text></svg>">
     <!-- Sin esto el navegador pide /favicon.ico por su cuenta y come un 404
          en cada carga (ruido en consola que tapa errores de verdad). -->
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23FF5A3C'/><text x='16' y='16' font-size='19' fill='%23fff' text-anchor='middle' dy='.34em' font-family='sans-serif' font-weight='800'>R</text></svg>">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231B5EA8'/><text x='16' y='16' font-size='19' fill='%23fff' text-anchor='middle' dy='.34em' font-family='sans-serif' font-weight='800'>R</text></svg>">
     <title>RestoMind</title>
+
+    <!-- TEMA — va INLINE, SÍNCRONO y ANTES de cualquier estilo, a propósito.
+         Es el único lugar donde puede ir sin que se vea un parpadeo.
+
+         Si esto viviera en app.js (que carga al final del body) o esperara a
+         DOMContentLoaded, el navegador ya habría pintado el primer frame con
+         el tema por defecto: quien eligió el claro vería un fogonazo oscuro
+         en CADA carga. En una app que el mozo abre y cierra decenas de veces
+         por turno, eso se nota y se ve barato.
+
+         Estampa el tema en <html>, así el CSS ya encuentra su `data-theme`
+         resuelto la primera vez que lo lee. localStorage puede TIRAR
+         EXCEPCIÓN (modo privado, cookies bloqueadas), y si eso tumbara este
+         script la app entera arrancaría sin tema: por eso el try/catch, con
+         el oscuro como caída. -->
+    <script>
+        (function () {
+            var tema = 'dark';
+            try {
+                var guardado = localStorage.getItem('restomind-theme');
+                if (guardado === 'light' || guardado === 'dark') {
+                    tema = guardado;
+                } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+                    // Sin elección previa se respeta el sistema operativo.
+                    // Se pregunta por 'light' y no por 'dark' para que el
+                    // default de la app (oscuro) gane también cuando el
+                    // navegador no sabe responder.
+                    tema = 'light';
+                }
+            } catch (e) { /* almacenamiento bloqueado: queda el oscuro */ }
+            document.documentElement.setAttribute('data-theme', tema);
+        })();
+    </script>
 
     <!-- Splash de arranque. Va INLINE y ANTES de style.css a propósito: si
          viviera en la hoja de estilos, no se pintaría hasta que esa hoja
@@ -33,7 +69,7 @@
             align-items: center;
             justify-content: center;
             gap: 26px;
-            background: #F6F4F1;
+            background: #0F1317;
             /* Sin webfonts, igual que el resto de la app: en un celular de
                gama baja con datos lentos, esperar a que baje una tipografía
                para mostrar el splash es exactamente el problema que el
@@ -48,7 +84,7 @@
             flex-direction: column;
             align-items: center;
             gap: 14px;
-            color: #FF5A3C;
+            color: #7FB0F2;
         }
         .splash-icono { width: 96px; height: 96px; }
         .splash-nombre {
@@ -71,14 +107,23 @@
             font-size: 11px;
             font-weight: 600;
             letter-spacing: 2.5px;
-            color: #6B7280;
+            color: #9AA4AF;
         }
 
-        @media (prefers-color-scheme: dark) {
-            #splash { background: #121212; }
-            .splash-marca { color: #FF6B4E; }
-            .splash-texto { color: #9CA3AF; }
-        }
+        /* El splash arranca en OSCURO (arriba), igual que el resto de la
+           app, y acá se corrige al claro. Ya no hace falta un
+           `prefers-color-scheme`: el script de tema de más arriba dejó el
+           `data-theme` resuelto antes de que esto se lea, así que este
+           selector acierta desde el primer frame — y respeta la elección
+           manual del usuario, cosa que el media query no podía hacer.
+
+           Los colores siguen escritos a mano porque style.css todavía no
+           cargó (ver el comentario de abajo). Son los mismos valores que
+           --bg, --accent y --text-muted de cada tema; si cambian allá,
+           cambiarlos acá. */
+        :root[data-theme="light"] #splash { background: #F4F6F8; }
+        :root[data-theme="light"] .splash-marca { color: #1B5EA8; }
+        :root[data-theme="light"] .splash-texto { color: #5C6773; }
 
         /* Para quien pidió menos movimiento: el giro se reemplaza por un
            latido suave — sigue comunicando "está cargando" sin rotación. */
@@ -114,7 +159,7 @@
         </div>
 
         <svg class="splash-spinner" viewBox="0 0 64 64" aria-hidden="true">
-            <g class="splash-spinner-giro" fill="#FF5A3C">
+            <g class="splash-spinner-giro" fill="currentColor">
                 <circle cx="32" cy="10" r="3.2" opacity="1"/>
                 <circle cx="43" cy="12.9" r="3.2" opacity=".9"/>
                 <circle cx="51" cy="21" r="3.2" opacity=".8"/>
@@ -295,6 +340,31 @@
             </div>
             <div class="top-bar-actions">
                 <button id="rol-badge" class="rol-badge" onclick="abrirSelectorRol()">Admin</button>
+                <!-- Los DOS íconos viajan en el HTML y el CSS decide cuál se
+                     ve (ver .theme-toggle en style.css). Reescribir el SVG
+                     desde JS al cambiar de tema haría parpadear el botón y
+                     lo dejaría vacío durante el primer frame de cada carga.
+                     SVG y no un emoji 🌙/☀️: el emoji lo dibuja la fuente del
+                     sistema —distinto en cada Android, a color y desalineado
+                     respecto de los íconos de al lado— justo lo contrario
+                     del aspecto nativo que se busca para el APK. -->
+                <button class="icon-btn theme-toggle" id="themeToggle" type="button"
+                        title="Cambiar tema" aria-label="Cambiar tema" onclick="toggleTheme()">
+                    <svg class="theme-icon-luna" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                    </svg>
+                    <svg class="theme-icon-sol" viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="12" cy="12" r="4.5"/>
+                        <line x1="12" y1="1.5" x2="12" y2="4"/>
+                        <line x1="12" y1="20" x2="12" y2="22.5"/>
+                        <line x1="3.2" y1="3.2" x2="5" y2="5"/>
+                        <line x1="19" y1="19" x2="20.8" y2="20.8"/>
+                        <line x1="1.5" y1="12" x2="4" y2="12"/>
+                        <line x1="20" y1="12" x2="22.5" y2="12"/>
+                        <line x1="3.2" y1="20.8" x2="5" y2="19"/>
+                        <line x1="19" y1="5" x2="20.8" y2="3.2"/>
+                    </svg>
+                </button>
                 <button class="icon-btn" title="Mi Perfil" onclick="abrirModalMiCuenta()">
                     <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                 </button>
