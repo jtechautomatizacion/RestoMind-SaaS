@@ -49,12 +49,53 @@ def test_el_email_de_bienvenida_no_lleva_la_contrasena(monkeypatch):
     devuelve una copia del original — o sea que la contraseña vuelve a la
     bandeja de quien envió. Y no aportaba nada: el superadmin ESCRIBE esa
     contraseña en el formulario, así que ya la conoce.
+
+    OJO CON CÓMO SE MIRA EL CUERPO
+    ------------------------------
+    Este test comparaba contra `mensaje.as_string()`, y así NO servía para
+    nada: el HTML lleva acentos, así que MIMEText lo codifica en base64 y
+    'clave123456' nunca aparece en esa cadena — esté o no en el correo.
+    Verificado:
+
+        'clave123456' not in as_string()      -> True   (el test pasaba)
+        'clave123456' in cuerpo_decodificado  -> True   (y estaba adentro)
+
+    O sea: el test que cuida el hallazgo más grave del módulo daba verde
+    con la contraseña en el mensaje. Ahora se decodifica la parte HTML
+    antes de mirar — que es justo lo que leería el destinatario.
+    """
+    html = _cuerpo_enviado(monkeypatch)
+
+    assert "carlos@buensabor.pe" in html, "el correo debe decir cuál es el usuario"
+    assert "clave123456" not in html
+    assert "contraseña te la entrega por separado" in html, (
+        "el correo tiene que EXPLICAR por dónde llega la contraseña; sin eso, "
+        "el dueño no sabe que tiene que pedírsela a quien lo dio de alta"
+    )
+    # La firma ya ni siquiera acepta una contraseña: no hay forma de
+    # filtrarla por accidente desde un call site nuevo.
+    import inspect
+    from backend.email import enviar_email_credenciales
+    assert "password" not in inspect.signature(enviar_email_credenciales).parameters
+
+
+# ---------- El enlace al APK ----------
+
+def _cuerpo_enviado(monkeypatch, **overrides):
+    """Dispara un envío con SMTP simulado y devuelve el HTML ya decodificado.
+
+    No se usa `as_string()`: MIMEText con utf-8 codifica el cuerpo en base64,
+    así que sobre esa cadena un `in` da negativo aunque el texto esté. Hay
+    que bajar a la parte del mensaje y decodificarla — si no, un test de
+    "esto NO aparece" pasaría SIEMPRE, incluso con el texto presente.
     """
     from backend.email import enviar_email_credenciales
 
     monkeypatch.setattr(settings, "smtp_user", "envia@test.local")
     monkeypatch.setattr(settings, "smtp_password", "secreto-smtp")
     monkeypatch.setattr(settings, "environment", "production")
+    for k, v in overrides.items():
+        monkeypatch.setattr(settings, k, v)
 
     with patch('smtplib.SMTP') as mock_smtp:
         enviar_email_credenciales(
@@ -63,17 +104,38 @@ def test_el_email_de_bienvenida_no_lleva_la_contrasena(monkeypatch):
             email_login="carlos@buensabor.pe",
             nombre_restaurante="Pollería El Buen Sabor",
         )
-
     servidor = mock_smtp.return_value.__enter__.return_value
     mensaje = servidor.send_message.call_args[0][0]
-    cuerpo = mensaje.as_string()
+    partes = [
+        p.get_payload(decode=True).decode("utf-8", "replace")
+        for p in mensaje.walk()
+        if p.get_content_type() == "text/html"
+    ]
+    assert partes, "el correo no traía ninguna parte HTML"
+    return "\n".join(partes)
 
-    assert "carlos@buensabor.pe" in cuerpo, "el correo debe decir cuál es el usuario"
-    assert "clave123456" not in cuerpo
-    # La firma ya ni siquiera acepta una contraseña: no hay forma de
-    # filtrarla por accidente desde un call site nuevo.
-    import inspect
-    assert "password" not in inspect.signature(enviar_email_credenciales).parameters
+
+def test_el_correo_lleva_el_enlace_del_apk_cuando_esta_configurado(monkeypatch):
+    """El alta de un restaurante es el ÚNICO momento en que se le habla al
+    dueño por un canal que él va a guardar. Si el instalable no viaja ahí,
+    hay que perseguirlo por WhatsApp después."""
+    html = _cuerpo_enviado(monkeypatch, apk_url="https://drive.google.com/drive/folders/ABC123")
+
+    assert "https://drive.google.com/drive/folders/ABC123" in html
+    assert "Descargar la app" in html
+
+
+def test_sin_apk_configurado_no_aparece_ningun_boton_de_descarga(monkeypatch):
+    """Contracara: mientras no exista el instalable, el correo no puede
+    ofrecer un botón que lleva a una carpeta vacía. El mismo código sirve
+    antes y después de que el APK exista."""
+    html = _cuerpo_enviado(monkeypatch, apk_url="")
+
+    assert "Descargar la app" not in html
+    assert "Instalar en tu celular" not in html
+    # Pero el correo sigue sirviendo para lo que existe desde el día uno.
+    assert "carlos@buensabor.pe" in html
+    assert "Entrar a RestoMind" in html
 
 
 # ---------- No se envía nada fuera de producción ----------

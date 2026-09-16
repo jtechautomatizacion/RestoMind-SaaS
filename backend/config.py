@@ -131,6 +131,19 @@ class Settings(BaseSettings):
     smtp_from_name: str = "RestoMind"
     app_url: str = "http://localhost:8000"
 
+    # Enlace de descarga del APK, para el correo de bienvenida.
+    #
+    # Va como variable de entorno y no escrito en backend/email.py porque
+    # cambia por motivos ajenos al código: una versión nueva, otra carpeta
+    # compartida, un cambio de Drive a la Play Store. Con la URL en el
+    # código, cada uno de esos cambios obligaría a un commit y un
+    # despliegue completo para editar un enlace.
+    #
+    # Vacío = el correo no muestra la sección del APK. Así el mismo código
+    # sirve antes y después de que exista el instalable, sin dejar un botón
+    # que lleva a una carpeta vacía.
+    apk_url: str = ""
+
     class Config:
         env_file = ".env"
         case_sensitive = False
