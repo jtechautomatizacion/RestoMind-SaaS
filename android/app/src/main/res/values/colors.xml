@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mismos valores que el tema oscuro de la app web (style.css): la
+         variable de fondo y el azul primario. Que la pantalla de arranque y
+         el ícono coincidan con lo que se ve al abrir es parte de que se
+         sienta una app y no una página. -->
+    <color name="fondo">#0F1317</color>
+    <color name="azul">#1B5EA8</color>
+    <color name="ic_launcher_background">#1B5EA8</color>
+</resources>

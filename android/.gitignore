@@ -1,0 +1,22 @@
+# Artefactos de compilación: se regeneran, pesan, y un APK commiteado ensucia
+# el historial de git para siempre.
+build/
+.gradle/
+*.apk
+*.aab
+
+# Ruta del SDK de ESTA máquina. Distinta en cada computadora, así que
+# versionarla rompe el proyecto en la siguiente.
+local.properties
+
+# Credenciales de Firebase del proyecto Android. Igual que el certificado
+# SUNAT: quien lo tiene puede hacerse pasar por la app.
+google-services.json
+
+# Claves de firma del APK. Si se pierde la de release, NO se puede volver a
+# publicar una actualización de la misma app nunca más.
+*.jks
+*.keystore
+
+.idea/
+.cxx/

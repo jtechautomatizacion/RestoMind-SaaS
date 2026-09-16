@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- NoActionBar: la app web ya trae su propia barra superior (.top-bar).
+         Con la barra nativa encima habría dos cabeceras apiladas, y se vería
+         exactamente como lo que no se quiere: una web metida en una caja. -->
+    <style name="Theme.RestoMind" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/fondo</item>
+        <item name="android:statusBarColor">@color/fondo</item>
+    </style>
+</resources>
