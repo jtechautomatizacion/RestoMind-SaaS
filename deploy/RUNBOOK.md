@@ -200,9 +200,39 @@ backend, y `Settings` rechaza toda variable que no declara: una sola línea
 `SUNAT_MODE=` en ese archivo deja la app sin arrancar con
 `extra_forbidden`.
 
-Antes de emitir hace falta el certificado digital en
-`certs/<cliente_id>/` (el volumen que el contenedor monta de solo lectura).
-Ese es el archivo que **sí** se sube con FileZilla — ver `docs/SUNAT_SETUP.md`.
+### El certificado: la ruta y los permisos
+
+Va en `certs/<cliente_id>/` — el `cliente_id` **exacto** de la tabla
+`clientes`, porque el contenedor arma esa ruta con él. Si el id de
+producción no es el mismo que el de tu entorno local, la carpeta copiada
+tal cual no la encuentra nadie. Es el archivo que **sí** se sube con
+FileZilla (ver `docs/SUNAT_SETUP.md`).
+
+**Y los permisos importan más de lo que parece.** El contenedor corre como
+`uid=10001` (fijo en `sunat-service/Dockerfile`), no como `restomind`. Un
+`chmod 600` bien intencionado lo deja sin poder leer el certificado, y eso
+**no falla al desplegar**: falla en el primer cobro con boleta, con un
+comensal esperando.
+
+La combinación correcta le da acceso **por grupo**, sin abrir el
+certificado al resto del servidor:
+
+```bash
+chown -R restomind:10001 /home/restomind/app/certs
+find /home/restomind/app/certs -type d -exec chmod 750 {} \;
+find /home/restomind/app/certs -type f -exec chmod 640 {} \;
+```
+
+Verificá las dos mitades — que el contenedor lea, y que nadie más pueda:
+
+```bash
+docker exec restomind-sunat head -c 4 /app/certs/<cliente_id>/certificado.pfx \
+  >/dev/null && echo "el contenedor puede leerlo"
+```
+
+`chmod 644` también haría funcionar el contenedor, pero dejaría el
+certificado y la clave SOL legibles por cualquier usuario del servidor —
+quien los tenga puede emitir comprobantes a nombre del restaurante.
 
 ## 3c. Padrón de RUC
 
