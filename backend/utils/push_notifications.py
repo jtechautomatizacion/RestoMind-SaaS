@@ -25,6 +25,13 @@ from sqlalchemy.orm import Session
 from backend.config import settings
 from backend.database import SessionLocal
 from backend.models import PushSubscription, Usuario
+
+# Canal de notificación de Android. Este valor vive en DOS lugares —acá y en
+# la app nativa, que lo crea al arrancar— y tienen que decir exactamente lo
+# mismo. Si no coinciden, Android DESCARTA el mensaje sin mostrar nada y sin
+# error: el envío figura como exitoso en el log del servidor y en la cocina
+# no suena nada, que es la peor combinación posible para diagnosticar.
+CANAL_ANDROID_COMANDAS = "comandas"
 from backend.utils.roles import ROL_ASISTENTE, tiene_rol
 
 # Si la inicialización de Firebase falla (corte de red justo en el primer
@@ -148,6 +155,33 @@ def notificar_nueva_comanda(cliente_id: str, numero_mesa: int, comanda_id: int) 
                     notification=messaging.WebpushNotification(
                         vibrate=[200, 100, 200],
                         require_interaction=True,
+                    ),
+                ),
+                # La app empaquetada como APK recibe por esta vía, no por
+                # webpush: FCM aplica a cada token solo el bloque de SU
+                # plataforma e ignora el otro, así que los dos conviven y el
+                # mismo envío sirve para el navegador y para el celular.
+                android=messaging.AndroidConfig(
+                    # "high" es obligatorio acá, no una optimización. Con la
+                    # prioridad normal, Android retiene el mensaje mientras el
+                    # dispositivo está en reposo (Doze) y lo entrega recién en
+                    # la próxima ventana de mantenimiento: minutos, a veces
+                    # más. Una tablet de cocina apoyada en la mesa está en
+                    # reposo casi siempre, que es exactamente cuando hace
+                    # falta el aviso.
+                    priority="high",
+                    notification=messaging.AndroidNotification(
+                        # Desde Android 8 toda notificación pertenece a un
+                        # canal, y si el id no existe en la app el sistema
+                        # DESCARTA el mensaje en silencio. Este valor tiene
+                        # que ser idéntico al del canal que crea la app
+                        # nativa al arrancar.
+                        channel_id=CANAL_ANDROID_COMANDAS,
+                        sound="default",
+                        # Mantiene el aviso hasta que alguien lo toque, igual
+                        # que require_interaction en el navegador: una comanda
+                        # que desaparece sola es una comanda que nadie vio.
+                        sticky=True,
                     ),
                 ),
             ),

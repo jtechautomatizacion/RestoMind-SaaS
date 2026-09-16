@@ -71,7 +71,71 @@ function _getMessaging() {
  * — nunca lanza: cualquier fallo acá es "sin notificaciones", no un error
  * que deba interrumpir al usuario.
  */
+/**
+ * Token FCM cuando la app corre dentro del APK (WebView), o null si no.
+ *
+ * POR QUÉ HACE FALTA UN CAMINO APARTE
+ * -----------------------------------
+ * `android.webkit.WebView` NO implementa la Push API ni `Notification`. El
+ * resto de esta función se apagaría en su primera línea y devolvería null
+ * SIN ERROR: el cocinero abriría la app, no vería ninguna advertencia, y
+ * simplemente no le llegarían las comandas. Es el fallo que se descubre
+ * cuando ya se perdieron tres pedidos.
+ *
+ * Así que dentro del APK el token lo consigue la capa nativa (SDK de
+ * Firebase para Android) y lo entrega por este puente. El registro contra
+ * el backend lo sigue haciendo el lado web, que es quien tiene el JWT —
+ * duplicar la sesión en Kotlin sería otra copia de la autenticación que
+ * mantener sincronizada.
+ *
+ * Contrato con la app nativa (ver docs/APK_ANDROID.md):
+ *   window.RestoMindNativo.obtenerTokenFCM() -> string  ('' si todavía no hay)
+ */
+function _tokenNativo() {
+    try {
+        const puente = window.RestoMindNativo;
+        if (!puente || typeof puente.obtenerTokenFCM !== 'function') return null;
+        const token = puente.obtenerTokenFCM();
+        return token && token.length > 20 ? token : null;
+    } catch (err) {
+        console.warn('[Push] El puente nativo falló:', err);
+        return null;
+    }
+}
+
+/** ¿Estamos dentro del APK? Se pregunta por el puente y no por el
+ *  user-agent: el UA se puede falsear y además cambia con cada versión de
+ *  Android System WebView, mientras que el puente existe exactamente
+ *  cuando la app nativa lo inyectó. */
+function corriendoEnAPK() {
+    return Boolean(window.RestoMindNativo);
+}
+
 async function _activarPush() {
+    // Dentro del APK este es el ÚNICO camino que funciona, así que se
+    // intenta antes que nada.
+    const nativo = _tokenNativo();
+    if (nativo) {
+        try {
+            if (localStorage.getItem(PUSH_TOKEN_KEY) !== nativo) {
+                await api.post('/push/registrar', { token: nativo });
+                localStorage.setItem(PUSH_TOKEN_KEY, nativo);
+            }
+            return nativo;
+        } catch (err) {
+            console.error('[Push] No se pudo registrar el token nativo:', err);
+            return null;
+        }
+    }
+
+    if (corriendoEnAPK()) {
+        // El puente está, pero todavía no entregó token: FCM lo genera de
+        // forma asíncrona al primer arranque. No es un error — en la
+        // siguiente vuelta ya va a estar.
+        console.warn('[Push] El puente nativo aún no tiene token FCM.');
+        return null;
+    }
+
     if (!('Notification' in window) || !('serviceWorker' in navigator)) return null;
 
     const messaging = _getMessaging();
