@@ -113,15 +113,44 @@ con un comensal esperando el comprobante.
 
 ### Correo de bienvenida (opcional, pero falla en silencio)
 
+**Primero averiguá dónde vive la casilla.** La dirección no lo dice — lo
+dice el MX del dominio:
+
 ```bash
-SMTP_USER=tucuenta@gmail.com
-SMTP_PASSWORD=<contraseña de aplicación de 16 caracteres, sin espacios>
-SMTP_FROM_EMAIL=tucuenta@gmail.com
+dig +short MX tuempresa.com
 ```
 
-Con Gmail **no sirve la contraseña de la cuenta**: hay que generar una
-*Contraseña de aplicación* en https://myaccount.google.com/apppasswords
-(pide tener la verificación en 2 pasos activada).
+| El MX apunta a… | `SMTP_HOST` | La contraseña es… |
+|---|---|---|
+| `google.com` | `smtp.gmail.com` | una *Contraseña de aplicación* de 16 caracteres |
+| el propio dominio | `mail.tuempresa.com` | la de la casilla, la de cPanel > Cuentas de correo |
+
+Esto ya costó un rato en producción: una dirección del dominio propio
+(`facturacion@tuempresa.com`) apuntando a `smtp.gmail.com` devuelve
+`535 Username and Password not accepted`, que **parece** una contraseña mal
+escrita. No lo es: Gmail se niega a autenticar un usuario que no es suyo.
+Una contraseña de aplicación de Gmail tampoco sirve contra un cPanel — son
+sistemas distintos.
+
+```bash
+SMTP_HOST=mail.tuempresa.com      # o smtp.gmail.com, según la tabla
+SMTP_PORT=587
+SMTP_USER=micasilla@tuempresa.com
+SMTP_PASSWORD=<la que corresponda según la tabla>
+SMTP_FROM_EMAIL=micasilla@tuempresa.com
+```
+
+Probá la combinación **antes** de dar de alta un restaurante real:
+
+```bash
+cd /home/restomind/app
+sudo -u restomind venv/bin/python -c "
+import smtplib, ssl
+s = smtplib.SMTP('TU_HOST', 587, timeout=15)
+s.starttls(context=ssl.create_default_context())
+s.login('TU_USUARIO', 'TU_CLAVE')
+print('LOGIN OK'); s.quit()"
+```
 
 Sin esto, dar de alta un restaurante funciona igual pero el admin **nunca
 recibe su correo de acceso**, y el envío corre en segundo plano con el
