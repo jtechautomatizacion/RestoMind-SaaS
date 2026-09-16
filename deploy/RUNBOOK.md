@@ -111,10 +111,25 @@ SUNAT_SERVICE_URL=http://127.0.0.1:8100
 el primer cobro con boleta. Completalo ahora y no dentro de tres semanas
 con un comensal esperando el comprobante.
 
-Y, si aplica en este momento: credenciales SMTP (para el correo de
-bienvenida — ver `backend/email.py`, no envía nada si faltan), credenciales
-de Firebase (notificaciones push a cocina — tampoco bloquea si faltan), y
-`EMISOR_FACTURACION` según la decisión de la sección de arriba.
+### Correo de bienvenida (opcional, pero falla en silencio)
+
+```bash
+SMTP_USER=tucuenta@gmail.com
+SMTP_PASSWORD=<contraseña de aplicación de 16 caracteres, sin espacios>
+SMTP_FROM_EMAIL=tucuenta@gmail.com
+```
+
+Con Gmail **no sirve la contraseña de la cuenta**: hay que generar una
+*Contraseña de aplicación* en https://myaccount.google.com/apppasswords
+(pide tener la verificación en 2 pasos activada).
+
+Sin esto, dar de alta un restaurante funciona igual pero el admin **nunca
+recibe su correo de acceso**, y el envío corre en segundo plano con el
+resultado descartado — así que no hay error en pantalla. En producción
+queda un `WARNING` en `journalctl -u restomind` para que se note.
+
+Firebase (push a cocina) es igual de opcional: sin credenciales la app
+funciona idéntica, solo que el cocinero no recibe el aviso al celular.
 
 La app **se niega a arrancar** si `SECRET_KEY` falta, o si en producción
 `DEBUG=true` o `CORS_ORIGINS` sigue en los valores de desarrollo — es a

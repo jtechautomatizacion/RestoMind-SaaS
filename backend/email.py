@@ -46,7 +46,18 @@ def enviar_email_credenciales(
     tumbar el alta de un restaurante.
     """
     if not settings.smtp_user or not settings.smtp_password:
-        # SMTP no configurado — no es un error, simplemente no hay envío.
+        # SMTP no configurado — no es un error: el alta del restaurante no
+        # depende del correo. Pero en PRODUCCIÓN sí conviene que quede
+        # registrado: el envío corre como background task y su resultado se
+        # descarta (ver superadmin.py), así que sin esta línea la falta de
+        # configuración no deja rastro en ningún lado y el problema recién
+        # aparece cuando el cliente avisa que nunca recibió su acceso.
+        if settings.environment == "production":
+            logger.warning(
+                "[EMAIL] NO se envió la bienvenida a %s: faltan SMTP_USER/SMTP_PASSWORD "
+                "en el .env. El restaurante quedó creado igual.",
+                destinatario,
+            )
         return False
 
     # En desarrollo se registra en el log en vez de enviar: los restaurantes
