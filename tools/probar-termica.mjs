@@ -51,7 +51,6 @@ function comoSeVe(bytes) {
 // Calcado de _ticketPreventaHTML() en frontend/js/print.js
 const preventa = `<!DOCTYPE html><html><body>
   <div class="centro datos-negocio">
-    <div>BALBIN LEIVA CONSUELO SUSY</div>
     <div class="comercial">Cevicheria El Puerto de Susy</div>
     <div>Av. Los Pescadores 123</div>
     <div>RUC: 10410827803</div>
@@ -103,18 +102,32 @@ console.log(Buffer.from(tspl).toString('ascii').trim());
  * Sirve para ver la COMPOSICION —que nada choque, que todo cierre— no para
  * medir milimetros.
  */
-function dibujar(bytes) {
+function dibujar(bytes, anchoCabezal) {
     const texto = Buffer.from(bytes).toString('ascii');
     const PPC = 10;   // puntos por caracter, horizontal
     const PPF = 16;   // puntos por fila, vertical
 
-    let anchoPuntos = 640, altoPuntos = 800;
+    let anchoDeclarado = 640, altoPuntos = 800;
     const m = texto.match(/SIZE (\d+) mm,(\d+) mm/);
-    if (m) { anchoPuntos = +m[1] * 8; altoPuntos = +m[2] * 8; }
+    if (m) { anchoDeclarado = +m[1] * 8; altoPuntos = +m[2] * 8; }
+
+    // EL LIMITE ES EL CABEZAL, NO LO QUE DECLARA EL CODIGO.
+    //
+    // La primera version de esta comprobacion media contra el SIZE del propio
+    // TSPL generado, y por eso no sirvio para nada: si el codigo se equivoca y
+    // declara 80 mm donde el cabezal cubre 72, el dibujo se agranda con el
+    // error y todo "entra" perfecto — mientras el papel sale partido. Una
+    // prueba que se mide contra la afirmacion que quiere verificar siempre
+    // pasa. El ancho del cabezal es un dato FISICO y entra desde afuera.
+    const anchoPuntos = anchoCabezal;
+    if (anchoDeclarado > anchoCabezal) {
+        console.log(`\n[!] SIZE declara ${anchoDeclarado} puntos pero el cabezal cubre ${anchoCabezal}.`);
+    }
 
     const cols = Math.ceil(anchoPuntos / PPC);
     const filas = Math.ceil(altoPuntos / PPF);
     const lienzo = Array.from({ length: filas }, () => new Array(cols).fill(' '));
+    const desbordes = [];
 
     const poner = (fila, col, cadena, pasoPuntos) => {
         if (fila < 0 || fila >= filas) return;
@@ -126,7 +139,13 @@ function dibujar(bytes) {
         const paso = (pasoPuntos || PPC) / PPC;
         for (let i = 0; i < cadena.length; i++) {
             const c = col + Math.round(i * paso);
-            if (c < 0 || c >= cols) continue;
+            if (c < 0) continue;
+            // Lo que cae fuera del cabezal NO se pierde: la impresora lo
+            // envuelve al renglon siguiente y el ticket sale partido
+            // ("Importe" -> "Impo"/"rte"). Antes esto se descartaba en
+            // silencio, asi que el dibujo salia perfecto mientras el papel
+            // salia roto. Ahora se cuenta y se denuncia.
+            if (c >= cols) { desbordes.push(cadena.slice(i) + '  (de "' + cadena + '")'); return; }
             // Si ya hay algo distinto de un espacio, los dos textos se estan
             // pisando. Se marca con '#' para que salte a la vista.
             lienzo[fila][c] = lienzo[fila][c] === ' ' ? cadena[i] : '#';
@@ -161,6 +180,18 @@ function dibujar(bytes) {
 
     const choques = lienzo.filter(f => f.includes('#')).length;
     console.log(choques ? `\n[!] ${choques} fila(s) con texto superpuesto` : '\nSin superposiciones.');
+
+    if (desbordes.length) {
+        console.log(`[!] ${desbordes.length} texto(s) se salen del cabezal (${anchoPuntos} puntos).`);
+        console.log('    La impresora los ENVUELVE al renglon siguiente:');
+        for (const d of desbordes) console.log('      -> ' + d);
+    } else {
+        console.log(`Nada se sale del ancho imprimible (${anchoPuntos} puntos).`);
+    }
 }
 
-dibujar(tspl);
+// 576 puntos = 72 mm. Es el ancho REAL del cabezal en un rollo de 80 mm, y
+// esta escrito aca —a mano, fuera del codigo que se quiere probar— justamente
+// para que siga siendo un dato independiente. Medido sobre el papel: cuatro
+// textos distintos cortaron entre el punto 574 y el 575.
+dibujar(tspl, 576);

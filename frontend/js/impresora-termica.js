@@ -562,7 +562,19 @@
     }
 
     function aTspl(lineas, ancho) {
-        const anchoMm = ancho >= 48 ? 80 : 58;
+        // OJO: 80 mm de PAPEL no son 80 mm IMPRIMIBLES.
+        //
+        // El cabezal de estas termicas cubre 72 mm (576 puntos) en rollo de
+        // 80, y 48 mm (384) en rollo de 58; el resto es margen mecanico que
+        // el cabezal no alcanza. Posicionar contra los 80 mm del papel no da
+        // un error: la impresora ENVUELVE al renglon siguiente lo que cae
+        // afuera, asi que "Importe" sale "Impo/rte" y "12.00" sale "12/.0/0".
+        //
+        // Se midio sobre el papel: cuatro textos distintos cortaron todos
+        // entre el punto 574 y el 575. En ESC/POS esto nunca se noto porque
+        // ahi la impresora administra su propio ancho — el problema aparece
+        // recien cuando uno posiciona por coordenadas, como hace TSPL.
+        const anchoMm = ancho >= 48 ? 72 : 48;
         const anchoPuntos = anchoMm * PUNTOS_POR_MM;
         const util = anchoPuntos - MARGEN * 2;
 

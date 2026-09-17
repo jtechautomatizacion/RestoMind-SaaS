@@ -195,7 +195,13 @@ function _ticketPreventaHTML(comanda, negocio, atendidoPor) {
     // comprobante, que es justo lo que este ticket NO debe parecer— así que
     // no se imprimen. El RUC sí queda: identifica al negocio en una hoja que
     // el comensal puede llevarse.
-    const lineaTitular = negocio.razon_social ? `<div>${escapeHtml(negocio.razon_social)}</div>` : '';
+    // La RAZON SOCIAL no se imprime. En un RUC de persona natural (prefijo
+    // 10) es el nombre y apellido del titular — en esta hoja salia
+    // "CONSUELO SUSY BALBIN LEIVA" arriba de todo, que no le dice nada al
+    // comensal y expone el nombre de una persona en un papel que se entrega
+    // en mano y despues se tira. El negocio ya queda identificado por su
+    // nombre comercial y por el RUC, que es el dato que sirve si alguien
+    // tiene que reclamar.
     const lineaRuc = negocio.ruc ? `<div>RUC: ${escapeHtml(negocio.ruc)}</div>` : '';
 
     return `<!DOCTYPE html>
@@ -241,7 +247,6 @@ function _ticketPreventaHTML(comanda, negocio, atendidoPor) {
 </head>
 <body>
     <div class="centro datos-negocio">
-        ${lineaTitular}
         <div class="comercial">${escapeHtml(negocio.nombre)}</div>
         ${lineaRuc}
         <div class="tipo">PRE-VENTA</div>
