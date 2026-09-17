@@ -42,9 +42,26 @@ app = FastAPI(
 )
 
 # CORS middleware
+#
+# A los dominios del .env se les suman los orígenes de la app empaquetada.
+# Capacitor NO sirve el frontend desde el dominio del backend: los archivos
+# viajan dentro del APK y el WebView los expone en https://localhost. Sin
+# estos orígenes, la app instalada recibe un bloqueo de CORS en CADA llamada
+# —incluido el login— y en pantalla se ve como "no hay conexión", que manda
+# a revisar el wifi en vez de la configuración.
+#
+# Van en el código y no en el .env a propósito: no dependen del despliegue
+# (son siempre los mismos, los define Capacitor), y si dependieran del .env
+# alcanzaría con olvidarlos en un servidor nuevo para que la app móvil
+# quedara muerta ahí sin que nada más lo delate.
+ORIGENES_APP_NATIVA = [
+    "https://localhost",   # Android con androidScheme "https"
+    "capacitor://localhost",  # iOS, si algún día se compila
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=list(settings.cors_origins) + ORIGENES_APP_NATIVA,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
