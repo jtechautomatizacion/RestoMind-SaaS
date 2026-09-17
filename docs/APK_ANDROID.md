@@ -1,320 +1,317 @@
-# 📱 Empaquetar RestoMind como APK (WebView + FCM nativo)
+# 📱 RestoMind como APK (Capacitor)
 
-Guía para armar el proyecto Android en Android Studio. Asume que la app web
-ya está en producción sobre HTTPS (`https://app.jtechsolutiones.com`).
+APK de distribución directa — no pasa por Play Store. El frontend viaja
+**dentro** de la app; las llamadas van a `https://app.jtechsolutiones.com`.
 
 ---
 
-## Lo que NO funciona solo dentro de un WebView
+## Por qué el frontend va empaquetado y no apuntando a la web
 
-`android.webkit.WebView` no es Chrome. Comparte el motor de renderizado,
-pero le faltan APIs completas — y lo caro es que **casi todas fallan en
-silencio**: sin excepción, sin log, sin nada en pantalla. La función
-devuelve `null` y la app sigue como si todo estuviera bien.
+Capacitor admite las dos formas, y son excluyentes:
 
-| Qué | Qué pasa sin código nativo | Se resuelve en |
+| | Empaquetado *(el que se usa)* | `server.url` apuntando a la web |
 |---|---|---|
-| **Notificaciones push** | La API no existe. El cocinero no recibe ninguna comanda | §3 y §4 |
-| **Subir fotos de platos** | `<input type="file">` no abre nada al tocarlo | §5 |
-| **Descargas** | Los enlaces de descarga no hacen nada | §5 |
-| **Permiso de notificar** (Android 13+) | Se descartan todas sin preguntar | §6 |
+| Abre sin señal | ✅ la interfaz carga igual | ❌ pantalla en blanco |
+| Actualizar | hay que instalar un APK nuevo | sale solo al subir al VPS |
 
-Ninguna de las cuatro da error. Por eso van todas acá: son las que uno
-descubre con la app ya instalada en el local.
+Para un restaurante, que la app no abra porque se cayó el wifi es peor que
+tener que instalar una actualización cada tanto. Por eso **no hay
+`server.url`** en `capacitor.config.json`.
 
----
+Tres consecuencias de esa decisión, ya resueltas, que conviene no deshacer:
 
-## 1. Crear el proyecto
-
-Android Studio → **New Project → Empty Views Activity**, lenguaje **Kotlin**,
-`minSdk 24`.
-
-## 2. Firebase
-
-1. En la consola de Firebase: **Agregar app → Android**.
-2. El *nombre del paquete* tiene que ser **exactamente** el `applicationId`
-   de tu `build.gradle.kts` (p. ej. `pe.jtech.restomind`). Si no coincide,
-   FCM no entrega nada y tampoco avisa por qué.
-3. Descargá `google-services.json` y ponelo en la carpeta `app/`.
-
-`build.gradle.kts` (raíz):
-```kotlin
-plugins {
-    id("com.google.gms.google-services") version "4.4.2" apply false
-}
-```
-
-`app/build.gradle.kts`:
-```kotlin
-plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("com.google.gms.google-services")
-}
-
-dependencies {
-    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
-    implementation("com.google.firebase:firebase-messaging-ktx")
-    implementation("androidx.core:core-ktx:1.15.0")
-}
-```
-
-## 3. El puente con la app web
-
-El lado nativo **solo entrega el token**. El registro contra el backend lo
-hace el JavaScript, que es quien tiene el JWT de la sesión: duplicar la
-autenticación en Kotlin sería una segunda copia que mantener sincronizada,
-y el día que cambie el login habría que acordarse de tocar los dos lados.
-
-`PuenteNativo.kt`:
-```kotlin
-package pe.jtech.restomind
-
-import android.webkit.JavascriptInterface
-
-class PuenteNativo {
-    /** Lo llama frontend/js/push-notifications.js (_tokenNativo).
-     *  Devuelve "" mientras FCM todavía no generó el token: el JS lo
-     *  reintenta en la siguiente vuelta, no es un error. */
-    @JavascriptInterface
-    fun obtenerTokenFCM(): String = TokenFCM.valor ?: ""
-}
-
-object TokenFCM {
-    @Volatile var valor: String? = null
-}
-```
-
-> El nombre `RestoMindNativo` con el que se inyecta (§5) tiene que coincidir
-> con el que busca `push-notifications.js`. Son dos archivos distintos que
-> deben decir lo mismo.
-
-## 4. Recibir las notificaciones
-
-```kotlin
-package pe.jtech.restomind
-
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.content.Context
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import com.google.firebase.messaging.FirebaseMessagingService
-import com.google.firebase.messaging.RemoteMessage
-
-// DEBE ser idéntico a CANAL_ANDROID_COMANDAS en
-// backend/utils/push_notifications.py. Si no coinciden, Android DESCARTA el
-// mensaje sin mostrar nada: el servidor registra el envío como exitoso y en
-// la cocina no suena nada.
-const val CANAL_COMANDAS = "comandas"
-
-class ServicioMensajes : FirebaseMessagingService() {
-
-    override fun onNewToken(token: String) {
-        // FCM rota el token (reinstalación, restauración de backup, limpieza
-        // de datos). Guardarlo acá hace que el JS lo lea y lo re-registre en
-        // la próxima activación.
-        TokenFCM.valor = token
-    }
-
-    override fun onMessageReceived(mensaje: RemoteMessage) {
-        // Con la app EN PRIMER PLANO, Android no dibuja nada solo: hay que
-        // construir la notificación. En segundo plano sí la muestra el
-        // sistema, usando channel_id — por eso el canal tiene que existir
-        // aunque este método no se ejecute nunca.
-        val n = mensaje.notification ?: return
-        val aviso = NotificationCompat.Builder(this, CANAL_COMANDAS)
-            .setSmallIcon(R.drawable.ic_notificacion)
-            .setContentTitle(n.title ?: "Nueva comanda")
-            .setContentText(n.body ?: "")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .build()
-
-        if (NotificationManagerCompat.from(this).areNotificationsEnabled()) {
-            NotificationManagerCompat.from(this).notify(System.currentTimeMillis().toInt(), aviso)
-        }
-    }
-}
-
-fun crearCanalComandas(ctx: Context) {
-    // Idempotente: crear un canal que ya existe no hace nada. Se llama en
-    // cada arranque para cubrir el caso de una actualización de la app.
-    val canal = NotificationChannel(
-        CANAL_COMANDAS,
-        "Comandas de cocina",
-        NotificationManager.IMPORTANCE_HIGH,   // HIGH = suena y aparece encima
-    ).apply {
-        description = "Avisa cuando entra un pedido nuevo"
-        enableVibration(true)
-    }
-    ctx.getSystemService(NotificationManager::class.java).createNotificationChannel(canal)
-}
-```
-
-## 5. La Activity
-
-```kotlin
-package pe.jtech.restomind
-
-import android.net.Uri
-import android.os.Bundle
-import android.webkit.*
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AppCompatActivity
-import com.google.firebase.messaging.FirebaseMessaging
-
-class MainActivity : AppCompatActivity() {
-
-    private lateinit var web: WebView
-    private var archivoPendiente: ValueCallback<Array<Uri>>? = null
-
-    private val elegirArchivo = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { resultado ->
-        archivoPendiente?.onReceiveValue(
-            WebChromeClient.FileChooserParams.parseResult(resultado.resultCode, resultado.data)
-        )
-        archivoPendiente = null
-    }
-
-    private val pedirPermisoNotificar = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { /* si lo niega, la app funciona igual: solo no vibra el aviso */ }
-
-    override fun onCreate(estado: Bundle?) {
-        super.onCreate(estado)
-
-        crearCanalComandas(this)
-
-        // Android 13+ exige permiso explícito para notificar. Sin pedirlo,
-        // el sistema descarta TODAS las notificaciones sin preguntar nada.
-        if (android.os.Build.VERSION.SDK_INT >= 33) {
-            pedirPermisoNotificar.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-        }
-
-        FirebaseMessaging.getInstance().token.addOnCompleteListener { t ->
-            if (t.isSuccessful) TokenFCM.valor = t.result
-        }
-
-        web = WebView(this)
-        setContentView(web)
-
-        web.settings.apply {
-            javaScriptEnabled = true
-            // Sin esto, localStorage tira excepción y la app no puede ni
-            // guardar la sesión: el login no persiste entre arranques.
-            domStorageEnabled = true
-            databaseEnabled = true
-            mediaPlaybackRequiresUserGesture = false
-        }
-
-        web.addJavascriptInterface(PuenteNativo(), "RestoMindNativo")
-
-        // Sin un WebViewClient propio, cualquier enlace abre el navegador
-        // del sistema y el usuario "se sale" de la app.
-        web.webViewClient = WebViewClient()
-
-        // Habilita <input type="file">. Sin esto, el admin toca "subir foto"
-        // del plato y no pasa absolutamente nada.
-        web.webChromeClient = object : WebChromeClient() {
-            override fun onShowFileChooser(
-                vista: WebView?,
-                callback: ValueCallback<Array<Uri>>?,
-                params: FileChooserParams?,
-            ): Boolean {
-                archivoPendiente?.onReceiveValue(null)
-                archivoPendiente = callback
-                elegirArchivo.launch(params?.createIntent())
-                return true
-            }
-        }
-
-        web.loadUrl("https://app.jtechsolutiones.com/static/index.html")
-    }
-
-    // El botón "atrás" tiene que navegar dentro de la app, no cerrarla.
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        if (web.canGoBack()) web.goBack() else super.onBackPressed()
-    }
-}
-```
-
-## 6. `AndroidManifest.xml`
-
-```xml
-<uses-permission android:name="android.permission.INTERNET" />
-<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
-<application
-    android:icon="@mipmap/ic_launcher"
-    android:label="RestoMind"
-    android:usesCleartextTraffic="false">
-
-    <activity android:name=".MainActivity" android:exported="true">
-        <intent-filter>
-            <action android:name="android.intent.action.MAIN" />
-            <category android:name="android.intent.category.LAUNCHER" />
-        </intent-filter>
-    </activity>
-
-    <service
-        android:name=".ServicioMensajes"
-        android:exported="false">
-        <intent-filter>
-            <action android:name="com.google.firebase.MESSAGING_EVENT" />
-        </intent-filter>
-    </service>
-</application>
-```
-
-`usesCleartextTraffic="false"` a propósito: obliga a que todo salga por
-HTTPS. Si algún día alguien apunta la app a `http://` para probar, que
-falle ruidosamente en vez de mandar los JWT en texto plano por el wifi del
-local.
+1. **El origen pasa a ser `https://localhost`.** Por eso `API_BASE_URL` se
+   arma con `window.RESTOMIND_API_BASE` (lo define `capacitor-init.js`, que
+   carga **antes** que `app.js`). Una ruta relativa apuntaría al teléfono.
+2. **El backend debe aceptar ese origen.** Está en `ORIGENES_APP_NATIVA`
+   (`backend/app.py`), en el código y no en el `.env`: si dependiera del
+   `.env`, olvidarlo en un servidor nuevo dejaría la app móvil muerta ahí
+   con un síntoma de "sin conexión".
+3. **Las rutas del frontend son relativas.** `js/app.js`, no
+   `/static/js/app.js` — así sirven en la web y dentro del APK.
 
 ---
 
-## Probar que de verdad llega
-
-No alcanza con que compile. El orden importa, porque cada paso depende del
-anterior:
-
-1. **Instalar y entrar** con una cuenta de rol `jefe_cocina` o `asistente`.
-   Aceptá el permiso de notificaciones cuando lo pida.
-2. **Confirmar que el token se registró.** En el VPS:
-   ```bash
-   sqlite3 /home/restomind/app/restomind.db \
-     "SELECT usuario_id, substr(token,1,25) FROM push_subscriptions;"
-   ```
-   Si está vacío, el puente no entregó token: revisá que el nombre
-   inyectado sea `RestoMindNativo` y que `google-services.json` tenga el
-   `applicationId` correcto.
-3. **Minimizar la app** (no cerrarla) y tomar un pedido desde otro
-   dispositivo. Tiene que sonar.
-4. **Cerrarla del todo** y repetir. Si llega minimizada pero no cerrada, el
-   problema es el canal o la prioridad, no el token.
-5. **Probar una foto de plato** desde Admin → Carta. Si al tocar no abre el
-   selector, falta el `onShowFileChooser` de §5.
-
-Si el envío figura exitoso en el servidor y en el celular no aparece nada,
-el sospechoso número uno es el `channel_id`: tiene que decir `comandas` en
-los dos lados.
+## 1. Compilar
 
 ```bash
-journalctl -u restomind -f | grep -i push
+npm install
+npm run sync        # prepara dist-apk/ y sincroniza Android
+npx cap open android
+```
+
+`npm run sync` corre `tools/preparar-apk.mjs`, que copia `frontend/` a
+`dist-apk/` **sin las fotos de los platos**. No es cosmético: son 1 MB de
+los 1,44 MB de la carpeta, crecen con cada foto que suba un admin, y
+mandarían las fotos de un restaurante a los celulares de todos. Se sirven
+desde el servidor en tiempo de ejecución.
+
+## 2. El plugin de la impresora y los permisos
+
+`npm run apk` ya deja todo integrado. Lo hace `tools/integrar-android.mjs`,
+que copia el plugin, reescribe `MainActivity.java` registrándolo y agrega
+los permisos al manifest.
+
+**Va en un script y no en una lista de pasos manuales** porque `cap sync`
+puede volver a tocar el proyecto Android: un paso que hay que recordar en
+cada sync es un paso que algún día no se hace, y el síntoma sería *"la app
+compila pero no imprime"*, sin ningún error que lo explique. Es idempotente:
+correrlo dos veces no duplica nada.
+
+Dos cosas que resuelve y conviene conocer por si algún día hay que tocarlas
+a mano:
+
+- **`registerPlugin()` va ANTES de `super.onCreate()`.** Después, el puente
+  ya está armado y el plugin no aparece en `Capacitor.Plugins`: la app
+  arranca perfecto y la impresión no encuentra nada.
+- **`BLUETOOTH_CONNECT` hay que pedirlo en tiempo de ejecución** en Android
+  12+. Sin él, `getBondedDevices()` devuelve una lista **vacía** en vez de
+  fallar — parece que no hay ninguna impresora emparejada, y manda a revisar
+  el Bluetooth del celular en vez del permiso.
+
+> El plugin está en **Java**, no en Kotlin. Capacitor genera el proyecto
+> Android solo con Java, y sumar Kotlin por un archivo arrastra su runtime
+> al APK (~1,5 MB) — más peso que todo el frontend empaquetado.
+
+## 3. Compilar el APK
+
+```bash
+cd android && ./gradlew assembleDebug
+# -> android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+La primera compilación tarda ~12 minutos (baja Gradle y las dependencias de
+los 6 plugins); las siguientes, menos de un minuto.
+
+## 4. Firmar para distribución directa
+
+Sin Play Store, la firma solo tiene que ser estable: Android exige que las
+actualizaciones estén firmadas con **la misma** clave que la instalación
+original.
+
+```bash
+cd android/app
+keytool -genkey -v -keystore restomind.jks -keyalg RSA -keysize 2048 \
+        -validity 10000 -alias restomind
+```
+
+> **Guardá el `.jks` y su contraseña fuera de la máquina.** Si se pierden,
+> no se puede volver a actualizar la app instalada: hay que desinstalar y
+> reinstalar en cada local, perdiendo la sesión de cada dispositivo.
+
+`android/key.properties` (va en `.gitignore`):
+
+```properties
+storeFile=restomind.jks
+storePassword=...
+keyAlias=restomind
+keyPassword=...
+```
+
+En `android/app/build.gradle`, dentro de `android { }`:
+
+```gradle
+def keyProps = new Properties()
+def keyFile = rootProject.file("key.properties")
+if (keyFile.exists()) keyProps.load(new FileInputStream(keyFile))
+
+signingConfigs {
+    release {
+        storeFile file(keyProps['storeFile'])
+        storePassword keyProps['storePassword']
+        keyAlias keyProps['keyAlias']
+        keyPassword keyProps['keyPassword']
+    }
+}
+buildTypes {
+    release {
+        signingConfig signingConfigs.release
+        minifyEnabled true
+        shrinkResources true
+    }
+}
+```
+
+`minifyEnabled` + `shrinkResources` recortan bastante el APK final.
+
+```bash
+cd android && ./gradlew assembleRelease
+# -> app/build/outputs/apk/release/app-release.apk
 ```
 
 ---
 
-## Lo que este camino cuesta, para tenerlo presente
+## La impresora térmica
 
-Cada corrección del frontend exige **recompilar y redistribuir el APK**, y
-esperar a que cada local lo instale. Con la alternativa TWA (el APK es una
-cáscara sobre Chrome) los cambios subidos al VPS llegan solos, y el push
-web funciona sin nada de este archivo.
+### Cómo está armado
 
-Se eligió WebView por control del contenedor nativo. Queda anotado para el
-día que la redistribución empiece a molestar: migrar a TWA no obliga a
-tocar el backend, solo se reemplaza el proyecto Android.
+```
+print.js                arma el ticket en HTML  (uno solo, el de siempre)
+    |
+    v
+impresora-termica.js    extrae las líneas de ese HTML y las emite
+    |                   en ESC/POS  o  en TSPL, según la impresora
+    v
+ImpresoraTermica.java   las manda por socket Bluetooth SPP
+```
+
+El ticket **no** se escribe dos veces. Dos generadores del mismo documento
+se desincronizan sin falta: alguien agrega una línea al ticket de cocina y
+se acuerda de uno solo. El conversor recorre el HTML que `print.js` ya
+produjo.
+
+`_imprimirHTML()` intenta primero la térmica y, si no hay plugin o falla,
+cae al diálogo del navegador. Ese orden importa: dentro del APK
+`window.print()` **no hace nada** —no existe ese diálogo en un WebView— así
+que la ruta térmica avisa por toast cuando no puede, en vez de fallar
+callada.
+
+### Dos lenguajes, porque son dos clases de impresora
+
+No alcanza con hablar ESC/POS. Las que se consiguen en el mercado peruano
+se parten en dos familias que **no se entienden entre sí**:
+
+| | Lenguaje | Qué pasa si se le manda el otro |
+|---|---|---|
+| Impresora de **tickets** (rollo continuo) | ESC/POS | — |
+| Impresora de **etiquetas** (papel con gaps) | TSPL | Saca garabatos, o `err: no seam!` |
+
+`convertir()` despacha según `cfg.lenguaje`, que el admin elige en
+**Admin → Impresora**. No se autodetecta: no hay forma confiable de
+preguntarle a una térmica barata qué habla, y adivinar mal desperdicia un
+rollo entero.
+
+Del lado de TSPL hay tres valores que costaron papel averiguar:
+
+- **`GAP 0,0`** y no `GAP 2 mm,0`. Declarar un gap que el papel no tiene
+  hace que la impresora busque una separación inexistente, avance el rollo
+  entero buscándola y termine en `err: no seam!` — que solo se limpia
+  apagándola. `GAP 0,0` le dice "papel continuo", que es lo que hay.
+- **`DIRECTION 0`** y no `1`. Con `1` el ticket sale invertido: se imprime
+  de abajo hacia arriba, así que el cajero lee el total antes que el
+  encabezado y el papel sigue saliendo de más.
+- **`HOLGURA = 1.15`** al medir el ancho de un texto. Los anchos nominales
+  de fuente que declara el manual no se cumplen; sin ese margen del 15% el
+  precio se monta encima del nombre del plato.
+
+### Por qué Bluetooth Clásico y no BLE
+
+Estas térmicas hablan **Bluetooth Clásico (SPP)**, no Low Energy. Los
+plugins de la comunidad (`bluetooth-le` y similares) solo manejan BLE: con
+estas impresoras ni las encuentran. De ahí el código nativo.
+
+### La configuración se guarda en DOS lados, y no es redundancia
+
+`guardarConfiguracion()` escribe en `localStorage` **y** en Preferences
+(SharedPreferences nativo). Cada uno cubre lo que el otro no:
+
+- `localStorage` es **síncrono**, que es lo que hace falta en el momento de
+  imprimir. Pero vive dentro del WebView: Android lo vacía al liberar
+  espacio, y reinstalar el APK lo deja limpio.
+- Preferences **sobrevive** a todo eso, pero es asíncrono.
+
+De ahí la regla que **no conviene tocar**: `imprimirHTMLenTermica()` hace
+`await asegurarConfiguracion()` antes de leer nada. Sin esa espera hay una
+carrera con un síntoma engañoso — tras reinstalar, el primer cobro salía
+antes de que la restauración terminara, `configuracion()` devolvía `null`,
+caía en la autodetección y **se imprimía en el lenguaje equivocado**. No se
+ve como un bug de configuración: se ve como si la impresora se hubiera
+roto.
+
+Por el mismo motivo la autodetección construye la configuración con
+`lenguaje` **explícito** aunque sea el valor por defecto. Omitirlo dejaba
+`cfg.lenguaje` en `undefined`, y `convertir()` caía a ESC/POS en silencio.
+
+### Detalles que hacen que funcione de verdad
+
+- **Plan B al conectar.** `createRfcommSocketToServiceRecord` es la vía
+  documentada, pero muchas térmicas económicas no publican bien su registro
+  SDP y devuelven `read failed, socket might closed`. El método oculto
+  `createRfcommSocket` va directo al canal 1 y con esas sí funciona.
+- **Envío en trozos de 180 bytes con pausa.** El búfer de estas impresoras
+  es chico: un volcado de una sola vez se pierde por la mitad.
+- **Pausa antes de cerrar.** Sin ella, cerrar el socket corta el envío a
+  mitad de camino y el ticket sale por la mitad.
+- **`cancelDiscovery()` antes de conectar.** Una búsqueda en curso y una
+  conexión saliente compiten por la radio.
+- **Todo fuera del hilo principal.** El I/O de Bluetooth bloquea; en el hilo
+  principal congela la interfaz y, con la impresora apagada, Android muestra
+  "la aplicación no responde" justo mientras el cajero cobra.
+- **Acentos transliterados** (`CLÁSICO` → `CLASICO`). Las térmicas chinas
+  declaran CP850 y muchas no la implementan igual: el papel sale con
+  `CL├üSICO`. Un ticket sin tildes se lee perfecto; uno con basura, no.
+- **`BLUETOOTH_CONNECT` se pide en ejecución**, no solo en el manifiesto.
+  En Android 12+, sin ese permiso concedido `getBondedDevices()` devuelve
+  una lista **vacía** en vez de fallar — así que parece que no hay ninguna
+  impresora emparejada, sin ningún error que lo explique.
+
+### Probar el conversor sin impresora
+
+```bash
+npm run probar-termica
+```
+
+Imprime en consola cómo quedaría el papel a 48 columnas.
+
+### Si no imprime
+
+1. ¿Está **emparejada** en Ajustes → Bluetooth? La app puede buscar y
+   emparejar desde Admin → Impresora, pero el emparejamiento tiene que
+   existir antes de imprimir.
+2. ¿Se aceptaron los permisos de Bluetooth?
+3. ¿El **lenguaje** elegido es el correcto? Si el papel sale con garabatos
+   o la impresora tira `err: no seam!`, es esto: probá el otro.
+4. Con **más de una** impresora emparejada, la app no adivina: hay que
+   elegirla. Mandar la comanda a la equivocada es peor que no imprimir.
+
+Para ver en qué lenguaje salió de verdad (sin deducirlo de los bytes), el
+módulo lo deja en logcat:
+
+```bash
+adb logcat -v time Capacitor/Console:V "*:S" | grep Termica
+# [Termica] imprimiendo en tspl ancho 80 destino 86:67:...
+```
+
+---
+
+## Notificaciones
+
+Llegan por FCM nativo (`@capacitor/push-notifications`), no por Web Push
+—que no existe en un WebView—. `capacitor-init.js` expone el token con la
+misma forma que espera `push-notifications.js`, así que ese archivo no
+necesita saber qué hay abajo.
+
+### ⚠️ El plugin NO es opcional a medias: o va con Firebase, o no va
+
+`@capacitor/push-notifications` arrastra el SDK nativo de Firebase, que se
+inicializa en el **arranque de la aplicación**. Sin
+`android/app/google-services.json`, el APK **compila bien, instala bien, y
+crashea al abrir**:
+
+> *"RestoMind continúa fallando"*
+
+Nada en la consola de compilación lo delata — el error pasa en el
+dispositivo. Pasó una vez y costó encontrarlo.
+
+**Esto no es una limitación de Capacitor.** El archivo lo exige el SDK de
+Firebase para Android: con React Native, Flutter, Cordova o Android nativo
+puro, el resultado sería idéntico.
+
+Por eso `tools/integrar-android.mjs` **frena el build** si detecta el plugin
+instalado sin el archivo, con las dos salidas puestas en el mensaje. Es
+preferible no poder compilar a repartir un APK que se sabe que no abre.
+
+### Estado actual: sin push
+
+El plugin está desinstalado, así que la app funciona y **no recibe avisos de
+comandas**. Para activarlos, cuando exista el proyecto Firebase:
+
+```bash
+# 1. google-services.json va en android/app/
+npm install @capacitor/push-notifications
+npm run apk
+```
+
+Y activar el plugin de Gradle (`com.google.gms.google-services`) en los dos
+`build.gradle`. El resto del circuito —`/push/registrar`, el canal
+`comandas`, la prioridad alta en el backend— ya está hecho y probado.
