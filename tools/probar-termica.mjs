@@ -89,3 +89,78 @@ const tspl = ventana.ImpresoraTermica._convertir(preventa, 48, 'tspl');
 console.log('');
 console.log('TSPL (impresora de etiquetas) - ' + tspl.length + ' bytes');
 console.log(Buffer.from(tspl).toString('ascii').trim());
+
+/**
+ * Dibuja el TSPL, en vez de listarlo.
+ *
+ * Leer "TEXT 477,422" no dice si el importe se encima con la cantidad ni si
+ * el recuadro encierra lo que tiene que encerrar — y esos son justamente los
+ * defectos que aparecen en el papel. Revisar coordenadas a ojo ya dejo pasar
+ * un texto superpuesto y un recuadro descentrado. Esto los muestra.
+ *
+ * Es una maqueta a escala, no el resultado real: la impresora dibuja las
+ * fuentes con su propio ancho, que es la razon por la que existe HOLGURA.
+ * Sirve para ver la COMPOSICION —que nada choque, que todo cierre— no para
+ * medir milimetros.
+ */
+function dibujar(bytes) {
+    const texto = Buffer.from(bytes).toString('ascii');
+    const PPC = 10;   // puntos por caracter, horizontal
+    const PPF = 16;   // puntos por fila, vertical
+
+    let anchoPuntos = 640, altoPuntos = 800;
+    const m = texto.match(/SIZE (\d+) mm,(\d+) mm/);
+    if (m) { anchoPuntos = +m[1] * 8; altoPuntos = +m[2] * 8; }
+
+    const cols = Math.ceil(anchoPuntos / PPC);
+    const filas = Math.ceil(altoPuntos / PPF);
+    const lienzo = Array.from({ length: filas }, () => new Array(cols).fill(' '));
+
+    const poner = (fila, col, cadena, pasoPuntos) => {
+        if (fila < 0 || fila >= filas) return;
+        // `pasoPuntos` = cuanto avanza la impresora por caracter. Sin esto el
+        // dibujo daria todas las fuentes del mismo ancho, y justo el renglon
+        // mas ancho —el total, en fuente 4— es el que mas riesgo tiene de
+        // chocar con lo de al lado. Un previsualizador que no ve ese choque
+        // no sirve para lo unico que se le pide.
+        const paso = (pasoPuntos || PPC) / PPC;
+        for (let i = 0; i < cadena.length; i++) {
+            const c = col + Math.round(i * paso);
+            if (c < 0 || c >= cols) continue;
+            // Si ya hay algo distinto de un espacio, los dos textos se estan
+            // pisando. Se marca con '#' para que salte a la vista.
+            lienzo[fila][c] = lienzo[fila][c] === ' ' ? cadena[i] : '#';
+        }
+    };
+
+    // Los mismos anchos que usa el emisor, con su misma holgura del 15%.
+    const ANCHO_FUENTE = { '1': 8, '2': 12, '3': 16, '4': 24 };
+
+    for (const linea of texto.split(/\r?\n/)) {
+        let g;
+        if ((g = linea.match(/^TEXT (\d+),(\d+),"(\d)",\d+,\d+,\d+,"(.*)"$/))) {
+            poner(Math.round(+g[2] / PPF), Math.round(+g[1] / PPC), g[4],
+                  (ANCHO_FUENTE[g[3]] || 12) * 1.15);
+        } else if ((g = linea.match(/^BAR (\d+),(\d+),(\d+),(\d+)$/))) {
+            poner(Math.round(+g[2] / PPF), Math.round(+g[1] / PPC),
+                  '-'.repeat(Math.round(+g[3] / PPC)));
+        } else if ((g = linea.match(/^BOX (\d+),(\d+),(\d+),(\d+),(\d+)$/))) {
+            const [x1, y1, x2, y2] = [+g[1], +g[2], +g[3], +g[4]];
+            const c1 = Math.round(x1 / PPC), c2 = Math.round(x2 / PPC);
+            const f1 = Math.round(y1 / PPF), f2 = Math.round(y2 / PPF);
+            poner(f1, c1, '+' + '-'.repeat(Math.max(0, c2 - c1 - 1)) + '+');
+            poner(f2, c1, '+' + '-'.repeat(Math.max(0, c2 - c1 - 1)) + '+');
+            for (let f = f1 + 1; f < f2; f++) { poner(f, c1, '|'); poner(f, c2, '|'); }
+        }
+    }
+
+    console.log('\nASI QUEDA LA HOJA  (# = textos superpuestos)');
+    console.log('.' + '.'.repeat(cols) + '.');
+    for (const f of lienzo) console.log(':' + f.join('') + ':');
+    console.log("'" + "'".repeat(cols) + "'");
+
+    const choques = lienzo.filter(f => f.includes('#')).length;
+    console.log(choques ? `\n[!] ${choques} fila(s) con texto superpuesto` : '\nSin superposiciones.');
+}
+
+dibujar(tspl);

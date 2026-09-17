@@ -213,6 +213,23 @@
                     // la fuente mas grande que tenga la impresora.
                     destacado: false,
                     grueso: false,
+
+                    // --- Estructura que SOLO TSPL sabe dibujar -------------
+                    // ESC/POS no tiene recuadros ni columnas posicionadas: es
+                    // una maquina de escribir. TSPL si, y el diseno del
+                    // ticket en pantalla usa las dos cosas. En vez de tener
+                    // dos extractores, el mismo recorrido anota la estructura
+                    // y cada emisor toma lo que puede dibujar.
+                    c1: null, c2: null, c3: null,   // fila de tres columnas
+                    cabeceraTabla: false,
+                    cajaInicio: false, cajaFin: false, grosorCaja: 0,
+
+                    // Un renglon que solo tiene sentido en uno de los dos
+                    // lenguajes. La regla gruesa antes del total, por ejemplo:
+                    // en ESC/POS separa el detalle del importe, pero en TSPL
+                    // el recuadro ya hace ese trabajo y la regla quedaria
+                    // pegada al borde de la caja.
+                    soloGrafico: false, soloTexto: false,
                 },
                 opciones || {}
             ));
@@ -228,10 +245,20 @@
                 const etiqueta = hijo.tagName;
 
                 if (etiqueta === 'TABLE') {
-                    // El encabezado (Articulo / Cant / Importe) se OMITE: en
-                    // un ticket de 32-48 columnas ocupa una linea entera para
-                    // decir algo que ya es obvio por el contenido, y el papel
-                    // se paga por metro.
+                    // El encabezado (Articulo / Cant / Importe) va SOLO en
+                    // TSPL. Ahi las columnas estan posicionadas, asi que los
+                    // rotulos caen justo encima de sus cifras y la tabla se
+                    // lee como la de pantalla. En ESC/POS, que escribe corrido,
+                    // gastaria una linea entera para decir algo que ya es
+                    // obvio por el contenido — y el papel se paga por metro.
+                    const encabezados = Array.from(hijo.querySelectorAll('thead th')).map(textoDe);
+                    if (encabezados.length === 3) {
+                        agregar(null, {
+                            soloGrafico: true, cabeceraTabla: true,
+                            c1: encabezados[0], c2: encabezados[1], c3: encabezados[2],
+                        });
+                    }
+
                     for (const fila of Array.from(hijo.querySelectorAll('tbody tr, tr'))) {
                         if (fila.closest('thead')) continue;
                         const celdas = Array.from(fila.children);
@@ -253,8 +280,19 @@
                             izquierda = [cant, nombre].filter(Boolean).map(textoDe).join(' ');
                         }
 
-                        if (precio) agregar(null, { izq: izquierda, der: textoDe(precio) });
-                        else if (izquierda) agregar(izquierda);
+                        // `izq`/`der` es lo que lee ESC/POS ("2x Ceviche" a la
+                        // izquierda, importe a la derecha). `c1/c2/c3` es la
+                        // MISMA fila sin aplastar, para que TSPL la ponga en
+                        // tres columnas como en pantalla.
+                        if (precio) {
+                            const extra = { izq: izquierda, der: textoDe(precio) };
+                            if (cant && nombre) {
+                                extra.c1 = textoDe(nombre);
+                                extra.c2 = textoDe(cant).replace(/x$/i, '');
+                                extra.c3 = textoDe(precio);
+                            }
+                            agregar(null, extra);
+                        } else if (izquierda) agregar(izquierda);
                     }
                     continue;
                 }
@@ -273,17 +311,23 @@
                 // TOTAL: el numero que dos personas van a comparar en el
                 // mostrador. Va separado y destacado.
                 if (tiene('total-caja') || tiene('ticket-total') || tiene('total-grande')) {
-                    // Barra gruesa: separa el detalle de la cifra que se
-                    // paga. Es el corte visual que hace que el ojo salte
-                    // directo al total sin leer el resto.
-                    agregar('-'.repeat(ancho), { grueso: true });
+                    // Barra gruesa: en ESC/POS es el corte visual que hace que
+                    // el ojo salte directo al total. En TSPL no va, porque ahi
+                    // el recuadro ya cumple esa funcion y la barra quedaria
+                    // pegada contra el borde de la caja.
+                    agregar('-'.repeat(ancho), { grueso: true, soloTexto: true });
+
+                    agregar(null, { soloGrafico: true, cajaInicio: true, grosorCaja: 4 });
                     const partes = Array.from(hijo.children).map(textoDe).filter(Boolean);
                     if (partes.length >= 2) {
-                        agregar(partes[0], { negrita: true });
-                        agregar(partes[partes.length - 1], { destacado: true, derecha: true });
+                        agregar(partes[0], { negrita: true, centrado: true });
+                        // Centrado, no a la derecha: es como se ve en pantalla
+                        // y es lo que corresponde adentro de un recuadro.
+                        agregar(partes[partes.length - 1], { destacado: true, centrado: true });
                     } else {
-                        agregar(textoDe(hijo), { negrita: true, doble: true });
+                        agregar(textoDe(hijo), { negrita: true, doble: true, centrado: true });
                     }
+                    agregar(null, { soloGrafico: true, cajaFin: true });
                     continue;
                 }
 
@@ -302,7 +346,17 @@
                     continue;
                 }
 
-                if (tiene('aviso') || tiene('instruccion')) {
+                // "ENTREGUE ESTA HOJA EN CAJA" es una ORDEN para el comensal,
+                // no un renglon mas del ticket: en pantalla va recuadrada y
+                // por eso se ve. Se reproduce igual en el papel.
+                if (tiene('instruccion')) {
+                    agregar(null, { soloGrafico: true, cajaInicio: true, grosorCaja: 2 });
+                    agregar(textoDe(hijo), { centrado: true, negrita: true });
+                    agregar(null, { soloGrafico: true, cajaFin: true });
+                    continue;
+                }
+
+                if (tiene('aviso')) {
                     agregar(textoDe(hijo), { centrado: true, negrita: true });
                     continue;
                 }
@@ -355,12 +409,18 @@
 
         push(INIT);
         for (const l of lineas) {
+            // Recuadros y cabeceras de tabla: ESC/POS no sabe posicionar nada,
+            // asi que se saltean enteros en vez de salir como una linea suelta
+            // y descolgada.
+            if (l.soloGrafico) continue;
+
             const texto = l.izq !== null ? lineaDosColumnas(l.izq, l.der, ancho) : l.texto;
+            const agranda = l.doble || l.destacado;
             if (l.centrado) push(ALINEAR.center);
             if (l.negrita) push(NEGRITA(true));
-            if (l.doble) push(TAMANO(0x11));
+            if (agranda) push(TAMANO(0x11));
             escribirLinea(texto);
-            if (l.doble) push(TAMANO(0x00));
+            if (agranda) push(TAMANO(0x00));
             if (l.negrita) push(NEGRITA(false));
             if (l.centrado) push(ALINEAR.left);
         }
@@ -473,6 +533,21 @@
         // rompia igual sobre el texto. FEED si mueve el papel de verdad.
         colaCorteMm: 14,
 
+        // Los recuadros: el del TOTAL y el de "ENTREGUE ESTA HOJA EN CAJA".
+        // El `padding` es lo que evita que el texto toque el borde, que es
+        // exactamente lo que lo hace ver barato.
+        caja: { aireAntes: 18, padding: 16, aireDespues: 18 },
+
+        // La tabla de tres columnas, en ANCHOS DE CARACTER de la fuente
+        // normal. En caracteres y no en puntos a proposito: asi el mismo
+        // numero sirve para 58 y para 80 mm sin recalcular nada.
+        // `aireCabecera` es lo que separa el rotulo de su regla; `aireTrasRegla`
+        // lo que separa esa regla de la primera fila. Son DISTINTOS a proposito:
+        // la regla pertenece a la cabecera, asi que va pegada a ella y despegada
+        // de los items. Con un solo valor, la regla queda flotando en el medio y
+        // no se entiende a que grupo pertenece.
+        tabla: { anchoImporte: 9, anchoCant: 5, aireCabecera: 8, aireTrasRegla: 20 },
+
         // Tope de seguridad. Una etiqueta mas larga que el maximo del firmware
         // hace que la impresora alimente papel buscando un final que no llega
         // y termine trabada. Preferimos un ticket recortado a una impresora
@@ -514,7 +589,83 @@
             return t.length <= cabe ? t : t.slice(0, Math.max(0, cabe - 1));
         };
 
+        // --- La tabla de tres columnas, como en pantalla ------------------
+        // Se calculan UNA vez: las tres columnas tienen que quedar alineadas
+        // entre la cabecera y todas las filas, y eso no pasa si cada renglon
+        // decide su propia posicion.
+        const anchoChar = FUENTES.normal.ancho * HOLGURA;
+        const xImporteDer = anchoPuntos - MARGEN;
+        const xCantDer = xImporteDer - Math.ceil(PLANTILLA.tabla.anchoImporte * anchoChar);
+        const finNombre = xCantDer - Math.ceil(PLANTILLA.tabla.anchoCant * anchoChar);
+        const anchoNombre = finNombre - MARGEN;
+        const aDerecha = (der, t, f) => Math.max(MARGEN, der - mide(t, f));
+
+        // Pila porque los recuadros podrian anidarse algun dia; hoy no lo
+        // hacen, pero una variable suelta se rompe en silencio si alguna vez
+        // pasa, y una pila no.
+        const cajasAbiertas = [];
+
+        // Aire que dejo el ultimo renglon escrito. Se descuenta al cerrar un
+        // recuadro: ese aire es separacion HACIA EL SIGUIENTE renglon, y si
+        // se deja adentro de la caja el padding de abajo queda casi el doble
+        // que el de arriba. Se nota enseguida — la cifra parece apoyada sobre
+        // el borde de arriba.
+        let aireUltima = 0;
+
         for (const l of lineas) {
+            // Lo que solo tiene sentido en ESC/POS (la regla gruesa que aca
+            // reemplaza el recuadro) no se dibuja.
+            if (l.soloTexto) continue;
+
+            if (l.cajaInicio) {
+                y += PLANTILLA.caja.aireAntes;
+                const grosor = l.grosorCaja || 2;
+                cajasAbiertas.push({ y: y, grosor: grosor });
+                // El grosor se suma al padding: BOX dibuja el marco hacia
+                // ADENTRO, asi que sin esto el texto arranca sobre la linea
+                // del borde en vez de despues de ella — y cuanto mas grueso
+                // el marco, mas encima queda.
+                y += grosor + PLANTILLA.caja.padding;
+                aireUltima = 0;
+                continue;
+            }
+
+            if (l.cajaFin) {
+                const caja = cajasAbiertas.pop();
+                if (caja) {
+                    y -= aireUltima;
+                    y += PLANTILLA.caja.padding + caja.grosor;
+                    cuerpo.push('BOX ' + MARGEN + ',' + caja.y + ','
+                                + (anchoPuntos - MARGEN) + ',' + y + ',' + caja.grosor);
+                    y += PLANTILLA.caja.aireDespues;
+                }
+                continue;
+            }
+
+            // Adentro de un recuadro el texto se centra contra los bordes de
+            // la CAJA, que aca coinciden con los margenes de la hoja.
+            if (l.c1 !== null) {
+                const f = FUENTES.normal;
+                const nombre = recortar(sinTildes(l.c1), f, anchoNombre);
+                const cant = sinTildes(l.c2 || '');
+                const imp = sinTildes(l.c3 || '');
+
+                cuerpo.push(escribir(MARGEN, y, nombre, f));
+                if (cant) cuerpo.push(escribir(aDerecha(xCantDer, cant, f), y, cant, f));
+                if (imp) cuerpo.push(escribir(aDerecha(xImporteDer, imp, f), y, imp, f));
+                y += f.alto + aireDe(f);
+                aireUltima = aireDe(f);
+
+                // La cabecera lleva su regla debajo, como el <th> con
+                // border-bottom del ticket en pantalla.
+                if (l.cabeceraTabla) {
+                    y -= aireDe(f) - PLANTILLA.tabla.aireCabecera;
+                    cuerpo.push('BAR ' + MARGEN + ',' + y + ',' + util + ',2');
+                    y += 2 + PLANTILLA.tabla.aireTrasRegla;
+                }
+                continue;
+            }
+
             const esSeparador = l.izq === null && /^-+$/.test((l.texto || '').trim());
             if (esSeparador) {
                 const grosor = l.grueso
@@ -542,6 +693,7 @@
                     if (izqCompleto) cuerpo.push(escribir(MARGEN, y, izqCompleto, f));
                     if (der) cuerpo.push(escribir(xDer, y, der, f));
                     y += f.alto + aireDe(f);
+                    aireUltima = aireDe(f);
                 } else {
                     // No entran: el importe BAJA a su propia linea en vez de
                     // recortar el nombre del plato. Asi el comensal lee que
@@ -552,6 +704,7 @@
                     y += f.alto + PLANTILLA.aireImporteAbajo;
                     if (der) cuerpo.push(escribir(xDer, y, der, f));
                     y += f.alto + aireDe(f);
+                    aireUltima = aireDe(f);
                 }
                 continue;
             }
@@ -572,6 +725,7 @@
 
             cuerpo.push(escribir(x, y, texto, f));
             y += f.alto + aireDe(f);
+            aireUltima = aireDe(f);
         }
 
         // El alto de la ETIQUETA es exactamente el del contenido. El papel
