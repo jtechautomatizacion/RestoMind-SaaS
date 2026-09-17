@@ -7,24 +7,24 @@
  * la versión vieja hasta cerrar todas las pestañas).
  */
 
-const CACHE_NAME = 'restomind-v54';
+const CACHE_NAME = 'restomind-v55';
 const STATIC_ASSETS = [
-    '/static/index.html',
-    '/static/css/style.css',
-    '/static/js/app.js',
-    '/static/js/offline.js',
-    '/static/js/auth.js',
-    '/static/js/charts.js',
-    '/static/js/print.js',
-    '/static/js/mozo.js',
-    '/static/js/cocina.js',
-    '/static/js/vista-unificada.js',
-    '/static/js/dashboard.js',
-    '/static/js/admin.js',
-    '/static/js/caja.js',
-    '/static/js/cierre-caja-print.js',
-    '/static/js/push-notifications.js',
-    '/static/manifest.json'
+    'index.html',
+    'css/style.css',
+    'js/app.js',
+    'js/offline.js',
+    'js/auth.js',
+    'js/charts.js',
+    'js/print.js',
+    'js/mozo.js',
+    'js/cocina.js',
+    'js/vista-unificada.js',
+    'js/dashboard.js',
+    'js/admin.js',
+    'js/caja.js',
+    'js/cierre-caja-print.js',
+    'js/push-notifications.js',
+    'manifest.json'
 ];
 
 // Notificaciones push (Firebase Cloud Messaging) para jefe_cocina — este
@@ -81,7 +81,7 @@ self.addEventListener('notificationclick', (event) => {
             for (const client of clientList) {
                 if ('focus' in client) return client.focus();
             }
-            if (clients.openWindow) return clients.openWindow('/static/index.html');
+            if (clients.openWindow) return clients.openWindow('index.html');
         })
     );
 });

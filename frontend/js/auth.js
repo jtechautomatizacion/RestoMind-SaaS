@@ -63,7 +63,7 @@ async function refrescarSesionDesdeServidor() {
  * implementación evita que se desincronicen (ya pasó una vez).
  */
 function limpiarYRecargar() {
-    window.location.href = '/static/index.html?reset';
+    window.location.href = 'index.html?reset';
 }
 
 function mostrarLogin(mensaje) {
@@ -127,7 +127,7 @@ async function loginAdmin(event) {
 
         // Redirigir a superadmin a su panel si es superadmin
         if (data.usuario.rol === 'superadmin') {
-            window.location.href = '/static/superadmin.html';
+            window.location.href = 'superadmin.html';
             return;
         }
 

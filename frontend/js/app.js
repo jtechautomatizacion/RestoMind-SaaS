@@ -3,7 +3,12 @@
  * API client, estado global, navegación y utilidades.
  */
 
-const API_BASE_URL = '/api';
+// En la web queda '/api' (mismo dominio). Empaquetada como APK, el frontend
+// vive DENTRO de la app y el origen pasa a ser https://localhost: una ruta
+// relativa apuntaría al propio teléfono, donde no hay ningún servidor. Por
+// eso capacitor-init.js —que carga antes que este archivo— deja el dominio
+// absoluto en RESTOMIND_API_BASE.
+const API_BASE_URL = (window.RESTOMIND_API_BASE || '') + '/api';
 
 // Filtra cualquier tecla que no sea dígito a medida que se escribe — más
 // rápido de corregir para el usuario que dejarlo escribir letras/guiones

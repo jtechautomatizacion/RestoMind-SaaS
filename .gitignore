@@ -54,3 +54,11 @@ clave.txt
 data/
 *.db.construyendo
 padron_reducido_ruc.zip
+dist-apk/
+node_modules/
+apk/
+
+# El APK que se deja en la raíz para instalar en el celular de pruebas. Se
+# regenera con `npm run apk`, pesa 4 MB, y cambia en cada compilación: es
+# justo lo que no debe entrar al historial.
+*.apk

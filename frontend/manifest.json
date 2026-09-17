@@ -2,7 +2,7 @@
   "name": "RestoMind - Sistema de Comandas",
   "short_name": "RestoMind",
   "description": "Sistema inteligente de comandas para restaurantes",
-  "start_url": "/static/index.html",
+  "start_url": "index.html",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",

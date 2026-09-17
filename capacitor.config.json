@@ -1,0 +1,17 @@
+{
+  "appId": "com.restomind.pos",
+  "appName": "RestoMind",
+  "webDir": "dist-apk",
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "PushNotifications": {
+      "presentationOptions": [
+        "badge",
+        "sound",
+        "alert"
+      ]
+    }
+  }
+}
