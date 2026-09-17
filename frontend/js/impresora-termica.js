@@ -377,7 +377,6 @@
     // impresoras. La fuente "2" mide ~12x20 puntos.
     const PUNTOS_POR_MM = 8;
     const ANCHO_CARACTER = 12;
-    const ESPACIO_LINEA = 12;   // aire ENTRE lineas; el alto lo aporta cada fuente
     const MARGEN = 24;
 
     // La barra se arma con su codigo para no depender de como interprete
@@ -427,6 +426,66 @@
         return FUENTES.normal;
     }
 
+    /**
+     * LA PLANTILLA — todas las medidas del ticket, en un solo lugar.
+     *
+     * Antes estos numeros estaban sueltos entre el codigo que arma la hoja, y
+     * eso tenia un costo concreto: tocar el aire entre renglones obligaba a
+     * encontrar cuatro `y +=` distintos y acordarse de los cuatro. Al cuarto
+     * cambio, uno quedaba atras y el ticket salia descuadrado sin que nada lo
+     * avisara. Aca se cambia un numero y toda la hoja se reacomoda sola.
+     *
+     * No hay libreria que hacer esto por nosotros: las que existen en JS
+     * (esc-pos-encoder y parecidas) hablan ESC/POS y ninguna emite TSPL, que
+     * es lo que necesita una impresora de etiquetas. Sumar uno de esos
+     * paquetes agregaria peso al APK sin resolver este caso.
+     *
+     * Las unidades son PUNTOS de impresora (8 por milimetro).
+     */
+    const PLANTILLA = {
+        // Aire vertical DESPUES de cada renglon, segun su tamano. Que sea
+        // proporcional es lo que arregla el "se pega todo": con un valor fijo,
+        // una linea en fuente grande recibia el mismo aire que una chica, asi
+        // que cuanto mas importante el renglon, mas apretado se veia.
+        interlinea: { normal: 14, media: 18, grande: 24 },
+
+        // Hueco entre el concepto y el importe, medido en anchos de caracter.
+        // Sin el, aunque no se encimen, las dos columnas se leen como un solo
+        // renglon corrido y el ojo no encuentra donde termina el plato.
+        huecoColumnas: 3,
+
+        // Una linea divisoria necesita aire de los DOS lados. Con aire solo
+        // arriba queda pegada al bloque de abajo y parece subrayarlo.
+        separador: { antes: 14, despues: 20, grosorFino: 2, grosorGrueso: 5 },
+
+        // Cuando el importe no entra al lado del plato y baja a su propia
+        // linea, va indentado: alineado a la izquierda se confunde con el
+        // nombre del siguiente item.
+        aireImporteAbajo: 8,
+
+        // Papel en blanco que se saca DESPUES de imprimir, para poder romper
+        // la hoja sin llevarse la ultima linea.
+        //
+        // Va como comando FEED y NO sumado al alto de la etiqueta, y esa
+        // diferencia es justamente lo que fallaba antes: agrandar SIZE hace
+        // la etiqueta mas larga, pero la barra de corte esta ~12 mm MAS ALLA
+        // del cabezal. El papel quedaba dentro de la impresora y la hoja se
+        // rompia igual sobre el texto. FEED si mueve el papel de verdad.
+        colaCorteMm: 14,
+
+        // Tope de seguridad. Una etiqueta mas larga que el maximo del firmware
+        // hace que la impresora alimente papel buscando un final que no llega
+        // y termine trabada. Preferimos un ticket recortado a una impresora
+        // que hay que apagar en medio del servicio.
+        altoMaximoMm: 200,
+    };
+
+    function aireDe(f) {
+        if (f === FUENTES.grande) return PLANTILLA.interlinea.grande;
+        if (f === FUENTES.media) return PLANTILLA.interlinea.media;
+        return PLANTILLA.interlinea.normal;
+    }
+
     function aTspl(lineas, ancho) {
         const anchoMm = ancho >= 48 ? 80 : 58;
         const anchoPuntos = anchoMm * PUNTOS_POR_MM;
@@ -458,9 +517,12 @@
         for (const l of lineas) {
             const esSeparador = l.izq === null && /^-+$/.test((l.texto || '').trim());
             if (esSeparador) {
-                y += 10;
-                cuerpo.push('BAR ' + MARGEN + ',' + y + ',' + util + ',' + (l.grueso ? 5 : 2));
-                y += l.grueso ? 24 : 18;
+                const grosor = l.grueso
+                    ? PLANTILLA.separador.grosorGrueso
+                    : PLANTILLA.separador.grosorFino;
+                y += PLANTILLA.separador.antes;
+                cuerpo.push('BAR ' + MARGEN + ',' + y + ',' + util + ',' + grosor);
+                y += grosor + PLANTILLA.separador.despues;
                 continue;
             }
 
@@ -472,16 +534,14 @@
                 const anchoDer = mide(der, f);
                 const xDer = anchoPuntos - MARGEN - anchoDer;
 
-                // Hueco minimo entre columnas: sin el, aunque no se encimen,
-                // se leen como un solo renglon corrido.
-                const HUECO = f.ancho * 2;
+                const HUECO = f.ancho * PLANTILLA.huecoColumnas;
                 const disponibleIzq = xDer - MARGEN - HUECO;
 
                 if (mide(izqCompleto, f) <= disponibleIzq) {
                     // Entran en la misma linea, que es lo deseable.
                     if (izqCompleto) cuerpo.push(escribir(MARGEN, y, izqCompleto, f));
                     if (der) cuerpo.push(escribir(xDer, y, der, f));
-                    y += f.alto + ESPACIO_LINEA;
+                    y += f.alto + aireDe(f);
                 } else {
                     // No entran: el importe BAJA a su propia linea en vez de
                     // recortar el nombre del plato. Asi el comensal lee que
@@ -489,15 +549,15 @@
                     // solapen aunque la fuente real sea mas ancha de lo
                     // calculado.
                     cuerpo.push(escribir(MARGEN, y, recortar(izqCompleto, f, util), f));
-                    y += f.alto + 4;
+                    y += f.alto + PLANTILLA.aireImporteAbajo;
                     if (der) cuerpo.push(escribir(xDer, y, der, f));
-                    y += f.alto + ESPACIO_LINEA;
+                    y += f.alto + aireDe(f);
                 }
                 continue;
             }
 
             const t = sinTildes(l.texto);
-            if (!t) { y += ESPACIO_LINEA; continue; }
+            if (!t) { y += PLANTILLA.interlinea.normal; continue; }
 
             // Si no entra, se BAJA de tamaño antes que recortar: el texto
             // completo vale mas que el tamaño con el que se imprime.
@@ -511,15 +571,19 @@
             else if (l.derecha) x = Math.max(MARGEN, anchoPuntos - MARGEN - mide(texto, f));
 
             cuerpo.push(escribir(x, y, texto, f));
-            y += f.alto + ESPACIO_LINEA;
+            y += f.alto + aireDe(f);
         }
 
-        // Medio centímetro en blanco al final para poder cortar la hoja sin
-        // llevarse la última línea. El cabezal está unos milímetros por
-        // encima del borde de corte, así que sin este avance la tijera —o el
-        // tirón contra el filo— cae justo sobre el texto.
-        const TIRA_CORTE_MM = 5;
-        const altoMm = Math.ceil((y + MARGEN) / PUNTOS_POR_MM) + TIRA_CORTE_MM;
+        // El alto de la ETIQUETA es exactamente el del contenido. El papel
+        // para romper la hoja NO se suma aca — ver PLANTILLA.colaCorteMm: se
+        // saca despues con FEED, que es lo unico que mueve el papel mas alla
+        // del cabezal hasta la barra de corte.
+        let altoMm = Math.ceil((y + MARGEN) / PUNTOS_POR_MM);
+        if (altoMm > PLANTILLA.altoMaximoMm) {
+            console.warn('[Termica] ticket de', altoMm, 'mm recortado a',
+                         PLANTILLA.altoMaximoMm, 'mm');
+            altoMm = PLANTILLA.altoMaximoMm;
+        }
 
         const comandos = [
             'SIZE ' + anchoMm + ' mm,' + altoMm + ' mm',
@@ -531,7 +595,14 @@
             'DIRECTION 0',
             'REFERENCE 0,0',
             'CLS',
-        ].concat(cuerpo).concat(['PRINT 1,1']);
+        ].concat(cuerpo).concat([
+            'PRINT 1,1',
+            // Saca la ultima linea de adentro de la impresora. FEED es una
+            // orden de MOTOR pura: no consulta ningun sensor, asi que no
+            // puede disparar el "err: no seam!" que si provoca cualquier
+            // comando de calibracion o de busqueda de separacion.
+            'FEED ' + (PLANTILLA.colaCorteMm * PUNTOS_POR_MM),
+        ]);
 
         // En TSPL cada comando TERMINA en CRLF. Con LF suelto, varias
         // impresoras ignoran la linea entera y no imprimen nada.
