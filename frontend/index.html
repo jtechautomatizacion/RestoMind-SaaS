@@ -8,7 +8,7 @@
          estado de Android con la app instalada. -->
     <meta name="theme-color" content="#0F1317">
     <meta name="description" content="RestoMind - Sistema inteligente de comandas">
-    <link rel="manifest" href="/static/manifest.json">
+    <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' rx='36' fill='%231B5EA8'/><text x='90' y='90' font-size='72' fill='%23fff' text-anchor='middle' dy='.32em' font-family='sans-serif' font-weight='800'>R</text></svg>">
     <!-- Sin esto el navegador pide /favicon.ico por su cuenta y come un 404
          en cada carga (ruido en consola que tapa errores de verdad). -->
@@ -135,7 +135,7 @@
         }
     </style>
 
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
     <div id="splash">
@@ -228,7 +228,7 @@
                 }
                 // replace() y no href: que el ?reset no quede en el historial
                 // (volver atrás no debería re-disparar un reset).
-                window.location.replace('/static/index.html');
+                window.location.replace('index.html');
             })();
         }
         try {
@@ -1340,6 +1340,64 @@
                         </label>
                     </div>
 
+                    <!-- Impresora térmica. Solo se muestra en la app instalada:
+                         en el navegador la impresión va por el diálogo del
+                         sistema y no hay nada que elegir acá. -->
+                    <div class="notif-settings-card hidden" id="card-impresora">
+                        <div class="notif-settings-icon">
+                            <svg viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                        </div>
+                        <div class="notif-settings-text" style="flex:1">
+                            <div class="notif-settings-title">Impresora térmica</div>
+                            <div class="notif-settings-hint" id="impresora-hint">Buscando…</div>
+
+                            <div class="form-group" style="margin-top:12px">
+                                <label for="impresora-destino">Impresora</label>
+                                <select id="impresora-destino"></select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="impresora-ancho">Ancho del papel</label>
+                                <select id="impresora-ancho">
+                                    <option value="80">80 mm (48 columnas)</option>
+                                    <option value="58">58 mm (32 columnas)</option>
+                                </select>
+                            </div>
+
+                            <!-- No es un detalle técnico: son dos lenguajes
+                                 distintos. Una de etiquetas NO entiende
+                                 ESC/POS — recibe todo y no imprime nada. -->
+                            <div class="form-group">
+                                <label for="impresora-lenguaje">Tipo de impresora</label>
+                                <select id="impresora-lenguaje">
+                                    <option value="escpos">De tickets (ESC/POS)</option>
+                                    <option value="tspl">De etiquetas (TSPL)</option>
+                                </select>
+                            </div>
+
+                            <!-- La IP aparece solo si se eligió "por red": una
+                                 impresora Bluetooth no tiene dirección que
+                                 pedir, y un campo vacío que no se usa invita a
+                                 llenarlo mal. -->
+                            <div class="form-group hidden" id="grupo-impresora-ip">
+                                <label for="impresora-ip">Dirección (IP o IP:puerto)</label>
+                                <input type="text" id="impresora-ip" placeholder="192.168.1.50" inputmode="decimal">
+                            </div>
+
+                            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:4px">
+                                <button class="btn btn-primary" onclick="guardarImpresora()">Guardar</button>
+                                <button class="btn" onclick="probarImpresora()">Imprimir prueba</button>
+                                <!-- Emparejar es del sistema operativo, no de
+                                     la app: este botón lleva a la pantalla
+                                     correcta en vez de dejar al usuario
+                                     buscándola. -->
+                                <button class="btn" onclick="buscarImpresoras()">Buscar impresoras</button>
+                                <button class="btn" onclick="probarImpresoraSimple()">Prueba simple</button>
+                                <button class="btn" onclick="probarImpresoraEtiqueta()">Prueba etiqueta</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <button class="btn btn-primary btn-fab" onclick="abrirModalNuevoUsuario()">
                         <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                         Nueva cuenta
@@ -1516,21 +1574,54 @@
          el proyecto está configurado (ver frontend/js/push-notifications.js).
          Sin configurar, activarNotificacionesCocina() no hace nada, el resto
          de la app sigue funcionando igual. -->
-    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js"></script>
-    <script src="/static/js/push-notifications.js"></script>
-    <script src="/static/js/app.js"></script>
-    <script src="/static/js/offline.js"></script>
-    <script src="/static/js/auth.js"></script>
-    <script src="/static/js/charts.js"></script>
-    <script src="/static/js/print.js"></script>
-    <script src="/static/js/mozo.js"></script>
-    <script src="/static/js/cocina.js"></script>
-    <script src="/static/js/vista-unificada.js"></script>
-    <script src="/static/js/dashboard.js"></script>
-    <script src="/static/js/admin.js"></script>
-    <script src="/static/js/cierre-caja-print.js"></script>
-    <script src="/static/js/caja.js"></script>
+    <script>
+        // El SDK web de Firebase se carga SOLO en el navegador, y de forma
+        // asíncrona.
+        //
+        // Como etiquetas <script src> normales eran dos descargas REMOTAS y
+        // BLOQUEANTES: dentro del APK la app no arrancaba hasta que Google
+        // contestara, y sin señal no arrancaba nunca — exactamente lo que
+        // empaquetar el frontend vino a resolver.
+        //
+        // Y ahí no hacen falta: en la app instalada el push llega por el
+        // plugin nativo (ver capacitor-init.js), no por Web Push.
+        //
+        // En el navegador sí se cargan, y async alcanza: push-notifications.js
+        // solo toca `firebase` al activar las notificaciones, mucho después
+        // del arranque, y ya comprueba que exista antes de usarlo.
+        (function () {
+            var esNativo = window.Capacitor
+                && typeof window.Capacitor.isNativePlatform === 'function'
+                && window.Capacitor.isNativePlatform();
+            if (esNativo) return;
+
+            var base = 'https://www.gstatic.com/firebasejs/10.13.0/';
+            ['firebase-app-compat.js', 'firebase-messaging-compat.js'].forEach(function (archivo) {
+                var s = document.createElement('script');
+                s.src = base + archivo;
+                s.async = false;   // conserva el orden entre los dos
+                document.head.appendChild(s);
+            });
+        })();
+    </script>
+    <!-- PRIMERO de todos: define window.RESTOMIND_API_BASE, que app.js lee
+         al construir API_BASE_URL. Cargado después, las primeras llamadas
+         saldrían con la URL equivocada. -->
+    <script src="js/capacitor-init.js"></script>
+    <script src="js/push-notifications.js"></script>
+    <script src="js/app.js"></script>
+    <script src="js/offline.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/charts.js"></script>
+    <script src="js/impresora-termica.js"></script>
+    <script src="js/print.js"></script>
+    <script src="js/mozo.js"></script>
+    <script src="js/cocina.js"></script>
+    <script src="js/vista-unificada.js"></script>
+    <script src="js/dashboard.js"></script>
+    <script src="js/admin.js"></script>
+    <script src="js/cierre-caja-print.js"></script>
+    <script src="js/caja.js"></script>
 
     <script>
         // En una carga con ?reset NO se registra: el bloque inline del <head>
@@ -1540,8 +1631,13 @@
         // caché" no surtía efecto). Esta carga se descarta igual: el bloque
         // del <head> redirige apenas termina.
         const enReset = new URLSearchParams(window.location.search).has('reset');
-        if ('serviceWorker' in navigator && !enReset) {
-            navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+        // En el APK el Service Worker NO se registra: los archivos ya viven
+        // dentro de la app, así que cachearlos otra vez no agrega nada y sí
+        // agrega un problema — su caché sobrevive a la actualización de la
+        // app y puede seguir sirviendo la versión anterior del JS después de
+        // instalar una nueva, un bug imposible de entender desde afuera.
+        if ('serviceWorker' in navigator && !enReset && !window.RESTOMIND_ES_NATIVO) {
+            navigator.serviceWorker.register('sw.js').catch(() => {});
         }
         // .finally cubre los tres caminos de initAuth (sin sesión -> login,
         // sesión válida -> app, sesión vencida -> login con aviso): el

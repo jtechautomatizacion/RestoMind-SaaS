@@ -189,10 +189,14 @@ function _ticketPreventaHTML(comanda, negocio, atendidoPor) {
         </tr>
     `).join('');
 
+    // La pre-venta se entrega EN MANO a alguien que ya está en el local, y
+    // el papel térmico se paga por metro. Dirección y correo no le sirven a
+    // nadie en ese momento —y de paso la acercan al aspecto de un
+    // comprobante, que es justo lo que este ticket NO debe parecer— así que
+    // no se imprimen. El RUC sí queda: identifica al negocio en una hoja que
+    // el comensal puede llevarse.
     const lineaTitular = negocio.razon_social ? `<div>${escapeHtml(negocio.razon_social)}</div>` : '';
-    const lineaDireccion = negocio.direccion ? `<div>${escapeHtml(negocio.direccion)}</div>` : '';
     const lineaRuc = negocio.ruc ? `<div>RUC: ${escapeHtml(negocio.ruc)}</div>` : '';
-    const lineaEmail = negocio.email ? `<div>${escapeHtml(negocio.email)}</div>` : '';
 
     return `<!DOCTYPE html>
 <html>
@@ -239,9 +243,7 @@ function _ticketPreventaHTML(comanda, negocio, atendidoPor) {
     <div class="centro datos-negocio">
         ${lineaTitular}
         <div class="comercial">${escapeHtml(negocio.nombre)}</div>
-        ${lineaDireccion}
         ${lineaRuc}
-        ${lineaEmail}
         <div class="tipo">PRE-VENTA</div>
         <div class="aviso">NO ES COMPROBANTE DE PAGO</div>
     </div>
@@ -269,7 +271,25 @@ function _ticketPreventaHTML(comanda, negocio, atendidoPor) {
 </html>`;
 }
 
-function _imprimirHTML(html) {
+/**
+ * Único punto de salida de TODOS los tickets de la app.
+ *
+ * Intenta primero la térmica por Bluetooth y, si no está disponible o
+ * falla, cae al diálogo del navegador de siempre. El orden importa: dentro
+ * del APK `window.print()` no hace nada —no existe ese diálogo en un
+ * WebView— así que si la térmica no responde, el ticket simplemente no
+ * sale. Por eso la ruta térmica avisa por toast cuando no puede, en vez de
+ * fallar callada.
+ */
+async function _imprimirHTML(html) {
+    if (window.ImpresoraTermica && window.ImpresoraTermica.disponible()) {
+        const salio = await window.ImpresoraTermica.imprimirHTML(html);
+        if (salio) return;
+    }
+    return _imprimirEnNavegador(html);
+}
+
+function _imprimirEnNavegador(html) {
     return new Promise(resolve => {
         const iframe = document.createElement('iframe');
         iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
