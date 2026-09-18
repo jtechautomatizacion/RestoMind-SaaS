@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Pantalla de carga para Android 11 y anteriores.
+
+    Es un color sólido con la marca CENTRADA encima, en vez de una imagen de
+    pantalla completa. El fondo de ventana estira el bitmap para llenar la
+    pantalla, así que una imagen ya compuesta se deforma en cualquier
+    proporción distinta de aquella para la que se generó — y hay tantas
+    proporciones como modelos de teléfono.
+
+    Así además no hacen falta once PNG (una por densidad y orientación): el
+    color y el logo se combinan en el momento, siempre bien.
+
+    Android 12+ no usa esto: ver windowSplashScreen* en values/styles.xml.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/ic_launcher_background" />
+    <item android:gravity="center">
+        <bitmap
+            android:src="@mipmap/ic_launcher_foreground"
+            android:gravity="center" />
+    </item>
+</layer-list>

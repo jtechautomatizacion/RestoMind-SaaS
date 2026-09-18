@@ -32,7 +32,30 @@ let comandasVistas = null;
  * y no vale sumarle un archivo al APK, ni una petición de red que puede
  * fallar justo cuando hace falta el aviso.
  */
+// Si ESTE dispositivo hace sonar el aviso. Por dispositivo y no por cuenta:
+// es una decisión sobre el parlante que uno tiene al lado — el tablet de la
+// cocina lo quiere encendido, el celular del dueño en una reunión no.
+const AVISO_COCINA_KEY = 'restomind_aviso_cocina';
+
+function avisoCocinaActivo() {
+    try {
+        // Encendido por defecto: si un local nunca toca el ajuste, tiene que
+        // enterarse igual de que entró un pedido. Apagado por defecto haría
+        // que el aviso pareciera roto.
+        return localStorage.getItem(AVISO_COCINA_KEY) !== 'false';
+    } catch (_) {
+        return true;
+    }
+}
+
+function setAvisoCocinaActivo(activo) {
+    try {
+        localStorage.setItem(AVISO_COCINA_KEY, activo ? 'true' : 'false');
+    } catch (_) { /* almacenamiento bloqueado */ }
+}
+
 function sonarAvisoCocina() {
+    if (!avisoCocinaActivo()) return;
     try {
         const Ctx = window.AudioContext || window.webkitAudioContext;
         if (Ctx) {

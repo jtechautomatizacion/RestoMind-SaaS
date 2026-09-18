@@ -324,18 +324,16 @@ function vuRenderMesas(enCocina) {
     const cont = document.getElementById('vu-mesas');
     if (!cont) return;
 
-    if (!estado.mesas.length) {
-        cont.innerHTML = '<p class="vu-vacio">Aún no hay mesas configuradas.</p>';
-        vuBadge('mesas', 0);
-        return;
-    }
 
     // La grilla se reconstruye solo si cambió el CONJUNTO de mesas (el
     // admin agregó o quitó una), no en cada refresco de estado.
-    const firma = estado.mesas.map(m => m.numero).join(',');
+    const firma = estado.mesas.map(m => m.numero).join(',') + '|llevar';
     if (cont.dataset.firma !== firma) {
         cont.dataset.firma = firma;
-        cont.innerHTML = estado.mesas.map((mesa, idx) => `
+        const vacio = estado.mesas.length
+            ? ''
+            : '<p class="vu-vacio">Aún no hay mesas configuradas.</p>';
+        cont.innerHTML = vacio + estado.mesas.map((mesa, idx) => `
             <button type="button" class="vu-mesa" data-numero="${mesa.numero}"
                     onclick="vuAbrirMesa(${idx})">
                 <span class="vu-mesa-barra" aria-hidden="true"></span>
@@ -346,7 +344,29 @@ function vuRenderMesas(enCocina) {
                 ${_VU_MESA_SVG}
                 <span class="vu-mesa-detalle"></span>
             </button>
-        `).join('');
+        `).join('')
+        // "Para llevar" también acá, no solo en la vista clásica de Mesas.
+        //
+        // Quien trabaja en "Todo en uno" es justamente quien atiende SOLO —el
+        // dueño o su asistente— así que es el que más lo necesita: es el mismo
+        // que cobra en el mostrador. Si la opción existiera únicamente en la
+        // otra vista, tendría que cambiar de pantalla para vender para llevar,
+        // que es lo contrario de por qué esta vista existe.
+        + `
+            <button type="button" class="vu-mesa vu-mesa-llevar" data-numero="llevar"
+                    onclick="abrirPedidoParaLlevar()">
+                <span class="vu-mesa-barra" aria-hidden="true"></span>
+                <span class="vu-mesa-cabecera">
+                    <span class="vu-mesa-num vu-mesa-num-llevar">Para llevar</span>
+                </span>
+                <svg class="vu-mesa-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M6 8h12l-1 12H7L6 8z"/>
+                    <path d="M9 8V6a3 3 0 0 1 6 0v2"/>
+                </svg>
+                <span class="vu-mesa-detalle">Se cobra al pedir</span>
+            </button>
+        `;
     }
 
     const minutos = vuMinutosPorMesa();

@@ -69,7 +69,10 @@
             align-items: center;
             justify-content: center;
             gap: 26px;
-            background: #0F1317;
+            /* El MISMO azul que el splash del sistema (ic_launcher_background).
+               Con dos colores distintos se ve un parpadeo al pasar de uno al
+               otro, que parece que la app se reinició. */
+            background: #134381;
             /* Sin webfonts, igual que el resto de la app: en un celular de
                gama baja con datos lentos, esperar a que baje una tipografía
                para mostrar el splash es exactamente el problema que el
@@ -84,9 +87,9 @@
             flex-direction: column;
             align-items: center;
             gap: 14px;
-            color: #7FB0F2;
+            color: #FFFFFF;
         }
-        .splash-icono { width: 96px; height: 96px; }
+        .splash-icono { width: 104px; height: 104px; display: block; }
         .splash-nombre {
             font-size: 34px;
             font-weight: 700;
@@ -140,21 +143,9 @@
 <body>
     <div id="splash">
         <div class="splash-marca">
-            <svg class="splash-icono" viewBox="0 0 64 64" fill="none" stroke="currentColor"
-                 stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <!-- Mesa: tablero, pie central y base -->
-                <path d="M20 28 H44"/>
-                <path d="M32 28 V46"/>
-                <path d="M25 46 H39"/>
-                <!-- Silla izquierda: respaldo, asiento, pata delantera -->
-                <path d="M9 41 V21 Q9 17 13 17"/>
-                <path d="M9 32 H17"/>
-                <path d="M17 32 V41"/>
-                <!-- Silla derecha (espejo) -->
-                <path d="M55 41 V21 Q55 17 51 17"/>
-                <path d="M47 32 H55"/>
-                <path d="M47 32 V41"/>
-            </svg>
+            <!-- El logo de la marca. Antes acá había un dibujo genérico de mesa
+                 y sillas, que no es el logo de RestoMind. -->
+            <img class="splash-icono" src="assets/marca-blanca.png" alt="" aria-hidden="true">
             <div class="splash-nombre">RestoMind</div>
         </div>
 
@@ -1339,7 +1330,12 @@
                         </div>
                         <div class="notif-settings-text">
                             <div class="notif-settings-title">Avisarme de comandas nuevas</div>
-                            <div class="notif-settings-hint">Notificación en este dispositivo, incluso con la app minimizada. Para cocina ya es obligatorio.</div>
+                            <!-- Dice lo que HACE, no lo que nos gustaría que
+                                 hiciera: suena y vibra con la app abierta. La
+                                 versión anterior prometía avisos con la app
+                                 minimizada, que necesitan Firebase y nunca
+                                 llegaron a funcionar. -->
+                            <div class="notif-settings-hint">Suena y vibra en este dispositivo cuando entra un pedido, con la app abierta.</div>
                         </div>
                         <label class="switch">
                             <input type="checkbox" id="switch-notif-admin" onchange="onToggleNotificacionesAdmin(event)">

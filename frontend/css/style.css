@@ -3758,3 +3758,17 @@ body {
     line-height: 1.15;
     letter-spacing: .01em;
 }
+
+/* "Para llevar" en la vista Todo en uno. Mismo lenguaje visual que el botón
+   de la grilla clásica, para que se reconozca al pasar de una vista a otra. */
+.vu-mesa-llevar {
+    border-color: var(--accent, #FF5A3C);
+    background: linear-gradient(160deg,
+        color-mix(in srgb, var(--accent, #FF5A3C) 14%, transparent),
+        transparent 70%);
+}
+.vu-mesa-llevar .vu-mesa-barra { background: var(--accent, #FF5A3C); }
+.vu-mesa-llevar .vu-mesa-svg { color: var(--accent, #FF5A3C); }
+/* El número de mesa va en cuerpo grande; "Para llevar" a ese tamaño se
+   desborda del botón. */
+.vu-mesa-num-llevar { font-size: .82rem; font-weight: 700; line-height: 1.1; }

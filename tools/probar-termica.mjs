@@ -84,6 +84,21 @@ ${etiqueta} — ${mm} mm — ${cols} col — ${bytes.length} bytes`);
     }
 }
 
+// El mismo ticket en su variante PARA LLEVAR: ya esta pagado, asi que no
+// puede decir "TOTAL A PAGAR" ni mandar al cliente a la caja.
+const paraLlevar = preventa
+    .replace('<div class="tipo">PRE-VENTA</div>', '<div class="tipo">PARA LLEVAR</div>')
+    .replace('<div class="rotulo">TOTAL A PAGAR</div>', '<div class="rotulo">TOTAL PAGADO</div>')
+    .replace('<div class="instruccion">ENTREGUE ESTA HOJA EN CAJA</div>',
+             '<div class="instruccion">SU PEDIDO: N° 63</div>')
+    .replace('<span>MESA: 5</span>', '<span>PARA LLEVAR</span>');
+
+const bytesLlevar = ventana.ImpresoraTermica._convertir(paraLlevar, 48, 'escpos');
+console.log('\nPARA LLEVAR (ESC/POS) - lo que lee el cliente');
+console.log('+' + '-'.repeat(48) + '+');
+for (const l of comoSeVe(bytesLlevar)) console.log('|' + l.padEnd(48).slice(0, 48) + '|');
+console.log('+' + '-'.repeat(48) + '+');
+
 const tspl = ventana.ImpresoraTermica._convertir(preventa, 48, 'tspl');
 console.log('');
 console.log('TSPL (impresora de etiquetas) - ' + tspl.length + ' bytes');

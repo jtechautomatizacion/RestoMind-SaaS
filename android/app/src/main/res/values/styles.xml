@@ -16,7 +16,28 @@
     </style>
 
 
+    <!--
+        PANTALLA DE CARGA.
+
+        Los tres atributos `windowSplashScreen*` NO son decorativos: desde
+        Android 12 el sistema dibuja esta pantalla por su cuenta e IGNORA por
+        completo `android:background`. Sin ellos muestra su propio diseño por
+        defecto —el ícono sobre un fondo blanco— y parece que el splash nunca
+        se hubiera configurado. Eso es exactamente lo que estaba pasando.
+
+        Van sin el prefijo `android:` a propósito: así los define la librería
+        androidx core-splashscreen, y de esa forma funcionan también en las
+        versiones anteriores a la 12, donde el sistema todavía no los conoce.
+
+        `android:background` se queda para Android 11 y anteriores.
+    -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <item name="windowSplashScreenBackground">@color/ic_launcher_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <!-- A dónde va la app cuando termina de cargar. Sin esto queda con el
+             tema del splash puesto y la pantalla real hereda ese fondo. -->
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+
+        <item name="android:background">@drawable/splash_fondo</item>
     </style>
 </resources>

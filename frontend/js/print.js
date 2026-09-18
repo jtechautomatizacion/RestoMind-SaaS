@@ -189,6 +189,16 @@ function rotuloPedido(comanda) {
 }
 
 function _ticketPreventaHTML(comanda, negocio, atendidoPor) {
+    // PARA LLEVAR YA ESTA PAGADO, y el papel tiene que decirlo.
+    //
+    // Este mismo ticket, en un pedido de mesa, dice "TOTAL A PAGAR" y
+    // "ENTREGUE ESTA HOJA EN CAJA" — las dos cosas son falsas en un pedido de
+    // mostrador que se cobro al tomarlo. Mandar a alguien a pagar de nuevo lo
+    // que ya pago es el peor error posible en un papel que se entrega en mano.
+    //
+    // En su lugar va el numero de pedido en grande: es lo que se canta cuando
+    // esta listo, y lo unico que el cliente necesita de esta hoja.
+    const paraLlevar = comanda && comanda.tipo_pedido === 'llevar';
     const fecha = new Date(comanda.creado_en || Date.now());
     const fechaHoraStr = fecha.toLocaleString('es-PE', {
         day: '2-digit', month: '2-digit', year: 'numeric',
@@ -263,12 +273,14 @@ function _ticketPreventaHTML(comanda, negocio, atendidoPor) {
     <div class="centro datos-negocio">
         <div class="comercial">${escapeHtml(negocio.nombre)}</div>
         ${lineaRuc}
-        <div class="tipo">PRE-VENTA</div>
+        <div class="tipo">${paraLlevar ? 'PARA LLEVAR' : 'PRE-VENTA'}</div>
         <div class="aviso">NO ES COMPROBANTE DE PAGO</div>
     </div>
     <div class="linea"></div>
     <div class="campos">
-        <span>${rotuloPedido(comanda)}</span>
+        <!-- Sin el número acá: la columna de al lado ya lo muestra, y verlo
+             repetido en el mismo renglón se lee como un error de impresión. -->
+        <span>${paraLlevar ? 'PARA LLEVAR' : rotuloPedido(comanda)}</span>
         <span>N&ordm; ${comanda.id ?? '-'}</span>
     </div>
     <div class="campos">
@@ -281,10 +293,12 @@ function _ticketPreventaHTML(comanda, negocio, atendidoPor) {
         <tbody>${filas}</tbody>
     </table>
     <div class="total-caja">
-        <div class="rotulo">TOTAL A PAGAR</div>
+        <div class="rotulo">${paraLlevar ? 'TOTAL PAGADO' : 'TOTAL A PAGAR'}</div>
         <div class="monto">S/ ${comanda.total_cuenta.toFixed(2)}</div>
     </div>
-    <div class="instruccion">ENTREGUE ESTA HOJA EN CAJA</div>
+    <div class="instruccion">${paraLlevar
+        ? `SU PEDIDO: N${String.fromCharCode(176)} ${comanda.id ?? '-'}`
+        : 'ENTREGUE ESTA HOJA EN CAJA'}</div>
     <div class="pie">GRACIAS POR SU PREFERENCIA</div>
 </body>
 </html>`;

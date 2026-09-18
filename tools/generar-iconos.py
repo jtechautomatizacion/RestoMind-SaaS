@@ -136,21 +136,6 @@ def cuadrado_redondeado(lado: int, marca: Image.Image) -> Image.Image:
     return img
 
 
-def pantalla_carga(ancho: int, alto: int, marca: Image.Image) -> Image.Image:
-    """Fondo azul con la marca al centro.
-
-    Deliberadamente SIN el texto "Cargando..." ni el spinner que se ven en el
-    diseño: los dibuja la app en HTML, con la tipografía y la animación reales.
-    Quemarlos en la imagen daría dos textos superpuestos, y uno de ellos
-    estirado, porque esta imagen se escala distinto en cada pantalla.
-    """
-    img = Image.new("RGBA", (ancho, alto), AZUL + (255,))
-    lado = min(ancho, alto)
-    encima = centrar(marca, lado, 0.42)
-    img.paste(encima, ((ancho - lado) // 2, (alto - lado) // 2), encima)
-    return img
-
-
 def guardar(img: Image.Image, ruta: Path) -> None:
     ruta.parent.mkdir(parents=True, exist_ok=True)
     img.save(ruta, "PNG", optimize=True)
@@ -195,13 +180,20 @@ def main() -> None:
         guardar(icono, RES / f"mipmap-{carpeta}" / "ic_launcher_round.png")
 
     # --- Pantalla de carga -------------------------------------------------
-    print("\nPantalla de carga:")
-    verticales = {"mdpi": (320, 480), "hdpi": (480, 800), "xhdpi": (720, 1280),
-                  "xxhdpi": (960, 1600), "xxxhdpi": (1280, 1920)}
-    for carpeta, (w, h) in verticales.items():
-        guardar(pantalla_carga(w, h, marca), RES / f"drawable-port-{carpeta}" / "splash.png")
-        guardar(pantalla_carga(h, w, marca), RES / f"drawable-land-{carpeta}" / "splash.png")
-    guardar(pantalla_carga(480, 320, marca), RES / "drawable" / "splash.png")
+    #
+    # NO se generan imágenes de pantalla completa, y es a propósito. El fondo
+    # de ventana ESTIRA el bitmap para llenar la pantalla, así que una imagen
+    # ya compuesta se deforma en cualquier proporción distinta de aquella para
+    # la que se generó — y hay tantas proporciones como modelos de teléfono.
+    #
+    # Android arma la pantalla solo: color de fondo + ícono centrado. Ver
+    # values/styles.xml (Android 12+) y drawable/splash_fondo.xml (anteriores).
+    # Los dos reusan el ícono adaptativo que ya se generó arriba.
+    #
+    # Lo único que hace falta es la marca suelta para el "Cargando..." que
+    # dibuja la propia app en HTML, después del splash del sistema.
+    print("\nMarca para el 'Cargando...' de la app:")
+    guardar(centrar(marca, 512, 0.86), RAIZ / "frontend" / "assets" / "marca-blanca.png")
 
     # --- PWA ---------------------------------------------------------------
     # Hasta ahora el manifest traía un SVG genérico embebido en base64 — un

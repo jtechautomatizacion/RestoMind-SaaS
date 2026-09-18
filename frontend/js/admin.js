@@ -63,44 +63,40 @@ function _initSwitchesDeRol() {
 }
 
 /**
- * Switch de notificaciones del admin (opcional — a diferencia de cocina,
- * que las activa solas y sin switch, ver push-notifications.js).
+ * Switch del aviso de comanda nueva, en ESTE dispositivo.
  *
- * Dos pasos a propósito: se pinta al instante con el valor local (para que
- * el switch no aparezca "saltando" al cargar) y después se corrige con la
- * verdad del servidor. Sin ese segundo paso, un navegador con localStorage
- * limpio mostraba el switch apagado mientras los avisos seguían llegando.
+ * ANTES PROMETIA ALGO QUE LA APP NO PODIA HACER. Encendía notificaciones
+ * push de Firebase, que necesitan un proyecto creado a mano y un
+ * google-services.json que el APK no tiene. Resultado: el switch fallaba
+ * SIEMPRE, con un "revisá el permiso de notificaciones del navegador" que
+ * mandaba a buscar el problema al lugar equivocado — el permiso estaba bien,
+ * lo que faltaba era Firebase.
+ *
+ * Ahora controla el aviso que sí existe y sí funciona: el sonido y la
+ * vibración cuando entra un pedido (ver cocina.js). Es por dispositivo y no
+ * por cuenta, porque es una decisión sobre el parlante que uno tiene al lado.
+ *
+ * Cuando algún día haya proyecto Firebase, el push se suma acá — pero recién
+ * cuando de verdad pueda llegar.
  */
 function _initSwitchNotificacionesAdmin() {
     const input = document.getElementById('switch-notif-admin');
-    if (!input || typeof notificacionesAdminActivas !== 'function') return;
-
-    input.checked = notificacionesAdminActivas();
-
-    notificacionesAdminActivasEnServidor().then(activo => {
-        // null = no se pudo consultar (sin red): se deja lo que ya mostraba.
-        if (activo !== null) input.checked = activo;
-    });
+    if (!input || typeof avisoCocinaActivo !== 'function') return;
+    input.checked = avisoCocinaActivo();
 }
 
-async function onToggleNotificacionesAdmin(event) {
-    const input = event.target;
-    const quiereActivar = input.checked;
+function onToggleNotificacionesAdmin(event) {
+    const activar = event.target.checked;
+    setAvisoCocinaActivo(activar);
 
-    input.disabled = true;
-    try {
-        const quedoActivo = await toggleNotificacionesAdmin(quiereActivar);
-        input.checked = quedoActivo;
-
-        if (quiereActivar && !quedoActivo) {
-            showToast('No se pudo activar: revisa el permiso de notificaciones del navegador', 'error');
-        } else if (quiereActivar) {
-            showToast('Notificaciones activadas', 'success');
-        } else {
-            showToast('Notificaciones desactivadas', 'success');
-        }
-    } finally {
-        input.disabled = false;
+    if (activar) {
+        // Suena una vez al encenderlo. Es la única forma de saber que el
+        // dispositivo no está en silencio, que es la causa más común de
+        // "activé el aviso y no me llega nada".
+        if (typeof sonarAvisoCocina === 'function') sonarAvisoCocina();
+        showToast('Aviso activado en este dispositivo', 'success');
+    } else {
+        showToast('Aviso apagado en este dispositivo', 'success');
     }
 }
 
