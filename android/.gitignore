@@ -26,10 +26,13 @@ local.properties
 # SUNAT: quien lo tiene puede hacerse pasar por la app.
 google-services.json
 
-# Claves de firma del APK. Si se pierde la de release, NO se puede volver a
-# publicar una actualización de la misma app nunca más.
+# La clave de firma y el archivo con su contraseña. Con los dos, cualquiera
+# puede publicar un APK que los teléfonos aceptarían como actualización
+# legítima de RestoMind. Hay que respaldarlos FUERA del repo: si se pierden,
+# esta app no se puede actualizar nunca más (ver tools/crear-clave.mjs).
 *.jks
 *.keystore
+keystore.properties
 
 .idea/
 .cxx/

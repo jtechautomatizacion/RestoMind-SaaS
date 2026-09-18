@@ -1,5 +1,17 @@
 apply plugin: 'com.android.application'
 
+import groovy.json.JsonSlurper
+
+// La version vive en version.json, en la raiz del proyecto, y NO aca.
+//
+// Es un dato que necesitan tres partes distintas: el APK (para que Android
+// sepa que una instalacion es mas nueva que la anterior), el backend (para
+// avisarle al restaurante que hay una version nueva) y quien compila. Con el
+// numero copiado en tres lugares, tarde o temprano dos quedan distintos, y el
+// sintoma es de los peores: la app avisa de una actualizacion que ya tiene, o
+// no avisa de una que le falta.
+def version = new JsonSlurper().parseText(file('../../version.json').text)
+
 android {
     namespace "com.restomind.pos"
     compileSdk rootProject.ext.compileSdkVersion
@@ -7,8 +19,8 @@ android {
         applicationId "com.restomind.pos"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode version.versionCode
+        versionName version.versionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +28,78 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // LA FIRMA: sin esto no hay actualizaciones, nunca.
+    //
+    // Android solo acepta actualizar una app si el APK nuevo esta firmado con
+    // LA MISMA clave que el instalado. Con otra clave, el telefono lo rechaza
+    // y la unica salida es desinstalar —perdiendo los datos del restaurante—
+    // e instalar de cero. Por eso la clave se genera UNA vez
+    // (node tools/crear-clave.mjs) y se guarda como se guarda algo que no se
+    // puede volver a emitir.
+    //
+    // Los datos viven en android/keystore.properties, que NO se versiona: con
+    // el archivo y la clave, cualquiera puede publicar un APK que el telefono
+    // aceptara como una actualizacion legitima de esta app.
+    def archivoClave = rootProject.file('keystore.properties')
+    def datosClave = new Properties()
+    if (archivoClave.exists()) {
+        archivoClave.withInputStream { datosClave.load(it) }
+    }
+
+    signingConfigs {
+        entrega {
+            if (archivoClave.exists()) {
+                storeFile rootProject.file(datosClave['storeFile'])
+                storePassword datosClave['storePassword']
+                keyAlias datosClave['keyAlias']
+                keyPassword datosClave['keyPassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // Sin el archivo, se compila igual pero sin firmar: el APK no se
+            // va a poder instalar, y tools/compilar.mjs lo avisa. Se prefiere
+            // eso a que el build falle con un error de gradle que no explica
+            // nada.
+            if (archivoClave.exists()) {
+                signingConfig signingConfigs.entrega
+            }
+        }
+    }
+
+    // DOS ENTORNOS, UNA SOLA BASE DE CODIGO.
+    //
+    // Lo que cambia entre pruebas y produccion es SOLO configuracion: a que
+    // backend le habla y como se llama. El codigo compilado es byte por byte
+    // el mismo. Eso es lo que hace que probar sirva de algo: si los dos
+    // entornos corrieran codigo distinto, aprobar en pruebas no diria nada
+    // sobre produccion.
+    //
+    // El applicationIdSuffix es la pieza que faltaba. Android identifica una
+    // app por su applicationId, asi que con el mismo id instalar el APK de
+    // pruebas REEMPLAZA la app real del restaurante — incluida su sesion y su
+    // impresora configurada. Con ".pruebas" son dos apps distintas para el
+    // sistema y conviven en el mismo telefono, cada una con sus datos.
+    flavorDimensions "entorno"
+    productFlavors {
+        produccion {
+            dimension "entorno"
+            resValue "string", "app_name", "RestoMind"
+        }
+        // NO puede llamarse "testing": gradle reserva ese prefijo para sus
+        // propios source sets de tests y falla con "ProductFlavor names
+        // cannot start with 'test'".
+        pruebas {
+            dimension "entorno"
+            applicationIdSuffix ".pruebas"
+            // Se ve en Ajustes > Apps, y es lo que evita reportar un bug de
+            // pruebas como si fuera de produccion.
+            versionNameSuffix "-pruebas"
+            resValue "string", "app_name", "RestoMind PRUEBAS"
         }
     }
 }

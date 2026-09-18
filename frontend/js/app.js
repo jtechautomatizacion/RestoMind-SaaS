@@ -133,6 +133,25 @@ async function avisarSiElServidorEstaDesactualizado() {
     }
 }
 
+// Aviso de versión nueva del APK.
+//
+// El que detecta es capacitor-init.js —es quien puede preguntarle a lo nativo
+// qué versión está instalada— y avisa por un evento. Pintarlo es trabajo de
+// acá: así ese archivo no necesita saber nada de la interfaz, y este no
+// necesita saber nada de Capacitor.
+//
+// Reusa el banner que ya existe en vez de inventar un cartel nuevo: es el
+// lugar donde el usuario ya está acostumbrado a que la app le hable.
+window.addEventListener('restomind:actualizacion', function (evento) {
+    const datos = evento.detail || {};
+    const banner = document.getElementById('offline-banner');
+    if (!banner) return;
+    banner.className = 'offline-banner servidor-viejo';
+    banner.textContent = `Hay una versión nueva de RestoMind (${datos.versionNueva}). `
+        + 'Descargala cuando puedas — no corre apuro, podés seguir trabajando.';
+    banner.classList.remove('hidden');
+});
+
 // ============ API CLIENT ============
 
 // Minutos que hay que sumarle a la hora local para obtener UTC (Perú = 300).

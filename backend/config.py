@@ -144,6 +144,25 @@ class Settings(BaseSettings):
     # que lleva a una carpeta vacía.
     apk_url: str = ""
 
+    # QUÉ VERSIÓN DEL APK ES LA VIGENTE.
+    #
+    # La app instalada consulta esto al arrancar y se compara: si el teléfono
+    # tiene un versionCode menor, avisa que hay una actualización. Sin esto,
+    # un restaurante puede quedarse meses con una versión vieja sin enterarse
+    # —el APK no se distribuye por una tienda, así que nadie le avisa— y el
+    # primer síntoma sería un bug ya corregido reportado como nuevo.
+    #
+    # Va en el .env y NO en version.json a propósito: son dos cosas distintas.
+    # version.json es la versión que se está COMPILANDO; esto es la que ya
+    # está PUBLICADA y descargable. Se sube recién cuando el APK nuevo
+    # efectivamente está en la URL de descarga.
+    #
+    # 0 = no se avisa de nada. Es el valor correcto mientras no haya una URL
+    # de descarga real, para no ofrecer una actualización que no se puede
+    # bajar.
+    apk_version_code: int = 0
+    apk_version_name: str = ""
+
     class Config:
         env_file = ".env"
         case_sensitive = False

@@ -1,0 +1,22 @@
+{
+  "_comentario": [
+    "LA VERSION DE LA APP. Se toca ACA y en ningun otro lado.",
+    "",
+    "versionCode: un entero que SOLO SUBE, de a uno, en cada entrega. Es lo",
+    "  unico que mira Android para decidir si un APK es mas nuevo que el",
+    "  instalado. Si no sube, el telefono RECHAZA la instalacion con",
+    "  'app no instalada' y no dice por que. Si baja, igual. Nunca se repite",
+    "  un numero ya entregado, ni siquiera corrigiendo un error.",
+    "",
+    "versionName: la version que lee una persona. No tiene reglas tecnicas;",
+    "  se usa MAYOR.MENOR.PARCHE — parche para arreglos, menor para cosas",
+    "  nuevas, mayor para cambios grandes.",
+    "",
+    "Lo leen tres partes: android/app/build.gradle (para el APK), el backend",
+    "(para avisar que hay actualizacion) y quien compila. Por eso vive en un",
+    "solo archivo: copiado en tres lugares, tarde o temprano dos quedan",
+    "distintos, y la app termina avisando de una version que ya tiene."
+  ],
+  "versionCode": 2,
+  "versionName": "1.1.0"
+}

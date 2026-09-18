@@ -114,10 +114,11 @@ if (apiDestino === 'local') {
     const ip = ipDeEstaPC();
     if (!ip) {
         console.error('No pude encontrar la IP de esta PC en la red.\n'
-            + 'Pasala a mano:  node tools/preparar-apk.mjs http://192.168.1.40:8000');
+            + 'Pasala a mano:  node tools/preparar-apk.mjs http://192.168.1.40:8010');
         process.exit(1);
     }
-    apiDestino = `http://${ip}:8000`;
+    // 8010 = el puerto del backend de pruebas (ver tools/servir-testing.mjs).
+    apiDestino = `http://${ip}:8010`;
 }
 
 if (apiDestino) {

@@ -1,6 +1,8 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">RestoMind</string>
+    <!-- app_name NO va aca: lo define cada flavor en build.gradle, para que
+         el APK de pruebas se vea distinto en el telefono. Declararlo en los
+         dos lados es un error de recurso duplicado al compilar. -->
     <string name="title_activity_main">RestoMind</string>
     <string name="package_name">com.restomind.pos</string>
     <string name="custom_url_scheme">com.restomind.pos</string>

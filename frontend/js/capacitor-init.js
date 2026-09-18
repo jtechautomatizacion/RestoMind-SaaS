@@ -74,6 +74,50 @@
         return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins[nombre]) || null;
     }
 
+    // ---- ¿Hay una versión nueva? -------------------------------------
+    //
+    // RestoMind no se distribuye por una tienda, así que nada le avisa al
+    // restaurante cuando sale una versión nueva: el APK se baja de un enlace
+    // y ahí se queda. Sin esto, un local puede trabajar meses con una versión
+    // vieja, y el primer síntoma sería un bug ya corregido reportado como
+    // nuevo.
+    //
+    // Se AVISA, no se obliga. Forzar una actualización en medio del servicio
+    // —con mesas abiertas y gente esperando— es peor que dejar correr una
+    // versión vieja un rato más.
+    async function revisarActualizacion() {
+        const App = plugin('App');
+        if (!App || !API_REMOTA) return;
+        try {
+            const info = await App.getInfo();              // versión instalada
+            const r = await fetch(API_REMOTA + '/api/app/version');
+            if (!r.ok) return;
+            const publicada = await r.json();
+
+            // El build de pruebas lleva "-pruebas" pegado y siempre se
+            // instala a mano: avisarle de la versión de producción sería ruido.
+            if (/pruebas/i.test(info.version || '')) return;
+
+            const instalada = parseInt(info.build, 10) || 0;
+            if (!publicada.hay_publicada || publicada.version_code <= instalada) return;
+
+            window.RESTOMIND_ACTUALIZACION = {
+                versionNueva: publicada.version_name,
+                versionActual: info.version,
+                url: publicada.url_descarga,
+            };
+            // Se dispara un evento en vez de tocar el DOM desde acá: este
+            // archivo es el puente con lo nativo, no sabe de la interfaz.
+            window.dispatchEvent(new CustomEvent('restomind:actualizacion', {
+                detail: window.RESTOMIND_ACTUALIZACION,
+            }));
+        } catch (err) {
+            // Quedarse sin saber si hay una versión nueva no puede impedir
+            // trabajar: el local tiene que poder cobrar igual.
+            console.warn('[RestoMind] no se pudo revisar la version:', err);
+        }
+    }
+
     async function iniciarPush() {
         const Push = plugin('PushNotifications');
         if (!Push) return;
@@ -217,5 +261,6 @@
         iniciarRed();
         iniciarBotonAtras();
         iniciarPush();
+        revisarActualizacion();
     });
 })();
