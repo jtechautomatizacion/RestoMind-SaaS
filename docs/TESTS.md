@@ -95,6 +95,16 @@ Cada uno de estos se rompió de verdad. El test es para que no vuelva.
 - **El switch de facturación vivía solo en JavaScript.** Un dispositivo
   logueado desde antes de apagarlo seguía emitiendo. → el bloque "EL SWITCH
   APAGADO" en `test_facturas.py`.
+- **Toda la app dejó de poder loguearse, con "Unexpected token '<'".** La
+  compilación fijaba el destino del backend escribiendo dos líneas ENCIMA de
+  todo `destino-api.js`; cuando ese archivo pasó a tener también la lógica del
+  origen, la borró. Sin `RESTOMIND_API_BASE`, las llamadas salían relativas —
+  al propio teléfono, que contesta HTML. → `preparar-apk.mjs` ahora VERIFICA
+  lo que empaquetó, no lo que quiso escribir; esa diferencia era el bug.
+- **La impresora despertaba y no imprimía**, dos veces. Una de etiquetas
+  alimentada con ESC/POS no reconoce ningún comando y no hace nada, sin error
+  en ninguna parte. → la app preselecciona el lenguaje por la marca, y el
+  aviso de la prueba dice en cuál salió.
 - **El tique imprimía `-` como cliente** aunque el RUC estuviera en el
   padrón, y como cajero a quien estaba logueado en el navegador en vez de a
   quien atendió. → bloque "Lo que el cliente recibe EN PAPEL".
@@ -114,6 +124,10 @@ entre lo probado y lo supuesto.
    exclusivos) están duplicadas a propósito en los dos lados, y el backend
    —que es el que manda— sí tiene test. Si cambia uno, cambia el otro.
 3. **La impresión térmica de 58/80 mm.** Depende del driver y del papel.
+   Lo que SÍ se verifica sin impresora: `npm run probar-termica` dibuja cada
+   ticket, marca los textos superpuestos y denuncia lo que se sale del
+   cabezal (576 puntos en papel de 80 mm — no 640: el cabezal cubre 72 mm, y
+   lo que cae afuera la impresora lo ENVUELVE al renglón siguiente).
 4. **Firebase.** Se prueba que la comanda se cree igual aunque el envío
    falle; el envío en sí necesita un proyecto real.
 5. **La carga del padrón** (18,4 M de filas, ~25 min). Se prueba la
