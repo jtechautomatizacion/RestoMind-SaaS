@@ -21,34 +21,15 @@
 (function () {
     'use strict';
 
-    // Dominio del backend cuando la app corre empaquetada. Al estar
-    // embebida en el APK, el origen pasa a ser https://localhost, así que
-    // una ruta relativa como "/api" apuntaría al propio teléfono. Tiene que
-    // ser absoluta, sí o sí.
+    // Contra qué backend habla la app empaquetada. Lo decide js/destino-api.js,
+    // que se carga antes y que TAMBIÉN carga superadmin.html; calcularlo de
+    // nuevo acá daría dos fuentes de verdad que algún día quedan distintas.
     //
-    // El valor NO vive acá: lo pone js/destino-api.js, que se carga antes y
-    // que la compilación reemplaza según se arme un APK de pruebas o uno de
-    // producción. Ver ese archivo para el por qué.
-    //
-    // NO HAY RESPALDO A PRODUCCIÓN, y es deliberado. Poner
-    // `|| 'https://app.jtechsolutiones.com'` parece prudente y es justo lo
-    // contrario: si destino-api.js no cargara en un APK de PRUEBAS, ese
-    // respaldo lo mandaría a escribir en la base del restaurante sin que nada
-    // lo avisara — el mismo accidente que este archivo viene a evitar.
-    // Quedarse sin destino es un error de compilación, y tiene que verse.
+    // Ahí también se explica por qué NO hay respaldo a producción: en un APK
+    // de pruebas, ese respaldo lo mandaría a escribir en la base del
+    // restaurante sin que nada lo avisara.
     const API_REMOTA = window.RESTOMIND_API_DESTINO || '';
-
-    const esNativo = Boolean(
-        window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function'
-            ? window.Capacitor.isNativePlatform()
-            : false
-    );
-
-    window.RESTOMIND_ES_NATIVO = esNativo;
-    // En la web queda vacío: la ruta relativa /api ya cae en el mismo
-    // dominio, y así el mismo frontend sirve para desarrollo local, para el
-    // VPS y para el APK sin condicionales repartidos por el código.
-    window.RESTOMIND_API_BASE = esNativo ? API_REMOTA : '';
+    const esNativo = Boolean(window.RESTOMIND_ES_NATIVO);
 
     if (!esNativo) return;
 

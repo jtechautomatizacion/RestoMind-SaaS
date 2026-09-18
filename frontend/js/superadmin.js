@@ -7,7 +7,11 @@
  * superadmin con uno de restaurante. Esta página es de un mundo aparte.
  */
 
-const API_BASE_URL = '/api';
+// Lo pone js/destino-api.js (cargado antes en superadmin.html). Antes acá
+// decía '/api' a secas, y dentro del APK esa ruta relativa le pegaba al propio
+// teléfono: la respuesta era index.html y el login moría con
+// "Unexpected token '<' ... is not valid JSON".
+const API_BASE_URL = (window.RESTOMIND_API_BASE || '') + '/api';
 const SA_TOKEN_KEY = 'restomind_superadmin_token';
 
 let clientesCache = [];

@@ -39,7 +39,9 @@ const MOVIMIENTO_RAZON_LABEL = {
 
 function _thumbHtml(imagenUrl) {
     if (imagenUrl) {
-        return `<img class="item-thumb" src="${escapeHtml(imagenUrl)}" alt="">`;
+        // urlDeArchivo: la BD guarda la ruta relativa, que dentro del APK
+        // apunta al teléfono y no al servidor. Ver js/destino-api.js.
+        return `<img class="item-thumb" src="${escapeHtml(urlDeArchivo(imagenUrl))}" alt="">`;
     }
     return ICON_PHOTO_PLACEHOLDER;
 }
@@ -269,7 +271,7 @@ function editarPlato(platoId) {
     resetFormImagen();
     if (plato.imagen_url) {
         platoImagenActualUrl = plato.imagen_url;
-        document.getElementById('imagen-preview').src = plato.imagen_url;
+        document.getElementById('imagen-preview').src = urlDeArchivo(plato.imagen_url);
         document.getElementById('imagen-preview').classList.remove('hidden');
         document.getElementById('imagen-placeholder').classList.add('hidden');
         document.getElementById('btn-quitar-imagen').classList.remove('hidden');

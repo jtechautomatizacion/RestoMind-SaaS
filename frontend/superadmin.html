@@ -274,6 +274,9 @@
         </div>
     </div>
 
+    <!-- ANTES que superadmin.js: define contra qué backend habla la página.
+         Sin esto, dentro del APK las llamadas van al propio teléfono. -->
+    <script src="js/destino-api.js"></script>
     <script src="js/superadmin.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', initSuperadmin);

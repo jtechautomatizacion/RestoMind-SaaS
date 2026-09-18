@@ -213,7 +213,10 @@ function renderPlatos(categoria = null) {
         card.type = 'button';
 
         const thumb = plato.imagen_url
-            ? `<img class="plato-card-imagen" src="${escapeHtml(plato.imagen_url)}" alt="">`
+            // urlDeArchivo: la BD guarda una ruta relativa, que dentro del
+            // APK apunta al teléfono y no al servidor — sin esto la foto
+            // no aparece nunca. Ver js/destino-api.js.
+            ? `<img class="plato-card-imagen" src="${escapeHtml(urlDeArchivo(plato.imagen_url))}" alt="">`
             : '<div class="plato-card-imagen plato-card-sin-imagen"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div>';
 
         const descripcion = plato.descripcion
@@ -314,6 +317,31 @@ async function enviarComanda() {
         // podría quedarse esperando cobrarlo después.
         showToast(paraLlevar ? 'Pedido cobrado y enviado a cocina' : 'Comanda enviada a cocina', 'success');
         cerrarModal();
+
+        // IMPRIMIR VA PRIMERO, Y APARTE.
+        //
+        // Antes salía después de refrescar la pantalla y dentro del mismo try
+        // que todo lo demás: cualquier error al redibujar —la grilla de
+        // mesas, la vista unificada, el monitor de cocina— se llevaba puesta
+        // la impresión, y el ticket no salía nunca. El pedido quedaba bien
+        // guardado, así que el síntoma era "no imprime" sin ningún error a la
+        // vista.
+        //
+        // Se invierte el orden porque también es el correcto: el cliente está
+        // esperando el papel, no que se redibuje una grilla. Y va en su
+        // propio try para que la relación siga valiendo al revés — un fallo
+        // de impresión tampoco puede dejar la pantalla sin actualizar.
+        //
+        // Qué se imprime depende del modo del restaurante (con SUNAT: dos
+        // papeles; sin SUNAT: una sola hoja) — ver print.js.
+        try {
+            if (typeof imprimirComandaNueva === 'function') {
+                await imprimirComandaNueva(comanda);
+            }
+        } catch (errImpresion) {
+            console.error('[RestoMind] no se pudo imprimir la comanda:', errImpresion);
+        }
+
         await refreshMozo();
         // Solo si este rol ve Cocina — mismo criterio que la línea de
         // refreshDashboard más abajo. El backend igual lo permitiría (el
@@ -321,12 +349,6 @@ async function enviarComanda() {
         // pestaña ni existe en el DOM visible: es una llamada de red que
         // no sirve para nada.
         if (puedeVer('cocina') && typeof refreshCocina === 'function') refreshCocina();
-
-        // Qué se imprime depende del modo del restaurante (con SUNAT: dos
-        // papeles; sin SUNAT: una sola hoja de pre-venta) — ver print.js.
-        if (typeof imprimirComandaNueva === 'function') {
-            imprimirComandaNueva(comanda);
-        }
     } catch (err) {
         if (err instanceof NetworkError) {
             // Sin señal: el pedido no se pierde. Se guarda para reenviarlo
