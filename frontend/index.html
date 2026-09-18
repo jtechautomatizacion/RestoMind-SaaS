@@ -1607,6 +1607,9 @@
     <!-- PRIMERO de todos: define window.RESTOMIND_API_BASE, que app.js lee
          al construir API_BASE_URL. Cargado después, las primeras llamadas
          saldrían con la URL equivocada. -->
+    <!-- destino-api.js ANTES que capacitor-init.js: define a qué backend
+         apunta la app empaquetada, y capacitor-init lo lee al arrancar. -->
+    <script src="js/destino-api.js"></script>
     <script src="js/capacitor-init.js"></script>
     <script src="js/push-notifications.js"></script>
     <script src="js/app.js"></script>

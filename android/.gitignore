@@ -1,9 +1,22 @@
 # Artefactos de compilación: se regeneran, pesan, y un APK commiteado ensucia
-# el historial de git para siempre.
+# el historial de git para siempre. Son 25 de los 27 MB del proyecto.
 build/
 .gradle/
 *.apk
 *.aab
+
+# El frontend empaquetado. Lo escribe `cap sync` copiando dist-apk/, que a su
+# vez sale de frontend/. Versionarlo sería tener el mismo código dos veces y
+# que una copia quede vieja sin que nadie lo note.
+app/src/main/assets/public/
+app/src/main/assets/capacitor.config.json
+app/src/main/assets/capacitor.plugins.json
+
+# Permiso de texto plano para el backend de pruebas. Lo GENERA
+# tools/integrar-android.mjs según el destino de cada compilación, y por eso
+# no se versiona: si quedara fijo en el repo, un APK de producción podría
+# salir con texto plano habilitado.
+app/src/main/res/xml/network_security_config.xml
 
 # Ruta del SDK de ESTA máquina. Distinta en cada computadora, así que
 # versionarla rompe el proyecto en la siguiente.

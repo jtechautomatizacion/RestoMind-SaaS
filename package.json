@@ -9,7 +9,9 @@
     "probar-termica": "node tools/probar-termica.mjs",
     "preparar-apk": "node tools/preparar-apk.mjs",
     "integrar-android": "node tools/integrar-android.mjs",
-    "apk": "node tools/preparar-apk.mjs && cap sync android && node tools/integrar-android.mjs"
+    "apk": "node tools/preparar-apk.mjs && cap sync android && node tools/integrar-android.mjs",
+    "apk:testing": "node tools/preparar-apk.mjs local && cap sync android && node tools/integrar-android.mjs",
+    "servir-testing": "node tools/servir-testing.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^6.2.2",

@@ -64,6 +64,44 @@ if (!tienePush) {
     console.log('  sin push: la app no va a recibir avisos de comandas (ver docs/APK_ANDROID.md)');
 }
 
+// --- 0b. local.properties: dónde está el SDK de Android ---------------------
+//
+// Gradle no compila sin este archivo, pero NO se versiona: la ruta del SDK es
+// distinta en cada computadora, así que commitearla rompe el proyecto en la
+// siguiente. La salida cuando falta tampoco ayuda ("SDK location not found"),
+// porque no dice que el archivo se genera solo.
+//
+// Por eso se busca el SDK en las rutas donde Android Studio lo instala y se
+// escribe acá. Un clon nuevo del repo compila sin ningún paso manual.
+const localProps = path.join(raiz, 'android', 'local.properties');
+if (!fs.existsSync(localProps)) {
+    const candidatos = [
+        process.env.ANDROID_HOME,
+        process.env.ANDROID_SDK_ROOT,
+        process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Android', 'Sdk'),
+        process.env.HOME && path.join(process.env.HOME, 'Library', 'Android', 'sdk'),
+        process.env.HOME && path.join(process.env.HOME, 'Android', 'Sdk'),
+    ].filter(Boolean);
+
+    const sdk = candidatos.find(p => fs.existsSync(p));
+    if (!sdk) {
+        console.error(`
+[!] No encuentro el SDK de Android.
+
+    Buscado en:
+${candidatos.map(c => '      ' + c).join('\n')}
+
+    Si lo tenés en otro lado, creá android/local.properties con:
+      sdk.dir=C\\:\\\\ruta\\\\al\\\\Sdk
+`);
+        process.exit(1);
+    }
+    // En Windows gradle exige las barras y los dos puntos escapados: es un
+    // archivo .properties de Java, no una ruta cualquiera.
+    fs.writeFileSync(localProps, `# GENERADO - no versionar. Ver tools/integrar-android.mjs\nsdk.dir=${sdk.replace(/([\\:])/g, '\\$1')}\n`, 'utf8');
+    console.log(`  local.properties generado (SDK en ${sdk})`);
+}
+
 // --- 1. El plugin de la impresora ------------------------------------------
 fs.copyFileSync(
     path.join(raiz, 'plugin-impresora', 'ImpresoraTermica.java'),
@@ -141,4 +179,55 @@ if (!xml.includes('BLUETOOTH_SCAN')) {
     console.log('  permisos de Bluetooth y notificaciones agregados');
 }
 
-console.log('\nListo. Ahora:  cd android && ./gradlew assembleDebug');
+// --- 4. Texto plano, SOLO si este build apunta a un backend http:// ---------
+//
+// Android 9+ bloquea http:// sin ningún error legible: la app simplemente
+// dice "Sin conexión", y uno termina revisando el wifi en vez del esquema de
+// la URL.
+//
+// El permiso se deriva del destino REAL que quedó en dist-apk/, no de una
+// bandera aparte. Eso es lo que garantiza que un APK de producción (https) no
+// pueda salir con texto plano habilitado aunque antes se haya compilado uno
+// de pruebas en la misma carpeta: acá abajo, el caso https lo REMUEVE.
+//
+// Y cuando se habilita, se habilita para ESE host y nada más. Un
+// `usesCleartextTraffic="true"` global abriría http hacia cualquier dominio.
+const rutaXml = path.join(raiz, 'android', 'app', 'src', 'main', 'res', 'xml');
+const archivoSeg = path.join(rutaXml, 'network_security_config.xml');
+const ATRIBUTO = '\n        android:networkSecurityConfig="@xml/network_security_config"';
+
+let destinoApk = '';
+const archivoDestino = path.join(raiz, 'dist-apk', 'js', 'destino-api.js');
+if (fs.existsSync(archivoDestino)) {
+    const m = fs.readFileSync(archivoDestino, 'utf8')
+        .match(/RESTOMIND_API_DESTINO\s*=\s*['"]([^'"]+)['"]/);
+    destinoApk = m ? m[1] : '';
+}
+
+let man = fs.readFileSync(manifiesto, 'utf8');
+man = man.replace(ATRIBUTO, '');   // se parte de limpio en los dos casos
+
+const enTextoPlano = /^http:\/\//.test(destinoApk);
+if (enTextoPlano) {
+    const host = new URL(destinoApk).hostname;
+    fs.mkdirSync(rutaXml, { recursive: true });
+    fs.writeFileSync(archivoSeg, `<?xml version="1.0" encoding="utf-8"?>
+<!-- GENERADO AL COMPILAR - no editar. Ver tools/integrar-android.mjs -->
+<network-security-config>
+    <!-- Texto plano permitido UNICAMENTE contra el backend de pruebas.
+         El resto de la app sigue exigiendo HTTPS. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">${host}</domain>
+    </domain-config>
+</network-security-config>
+`, 'utf8');
+    man = man.replace('    <application', '    <application' + ATRIBUTO);
+    console.log(`  texto plano habilitado solo para ${host} (APK de pruebas)`);
+} else {
+    if (fs.existsSync(archivoSeg)) fs.rmSync(archivoSeg);
+    console.log('  sin texto plano: todo el trafico va por HTTPS');
+}
+fs.writeFileSync(manifiesto, man, 'utf8');
+
+console.log(`\nEste APK habla con: ${destinoApk || '(no pude leerlo de dist-apk/)'}`);
+console.log('Listo. Ahora:  cd android && ./gradlew assembleDebug');

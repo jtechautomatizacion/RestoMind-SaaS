@@ -25,7 +25,12 @@
     // embebida en el APK, el origen pasa a ser https://localhost, así que
     // una ruta relativa como "/api" apuntaría al propio teléfono. Tiene que
     // ser absoluta, sí o sí.
-    const API_REMOTA = 'https://app.jtechsolutiones.com';
+    //
+    // El valor NO vive acá: lo pone js/destino-api.js, que se carga antes y
+    // que la compilación reemplaza según se arme un APK de pruebas o uno de
+    // producción. Ver ese archivo para el por qué. El respaldo cubre el caso
+    // de que alguien cargue este script sin el otro.
+    const API_REMOTA = window.RESTOMIND_API_DESTINO || 'https://app.jtechsolutiones.com';
 
     const esNativo = Boolean(
         window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function'

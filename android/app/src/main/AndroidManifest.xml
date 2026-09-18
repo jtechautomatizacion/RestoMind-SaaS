@@ -1,32 +1,65 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
     <application
+        android:networkSecurityConfig="@xml/network_security_config"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.RestoMind"
-        android:usesCleartextTraffic="false">
+        android:theme="@style/AppTheme">
 
         <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
             android:name=".MainActivity"
-            android:exported="true"
-            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize"
-            android:windowSoftInputMode="adjustResize">
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
         </activity>
 
-        <!-- El servicio de FCM se declara junto con la dependencia de
-             Firebase (ver docs/APK_ANDROID.md §4 y §6). Sin la librería,
-             declararlo acá rompe la instalación de la app. -->
-
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
     </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Impresora termica por Bluetooth Clasico (SPP).
+         BLUETOOTH_CONNECT ademas hay que PEDIRLO en ejecucion en Android
+         12+: sin el, getBondedDevices() devuelve una lista VACIA en vez de
+         fallar, y parece que no hay ninguna impresora emparejada. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- BUSCAR impresoras nuevas es un permiso DISTINTO de conectarse a las
+         ya emparejadas. neverForLocation evita que Android ademas exija el
+         permiso de UBICACION: sin esa bandera, buscar una impresora le pide
+         al mozo acceso a su ubicacion, que no hace falta y asusta. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+
+    <!-- Impresora termica por Bluetooth Clasico (SPP).
+         BLUETOOTH_CONNECT ademas hay que PEDIRLO en ejecucion en Android
+         12+: sin el, getBondedDevices() devuelve una lista vacia en vez de
+         fallar, y parece que no hay ninguna impresora emparejada. -->
 </manifest>
