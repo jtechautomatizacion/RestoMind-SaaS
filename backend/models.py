@@ -208,9 +208,34 @@ class Comanda(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     cliente_id = Column(String, ForeignKey("clientes.id"), nullable=False, index=True)
+
+    # Para un pedido PARA LLEVAR vale 0, que no es un número de mesa válido:
+    # las mesas se numeran desde 1.
+    #
+    # Se eligió 0 en vez de NULL, que sería lo correcto en abstracto, porque
+    # SQLite no sabe relajar un NOT NULL con ALTER: habría que reconstruir la
+    # tabla entera sobre una base que ya tiene datos del restaurante, y volver
+    # Optional siete schemas de Pydantic. El 0 consigue la propiedad que de
+    # verdad importa —que un pedido para llevar NO PUEDA aparecer como una
+    # mesa— porque todas las consultas filtran `numero_mesa == N` con N>=1, y
+    # eso nunca da 0. El modo de falla es "no aparece", nunca "aparece en el
+    # lugar equivocado".
+    #
+    # Para saber de qué tipo es un pedido se consulta `tipo_pedido`, no esto.
     numero_mesa = Column(Integer, nullable=False)
+
+    # 'mesa' o 'llevar'. ES la fuente de verdad para reportar cuánto se vende
+    # en salón contra cuánto en mostrador.
+    tipo_pedido = Column(String, nullable=False, default="mesa")
+
     total_cuenta = Column(Float, nullable=False)
     estado = Column(String, default="cocina")  # cocina, entregado, cobrado, cancelado
+
+    # Cuándo se le pasó el pedido al cliente. Solo lo usa "para llevar": como
+    # nace ya cobrado (se paga al pedirlo), `estado` no alcanza para saber si
+    # cocina todavía lo tiene pendiente.
+    entregado_en = Column(DateTime, nullable=True)
+
     creado_por = Column(String, nullable=True)
     creado_en = Column(DateTime, default=datetime.utcnow)
     actualizado_en = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

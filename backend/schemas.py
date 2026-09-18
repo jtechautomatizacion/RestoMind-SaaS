@@ -542,8 +542,25 @@ class ComandaPlatoCreate(BaseModel):
 
 
 class ComandaCreate(BaseModel):
-    numero_mesa: int
+    # 0 = pedido para llevar (las mesas se numeran desde 1). No hace falta
+    # mandarlo: con tipo_pedido='llevar' el servidor lo pone solo.
+    numero_mesa: int = 0
+    tipo_pedido: Literal["mesa", "llevar"] = "mesa"
     platos: List[ComandaPlatoCreate] = Field(..., min_length=1)
+
+    @model_validator(mode="after")
+    def _coherencia(self) -> "ComandaCreate":
+        """Un pedido de mesa necesita mesa; uno para llevar no puede tenerla.
+
+        Se valida acá y no en la ruta para que el error salga como un 422 con
+        el campo señalado, en vez de un 404 de "la mesa 0 no existe" que manda
+        a buscar el problema en la tabla de mesas.
+        """
+        if self.tipo_pedido == "mesa" and self.numero_mesa < 1:
+            raise ValueError("Un pedido de mesa necesita un numero de mesa")
+        if self.tipo_pedido == "llevar":
+            self.numero_mesa = 0
+        return self
 
 
 class ComandaPlatoResponse(BaseModel):
@@ -561,6 +578,7 @@ class ComandaResponse(BaseModel):
     id: int
     cliente_id: str
     numero_mesa: int
+    tipo_pedido: str = "mesa"
     estado: str
     total_cuenta: float
     platos: List[ComandaPlatoResponse]
@@ -764,12 +782,23 @@ class TopGastoItem(BaseModel):
     monto: float
 
 
+class VentaPorTipoItem(BaseModel):
+    """Cuánto se vendió en salón y cuánto en mostrador."""
+    tipo: str          # 'mesa' o 'llevar'
+    pedidos: int
+    total: float
+
+
 class DashboardResumen(BaseModel):
     periodo_dias: int
     serie: List[DashboardSerieItem]
     totales: DashboardTotales
     top_platos: List[TopPlatoItem]
     top_gastos: List[TopGastoItem]
+    # Siempre trae las dos filas, aunque una esté en cero: un restaurante que
+    # todavía no vendió nada para llevar tiene que ver el renglón igual, para
+    # saber que la función existe.
+    por_tipo_pedido: List[VentaPorTipoItem] = []
 
 
 # ============ CAJA (Apertura/Cierre) ============

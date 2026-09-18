@@ -148,7 +148,11 @@ def notificar_nueva_comanda(cliente_id: str, numero_mesa: int, comanda_id: int) 
             messaging.MulticastMessage(
                 notification=messaging.Notification(
                     title="🍳 Nueva comanda",
-                    body=f"Mesa {numero_mesa} — comanda #{comanda_id}",
+                    # numero_mesa == 0 es un pedido PARA LLEVAR: no hay mesa
+                    # que nombrar, y decir "Mesa 0" mandaria al cocinero a
+                    # buscar una mesa que no existe.
+                    body=(f"Para llevar — pedido #{comanda_id}" if not numero_mesa
+                          else f"Mesa {numero_mesa} — comanda #{comanda_id}"),
                 ),
                 tokens=tokens,
                 webpush=messaging.WebpushConfig(

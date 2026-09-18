@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.dependencies import get_cliente_id, get_tz_offset, get_usuario_actual
 from backend.models import Comanda, ComandaPlato, Compra
-from backend.schemas import DashboardResumen, DashboardSerieItem, DashboardTotales, TopPlatoItem, TopGastoItem
+from backend.schemas import DashboardResumen, DashboardSerieItem, DashboardTotales, TopPlatoItem, TopGastoItem, VentaPorTipoItem
 from backend.utils.security import validar_admin
 
 router = APIRouter()
@@ -156,9 +156,22 @@ def resumen_financiero(
         reverse=True,
     )[:3]
 
+    # Salón contra mostrador. Sale de las MISMAS comandas que ya se
+    # consultaron arriba, no de otra query: dos consultas con criterios que se
+    # pueden separar terminan mostrando totales que no cuadran entre sí.
+    por_tipo = {"mesa": {"pedidos": 0, "total": 0.0}, "llevar": {"pedidos": 0, "total": 0.0}}
+    for c in comandas_cobradas:
+        fila = por_tipo.get(c.tipo_pedido or "mesa", por_tipo["mesa"])
+        fila["pedidos"] += 1
+        fila["total"] += c.total_cuenta
+
     periodo_dias = num_dias if (desde and hasta) else dias
     return DashboardResumen(
-        periodo_dias=periodo_dias, serie=serie, totales=totales, top_platos=top_platos, top_gastos=top_gastos
+        periodo_dias=periodo_dias, serie=serie, totales=totales, top_platos=top_platos, top_gastos=top_gastos,
+        por_tipo_pedido=[
+            VentaPorTipoItem(tipo=t, pedidos=v["pedidos"], total=round(v["total"], 2))
+            for t, v in por_tipo.items()
+        ],
     )
 
 

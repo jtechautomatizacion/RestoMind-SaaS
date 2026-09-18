@@ -5,6 +5,7 @@ Se centraliza aquí para que 'comandas' y 'mesas' no se pisen entre sí
 y para que las reglas de transición de estado vivan en un solo lugar.
 """
 
+from datetime import datetime
 from typing import List
 from sqlalchemy.orm import Session
 from backend.models import Comanda, Mesa
@@ -68,6 +69,21 @@ def actualizar_estado_comanda(db: Session, comanda: Comanda, nuevo_estado: str) 
 
     Lanza ValueError (el router la traduce a HTTP 400) si la transición no es válida.
     """
+    # PARA LLEVAR no recorre la máquina de estados: nace 'cobrado' porque se
+    # paga al pedirlo. Lo único que le falta es salir de la cocina, y eso se
+    # anota en `entregado_en`.
+    #
+    # Sin este caso aparte, "Listo" sobre un pedido para llevar daría "no se
+    # puede pasar de 'cobrado' a 'entregado'" —correcto según la tabla de
+    # transiciones, inútil para el cocinero— y el pedido quedaría clavado en
+    # la pantalla de cocina para siempre.
+    if comanda.tipo_pedido == "llevar":
+        if nuevo_estado != "entregado":
+            raise ValueError("Un pedido para llevar solo se puede marcar como entregado")
+        if comanda.entregado_en is None:
+            comanda.entregado_en = datetime.utcnow()
+        return
+
     permitidos = TRANSICIONES_VALIDAS.get(comanda.estado, set())
     if nuevo_estado not in permitidos:
         raise ValueError(f"No se puede pasar de '{comanda.estado}' a '{nuevo_estado}'")

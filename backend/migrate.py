@@ -418,6 +418,30 @@ def migrate():
             else:
                 print("[OK] Columna 'emite_facturas' ya existe")
 
+        # --- Pedidos para llevar -------------------------------------------
+        # Dos ALTER TABLE, ninguno destructivo. Las comandas que ya existen
+        # quedan como 'mesa', que es lo que son: hasta ahora no había otra
+        # forma de vender.
+        cols_comandas = [row[1] for row in cursor.execute("PRAGMA table_info(comandas)").fetchall()]
+        if cols_comandas:
+            if "tipo_pedido" not in cols_comandas:
+                print("Agregando columna 'tipo_pedido' a comandas...")
+                cursor.execute(
+                    "ALTER TABLE comandas ADD COLUMN tipo_pedido VARCHAR NOT NULL DEFAULT 'mesa'"
+                )
+                conn.commit()
+                print("[OK] Columna 'tipo_pedido' agregada (todo lo anterior queda como 'mesa')")
+            else:
+                print("[OK] Columna 'tipo_pedido' ya existe")
+
+            if "entregado_en" not in cols_comandas:
+                print("Agregando columna 'entregado_en' a comandas...")
+                cursor.execute("ALTER TABLE comandas ADD COLUMN entregado_en DATETIME DEFAULT NULL")
+                conn.commit()
+                print("[OK] Columna 'entregado_en' agregada")
+            else:
+                print("[OK] Columna 'entregado_en' ya existe")
+
         print("[OK] Migración completada")
     except Exception as e:
         print(f"[ERROR] Error en migración: {e}")

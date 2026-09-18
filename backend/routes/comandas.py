@@ -8,6 +8,7 @@ from collections import OrderedDict
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.dependencies import get_cliente_id, get_usuario_actual
@@ -47,9 +48,23 @@ def monitor_cocina(
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
 ):
+    # Dos cosas distintas tiene que cocinar el local, y llegan por caminos
+    # distintos:
+    #
+    #   - de MESA: siguen en 'cocina' hasta que se marcan entregadas.
+    #   - PARA LLEVAR: nacen ya 'cobrado' (se pagan al pedirlos en el
+    #     mostrador), así que filtrar por estado las dejaría invisibles y el
+    #     pedido no se prepararía nunca. Para esas manda `entregado_en`: están
+    #     pendientes hasta que se le pasan al cliente.
     comandas = (
         db.query(Comanda)
-        .filter(Comanda.cliente_id == cliente_id, Comanda.estado == "cocina")
+        .filter(
+            Comanda.cliente_id == cliente_id,
+            or_(
+                Comanda.estado == "cocina",
+                and_(Comanda.tipo_pedido == "llevar", Comanda.entregado_en.is_(None)),
+            ),
+        )
         .order_by(Comanda.creado_en.asc())
         .all()
     )
@@ -92,9 +107,13 @@ def crear_comanda(
     cliente_id: str = Depends(get_cliente_id),
     usuario: str = Depends(get_usuario_actual),
 ):
-    mesa = db.query(Mesa).filter(Mesa.cliente_id == cliente_id, Mesa.numero == payload.numero_mesa).first()
-    if not mesa:
-        raise HTTPException(status_code=404, detail=f"La mesa {payload.numero_mesa} no existe")
+    # Un pedido para llevar no tiene mesa que buscar ni que ocupar.
+    para_llevar = payload.tipo_pedido == "llevar"
+    mesa = None
+    if not para_llevar:
+        mesa = db.query(Mesa).filter(Mesa.cliente_id == cliente_id, Mesa.numero == payload.numero_mesa).first()
+        if not mesa:
+            raise HTTPException(status_code=404, detail=f"La mesa {payload.numero_mesa} no existe")
 
     # Defensa contra plato_id duplicado en el payload: se suman cantidades
     # en vez de crear dos filas para el mismo plato (rompería el total).
@@ -125,8 +144,19 @@ def crear_comanda(
     comanda = Comanda(
         cliente_id=cliente_id,
         numero_mesa=payload.numero_mesa,
+        tipo_pedido=payload.tipo_pedido,
         total_cuenta=round(total, 2),
-        estado="cocina",
+        # PARA LLEVAR NACE COBRADO: se paga en el mostrador al pedirlo, antes
+        # de que cocina empiece. No hay mesa que cerrar después.
+        #
+        # Que el estado final sea el mismo 'cobrado' de siempre es lo que
+        # mantiene esto de bajo riesgo: las tres consultas que calculan
+        # ingresos (dashboard y caja) filtran por ese estado y NO se tocan.
+        # No se redefine qué es una venta.
+        #
+        # Cocina igual lo ve: el monitor mira `entregado_en`, no `estado`
+        # (ver monitor_cocina más arriba).
+        estado="cobrado" if para_llevar else "cocina",
         creado_por=usuario,
     )
     db.add(comanda)
@@ -141,7 +171,8 @@ def crear_comanda(
             subtotal=subtotal,
         ))
 
-    mesa.estado = "ocupada"
+    if mesa is not None:
+        mesa.estado = "ocupada"
 
     db.commit()
     db.refresh(comanda)
