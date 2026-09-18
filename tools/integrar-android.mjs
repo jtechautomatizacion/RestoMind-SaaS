@@ -138,21 +138,39 @@ let xml = fs.readFileSync(manifiesto, 'utf8');
 // BLUETOOTH_CONNECT, un proyecto de una versión anterior se daba por
 // completo y nunca recibía BLUETOOTH_SCAN — la búsqueda de impresoras
 // quedaba sin permiso, sin que nada lo avisara.
-if (xml.includes('BLUETOOTH_SCAN')) {
+// "Completo" = tiene TODOS los permisos de la versión actual, no solo el
+// primero que se agregó. Mirando uno solo, un proyecto de una versión anterior
+// se daba por completo y nunca recibía los nuevos — el permiso quedaba sin
+// pedir y nada lo avisaba.
+//
+// Se comprueba contra la misma lista que se escribe abajo, así agregar un
+// permiso no obliga a acordarse de tocar también esta condición.
+const REQUERIDOS = ['BLUETOOTH_SCAN', 'VIBRATE'];
+const completo = REQUERIDOS.every(p => xml.includes(p));
+
+if (completo) {
     console.log('  permisos ya estaban');
-} else if (xml.includes('BLUETOOTH_CONNECT')) {
-    // Proyecto de una versión anterior: se reescribe el bloque entero.
-    xml = xml.replace(/\n?    <uses-permission android:name="android\.permission\.(ACCESS_NETWORK_STATE|POST_NOTIFICATIONS|BLUETOOTH[A-Z_]*)"[^>]*\/>/g, '');
+} else if (xml.includes('BLUETOOTH_CONNECT') || xml.includes('BLUETOOTH_SCAN')) {
+    // Proyecto de una versión anterior: se borra el bloque entero y se
+    // reescribe. Sin este borrado, insertar de nuevo DUPLICARÍA los permisos
+    // que ya estaban.
+    xml = xml.replace(/\n?    <uses-permission android:name="android\.permission\.(ACCESS_NETWORK_STATE|POST_NOTIFICATIONS|VIBRATE|BLUETOOTH[A-Z_]*)"[^>]*\/>/g, '');
+    xml = xml.replace(/\n?    <!--[^]*?-->(?=\n    <uses-permission|\n\n    <application)/g, '');
     fs.writeFileSync(manifiesto, xml, 'utf8');
     xml = fs.readFileSync(manifiesto, 'utf8');
     console.log('  permisos viejos removidos, se reescriben');
 }
 
-if (!xml.includes('BLUETOOTH_SCAN')) {
+if (!completo) {
     const original = '    <uses-permission android:name="android.permission.INTERNET" />';
     const bloque = `    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Aviso de comanda nueva en cocina. Sin este permiso
+         navigator.vibrate() no hace NADA y tampoco lanza error: el aviso
+         simplemente no llega, y no hay forma de darse cuenta desde el codigo. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- Impresora termica por Bluetooth Clasico (SPP).
          BLUETOOTH_CONNECT ademas hay que PEDIRLO en ejecucion en Android

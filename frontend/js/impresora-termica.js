@@ -908,73 +908,6 @@
         await enviar(cfg, convertir(html, cols, cfg.lenguaje));
     }
 
-    /**
-     * Prueba de diagnóstico: manda SOLO texto, sin un solo comando ESC/POS.
-     *
-     * Sirve para separar dos causas que se ven igual (la impresora despierta
-     * y no imprime):
-     *
-     *   - Si ESTO imprime y la prueba normal no, la impresora recibe bien
-     *     pero no entiende los comandos ESC/POS — pasa con las impresoras de
-     *     ETIQUETAS, que usan otro lenguaje (TSPL/CPCL).
-     *   - Si esto tampoco imprime, el problema está antes: en la conexión o
-     *     en cómo se le entregan los datos.
-     */
-    async function imprimirPruebaCruda(cfg) {
-        // Se arma byte por byte y el salto de linea se agrega como 0x0A,
-        // sin literales de escape: asi el contenido no depende de como
-        // interprete los backslash ninguna herramienta intermedia.
-        const lineas = [
-            'PRUEBA SIMPLE',
-            'Sin comandos ESC/POS',
-            'Si esto sale impreso,',
-            'la impresora recibe bien.',
-            '', '', '',
-        ];
-        const bytes = [];
-        for (const l of lineas) {
-            for (let i = 0; i < l.length; i++) bytes.push(l.charCodeAt(i) & 0xFF);
-            bytes.push(0x0A);
-        }
-        await enviar(cfg, bytes);
-    }
-
-    /**
-     * Prueba en TSPL, el lenguaje de las impresoras de ETIQUETAS.
-     *
-     * Las HiLabel, Niimbot, TSC y parecidas NO entienden ESC/POS: reciben
-     * los bytes, no reconocen ningun comando y no hacen nada — exactamente
-     * el sintoma de 'despierta pero no imprime'. Si ESTA prueba sale y las
-     * otras no, la impresora habla TSPL y hay que emitir en ese lenguaje.
-     *
-     * En TSPL cada linea TERMINA en CRLF (no solo LF): con LF suelto varias
-     * impresoras ignoran el comando entero.
-     */
-    async function imprimirPruebaEtiqueta(cfg) {
-        const comandos = [
-            'SIZE 50 mm,30 mm',
-            // 0,0 = papel CONTINUO. Con un GAP real la impresora sale a
-            // buscar la separacion entre etiquetas, y si el papel no la tiene
-            // alimenta hasta trabarse con "err: no seam!", que solo se limpia
-            // reiniciandola. Esta prueba lo provoco una vez; no vuelve a
-            // declarar un GAP nunca mas.
-            'GAP 0,0',
-            'DIRECTION 1',
-            'CLS',
-            'TEXT 20,20,"3",0,1,1,"RESTOMIND"',
-            'TEXT 20,70,"2",0,1,1,"PRUEBA TSPL"',
-            'TEXT 20,110,"2",0,1,1,"Si esto sale, es TSPL"',
-            'PRINT 1,1',
-        ];
-        const bytes = [];
-        for (const c of comandos) {
-            for (let i = 0; i < c.length; i++) bytes.push(c.charCodeAt(i) & 0xFF);
-            bytes.push(0x0D);
-            bytes.push(0x0A);
-        }
-        await enviar(cfg, bytes);
-    }
-
     window.ImpresoraTermica = {
         disponible: disponible,
         listar: listarImpresoras,
@@ -983,8 +916,6 @@
         anchosPosibles: Object.keys(COLUMNAS),
         imprimirHTML: imprimirHTMLenTermica,
         prueba: imprimirPrueba,
-        pruebaCruda: imprimirPruebaCruda,
-        pruebaEtiqueta: imprimirPruebaEtiqueta,
         // Se exporta para poder probar la conversión sin impresora.
         _convertir: convertir,
     };
@@ -1086,6 +1017,26 @@
      * tiene forma de saber qué hacer — buscar desde acá lo resuelve sin
      * salir de la app.
      */
+    /**
+     * Abre y cierra el panel de configuración de la impresora.
+     *
+     * Existe porque abierto empujaba "Nueva cuenta" fuera de la pantalla en un
+     * celular, y el admin no encontraba dónde dar de alta a su mozo. La
+     * impresora se configura una vez; las cuentas se crean seguido.
+     *
+     * El estado va en aria-expanded y no en una clase propia: el CSS gira la
+     * flecha leyendo ese mismo atributo, así que no hay dos fuentes de verdad
+     * que puedan quedar desincronizadas — y de paso un lector de pantalla
+     * anuncia bien si está abierto o cerrado.
+     */
+    window.togglePanelImpresora = function () {
+        const cabecera = document.querySelector('.plegable-cabecera[aria-controls="panel-impresora"]');
+        const panel = document.getElementById('panel-impresora');
+        if (!cabecera || !panel) return;
+        const abierto = panel.classList.toggle('hidden') === false;
+        cabecera.setAttribute('aria-expanded', abierto ? 'true' : 'false');
+    };
+
     window.buscarImpresoras = async function () {
         const p = plugin();
         if (!p || !p.buscar) return;
@@ -1148,39 +1099,7 @@
         if (typeof showToast === 'function') showToast('Impresora guardada', 'success');
     };
 
-    window.probarImpresoraEtiqueta = async function () {
-        const cfg = leerFormulario();
-        if (!cfg) {
-            if (typeof showToast === 'function') showToast('Elegi una impresora primero', 'warning');
-            return;
-        }
-        if (cfg.tipo === 'bluetooth' && !(await asegurarEmparejada(cfg.destino))) return;
-        try {
-            await imprimirPruebaEtiqueta(cfg);
-            if (typeof showToast === 'function') showToast('Prueba TSPL enviada', 'success');
-        } catch (err) {
-            if (typeof showToast === 'function') {
-                showToast((err && err.message) || 'No se pudo imprimir', 'error');
-            }
-        }
-    };
 
-    window.probarImpresoraSimple = async function () {
-        const cfg = leerFormulario();
-        if (!cfg) {
-            if (typeof showToast === 'function') showToast('Elegí una impresora primero', 'warning');
-            return;
-        }
-        if (cfg.tipo === 'bluetooth' && !(await asegurarEmparejada(cfg.destino))) return;
-        try {
-            await imprimirPruebaCruda(cfg);
-            if (typeof showToast === 'function') showToast('Prueba simple enviada', 'success');
-        } catch (err) {
-            if (typeof showToast === 'function') {
-                showToast((err && err.message) || 'No se pudo imprimir', 'error');
-            }
-        }
-    };
 
     window.probarImpresora = async function () {
         const cfg = leerFormulario();

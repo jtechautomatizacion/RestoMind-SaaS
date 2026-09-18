@@ -1348,9 +1348,23 @@
                             <svg viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                         </div>
                         <div class="notif-settings-text" style="flex:1">
-                            <div class="notif-settings-title">Impresora térmica</div>
-                            <div class="notif-settings-hint" id="impresora-hint">Buscando…</div>
+                            <!-- Plegable, y cerrado por defecto.
+                                 Abierto ocupa cinco campos más los botones, y
+                                 empujaba "Nueva cuenta" fuera de la pantalla en
+                                 un celular: el admin no encontraba dónde dar de
+                                 alta a su mozo. La impresora se configura una
+                                 vez y no se toca más; las cuentas se crean
+                                 seguido. Manda lo que se usa seguido. -->
+                            <button type="button" class="plegable-cabecera" onclick="togglePanelImpresora()"
+                                    aria-expanded="false" aria-controls="panel-impresora">
+                                <span>
+                                    <span class="notif-settings-title">Impresora térmica</span>
+                                    <span class="notif-settings-hint" id="impresora-hint">Buscando…</span>
+                                </span>
+                                <svg class="plegable-flecha" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                            </button>
 
+                            <div id="panel-impresora" class="plegable-cuerpo hidden">
                             <div class="form-group" style="margin-top:12px">
                                 <label for="impresora-destino">Impresora</label>
                                 <select id="impresora-destino"></select>
@@ -1391,9 +1405,15 @@
                                      la app: este botón lleva a la pantalla
                                      correcta en vez de dejar al usuario
                                      buscándola. -->
+                                <!-- "Prueba simple" y "Prueba etiqueta" se
+                                     eliminaron: eran diagnósticos que quedaron
+                                     de depurar el formato del ticket. Para el
+                                     dueño de un restaurante eran tres botones
+                                     de "imprimir algo" sin forma de saber cuál
+                                     usar. Queda "Imprimir prueba", que saca el
+                                     ticket de verdad. -->
                                 <button class="btn" onclick="buscarImpresoras()">Buscar impresoras</button>
-                                <button class="btn" onclick="probarImpresoraSimple()">Prueba simple</button>
-                                <button class="btn" onclick="probarImpresoraEtiqueta()">Prueba etiqueta</button>
+                            </div>
                             </div>
                         </div>
                     </div>

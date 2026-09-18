@@ -3679,3 +3679,54 @@ body {
     font-size: 0.7rem;
     padding: 5px 11px;
 }
+
+/* ---- Tarjeta plegable (configuración de impresora) -------------------------
+   Cerrada por defecto: abierta ocupa cinco campos más los botones, y empujaba
+   "Nueva cuenta" fuera de la pantalla en un celular. Es un ajuste que se hace
+   una vez; las cuentas del personal se crean seguido. */
+.plegable-cabecera {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    /* Se ve como texto, no como botón: dentro de la tarjeta ya hay botones de
+       verdad ("Guardar", "Imprimir prueba") y dos niveles de botón confunden
+       sobre cuál es la acción. */
+    background: none;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.plegable-cabecera > span {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.plegable-cabecera .notif-settings-hint {
+    /* El estado ("Hilebel_31C2 · 80 mm") se lee sin abrir nada: es lo único
+       que el admin necesita saber el 99% de las veces. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.plegable-flecha {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: .6;
+    transition: transform .18s ease;
+}
+.plegable-cabecera[aria-expanded="true"] .plegable-flecha { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) {
+    .plegable-flecha { transition: none; }
+}
