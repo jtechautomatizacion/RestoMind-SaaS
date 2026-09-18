@@ -126,17 +126,55 @@ if (apiDestino) {
         console.error(`Destino inválido: "${apiDestino}"\nEsperaba algo como http://192.168.1.40:8000`);
         process.exit(1);
     }
+    // SE REEMPLAZA EL VALOR, NO EL ARCHIVO.
+    //
+    // La primera versión escribía dos líneas encima de todo el archivo. Cuando
+    // ese archivo pasó a contener también la lógica que decide el origen
+    // (RESTOMIND_API_BASE, urlDeArchivo), la compilación la BORRABA: adentro
+    // del APK quedaba solo el destino, RESTOMIND_API_BASE nunca se definía, y
+    // todas las llamadas volvían a ser relativas — o sea, al propio teléfono.
+    //
+    // El síntoma era "Unexpected token '<' ... is not valid JSON" en TODOS los
+    // logins, porque el teléfono contestaba index.html donde se esperaba JSON.
+    // Nada en la compilación lo delataba: el APK se armaba perfecto.
     const archivo = path.join(destino, 'js', 'destino-api.js');
-    fs.writeFileSync(archivo, `// GENERADO AL COMPILAR — no editar. Ver tools/preparar-apk.mjs
-window.RESTOMIND_API_DESTINO = ${JSON.stringify(apiDestino)};
-`, 'utf8');
+    const original = fs.readFileSync(archivo, 'utf8');
+    const reemplazado = original.replace(
+        /(window\.RESTOMIND_API_DESTINO\s*=\s*)['"][^'"]*['"]/,
+        `$1${JSON.stringify(apiDestino)}`,
+    );
+
+    // Si el reemplazo no ocurrió, el APK saldría apuntando a producción sin
+    // que nada lo avise. Se corta acá: es un error de compilación, no algo que
+    // deba descubrirse en el teléfono.
+    if (reemplazado === original) {
+        console.error(`\nNo pude fijar el destino en ${path.relative(raiz, archivo)}.`
+            + `\nSe esperaba una línea  window.RESTOMIND_API_DESTINO = '...';`);
+        process.exit(1);
+    }
+
+    fs.writeFileSync(archivo, reemplazado, 'utf8');
 }
 
-// Se lee del archivo que quedó en la copia, no de la variable: así lo que se
-// anuncia es lo que de verdad va adentro del APK. Si el reemplazo fallara en
-// silencio, el mensaje lo delataría en vez de confirmar algo que no pasó.
-const destinoReal = (fs.readFileSync(path.join(destino, 'js', 'destino-api.js'), 'utf8')
-    .match(/RESTOMIND_API_DESTINO\s*=\s*['"]([^'"]+)['"]/) || [])[1] || '(no encontrado)';
+// --- Lo que quedó adentro es lo que se revisa --------------------------------
+//
+// No se comprueba la variable que se quiso escribir sino EL ARCHIVO EMPAQUETADO,
+// porque el bug que esto evita fue exactamente esa diferencia: la compilación
+// creía haber hecho su trabajo mientras el APK salía sin la mitad del archivo.
+const empaquetado = fs.readFileSync(path.join(destino, 'js', 'destino-api.js'), 'utf8');
+
+// Los globales que la app necesita de este archivo. Sin RESTOMIND_API_BASE,
+// todas las llamadas salen relativas —al propio teléfono— y cada login muere
+// con "Unexpected token '<'", porque llega HTML donde se espera JSON.
+const REQUERIDOS = ['RESTOMIND_API_DESTINO', 'RESTOMIND_API_BASE', 'RESTOMIND_ES_NATIVO', 'urlDeArchivo'];
+const faltantes = REQUERIDOS.filter(g => !empaquetado.includes(g));
+if (faltantes.length) {
+    console.error(`\n[!] js/destino-api.js salió incompleto: falta ${faltantes.join(', ')}.`
+        + `\n    El APK arrancaría con las llamadas apuntando al propio teléfono.`);
+    process.exit(1);
+}
+
+const destinoReal = (empaquetado.match(/RESTOMIND_API_DESTINO\s*=\s*['"]([^'"]+)['"]/) || [])[1] || '(no encontrado)';
 
 const mb = (n) => (n / 1024 / 1024).toFixed(2) + ' MB';
 console.log(`frontend/  ${mb(original)}`);

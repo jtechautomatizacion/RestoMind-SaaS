@@ -118,7 +118,11 @@ function puedeVer(tab) {
  */
 async function avisarSiElServidorEstaDesactualizado() {
     try {
-        const resp = await fetch('/health', { cache: 'no-store' });
+        // Con la ruta relativa, dentro del APK esto le preguntaba al PROPIO
+        // teléfono: devolvía index.html, el .json() fallaba y la comprobación
+        // no servía para nada — en silencio, porque el catch de abajo se la
+        // come. Ver js/destino-api.js.
+        const resp = await fetch(`${window.RESTOMIND_API_BASE || ''}/health`, { cache: 'no-store' });
         if (!resp.ok) return;
         const salud = await resp.json();
         if (!salud.codigo_desactualizado) return;

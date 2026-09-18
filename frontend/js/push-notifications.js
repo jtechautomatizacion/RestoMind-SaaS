@@ -3,13 +3,21 @@
  * nueva incluso con la app minimizada (para restaurantes sin impresora de
  * cocina). Ver backend/utils/push_notifications.py.
  *
- * Dos casos de uso distintos, mismo mecanismo de abajo:
- * - jefe_cocina: OBLIGATORIO. Se activa solo al elegir ese rol (app.js:
- *   aplicarPermisosRol → activarNotificacionesCocina()), sin switch — es
- *   la razón de ser del feature, no algo que el cocinero deba configurar.
- * - admin: OPCIONAL. El dueño puede o no querer que el celular le avise de
- *   cada comanda (ya lo ve todo desde el dashboard) — switch en Admin >
- *   Personal (ver toggleNotificacionesAdmin() más abajo).
+ * HOY NO LLEGA NADA POR ESTA VÍA, y conviene saberlo antes de tocar este
+ * archivo: el APK no trae @capacitor/push-notifications ni
+ * google-services.json, así que en el teléfono esto no puede recibir un
+ * push. Queda para el día que exista el proyecto Firebase de los cuatro
+ * pasos de abajo.
+ *
+ * El aviso que SÍ funciona hoy —sonido y vibración con la app abierta— vive
+ * en cocina.js (sonarAvisoCocina). El switch de Admin > Personal controla
+ * ese, no este: antes encendía el push y por eso fallaba siempre, con un
+ * mensaje que mandaba a revisar el permiso del navegador cuando el permiso
+ * no tenía nada que ver.
+ *
+ * Se activa solo al entrar con rol jefe_cocina (app.js: aplicarPermisosRol →
+ * activarNotificacionesCocina()), sin switch — es la razón de ser del
+ * feature, no algo que el cocinero deba configurar.
  *
  * REQUIERE CONFIGURACIÓN (no funciona "de fábrica"):
  * 1. Crear un proyecto en https://console.firebase.google.com (gratis)
@@ -22,9 +30,8 @@
  *    clave privada" → guardar el .json y apuntar FIREBASE_CREDENTIALS_JSON
  *    del backend (.env) a esa ruta
  *
- * Sin este paso, activarNotificacionesCocina()/toggleNotificacionesAdmin()
- * fallan en silencio (log, sin toast molesto) y el resto de la app sigue
- * funcionando exactamente igual.
+ * Sin esos pasos, activarNotificacionesCocina() falla en silencio (log, sin
+ * toast molesto) y el resto de la app sigue funcionando exactamente igual.
  */
 
 // TODO: pegar acá el firebaseConfig real de tu proyecto (paso 2 de arriba).
@@ -42,7 +49,6 @@ const FIREBASE_CONFIG = {
 const PUSH_TOKEN_KEY = 'restomind_push_token';
 // Preferencia SOLO del admin (opt-in) — jefe_cocina no tiene esta llave
 // porque para ese rol la activación no es una preferencia, es obligatoria.
-const PUSH_ADMIN_ACTIVO_KEY = 'restomind_push_admin_activo';
 
 function _firebaseConfigurado() {
     return FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.startsWith('TODO_');
@@ -169,81 +175,10 @@ async function _activarPush() {
     }
 }
 
-/** Da de baja este dispositivo, tanto en el backend (deja de recibir
- * envíos) como en Firebase (invalida el token del lado del navegador).
- * Nunca lanza, por la misma razón que _activarPush().
- *
- * Si no hay token en localStorage (el navegador se limpió, o se usó el
- * botón ?reset de la app que hace localStorage.clear()) NO se sale sin
- * hacer nada: se manda la baja SIN token, que en el backend significa
- * "dar de baja todos mis dispositivos". Sin ese fallback, la fila quedaba
- * viva para siempre y el admin seguía recibiendo avisos sin ninguna forma
- * de apagarlos desde este navegador. */
-async function _desactivarPush() {
-    const token = localStorage.getItem(PUSH_TOKEN_KEY);
-
-    try {
-        await api.post('/push/desregistrar', token ? { token } : {});
-    } catch (err) {
-        console.error('[Push] No se pudo desregistrar el token en el servidor:', err);
-    }
-
-    try {
-        const messaging = _getMessaging();
-        if (messaging) await messaging.deleteToken();
-    } catch (_) {
-        // No crítico: aunque Firebase no invalide el token del lado del
-        // navegador, ya se borró del backend — no van a llegar más envíos.
-    }
-
-    localStorage.removeItem(PUSH_TOKEN_KEY);
-}
-
 /**
  * jefe_cocina: activación OBLIGATORIA, sin switch. Se llama automáticamente
  * cuando el rol activo es jefe_cocina (ver app.js:aplicarPermisosRol).
  */
 function activarNotificacionesCocina() {
     _activarPush();
-}
-
-/**
- * admin: activación OPCIONAL vía switch (Admin > Personal). Devuelve true
- * si quedó activado, false si no (para que el switch pueda revertirse solo
- * si algo falló, en vez de mostrar "activado" cuando en realidad no lo está).
- */
-async function toggleNotificacionesAdmin(activar) {
-    if (activar) {
-        const token = await _activarPush();
-        const exito = token !== null;
-        localStorage.setItem(PUSH_ADMIN_ACTIVO_KEY, exito ? 'true' : 'false');
-        return exito;
-    }
-
-    await _desactivarPush();
-    localStorage.setItem(PUSH_ADMIN_ACTIVO_KEY, 'false');
-    return false;
-}
-
-/** Estado guardado localmente — solo para pintar el switch de inmediato al
- * cargar la pantalla, sin esperar una llamada de red. NO es la fuente de
- * verdad (ver notificacionesAdminActivasEnServidor). */
-function notificacionesAdminActivas() {
-    return localStorage.getItem(PUSH_ADMIN_ACTIVO_KEY) === 'true';
-}
-
-/** Fuente de verdad real: ¿el servidor tiene algún dispositivo registrado
- * para este usuario? localStorage puede estar limpio (otro navegador, datos
- * borrados) aunque la fila exista — y en ese caso el switch tiene que
- * mostrarse ENCENDIDO, porque los avisos efectivamente están llegando.
- * Devuelve null si no se pudo consultar (sin red): el llamador conserva
- * entonces lo que ya mostraba en vez de inventar un estado. */
-async function notificacionesAdminActivasEnServidor() {
-    try {
-        const { activo } = await api.get('/push/estado');
-        localStorage.setItem(PUSH_ADMIN_ACTIVO_KEY, activo ? 'true' : 'false');
-        return activo;
-    } catch (err) {
-        return null;
-    }
 }
