@@ -18,6 +18,8 @@ instalado en el celular.
 | **Aviso** de comanda nueva | sonido + vibración | sí — la lógica, en banco de pruebas |
 | **Ícono y splash** de la marca | generados del logo | sí — a ojo, en el teléfono |
 | Aviso de **versión nueva** | `GET /api/app/version` | sí — endpoint responde |
+| **Consulta de estado** de la impresora | botón `Estado` en Admin → Impresora | sí — contra la HiLabel real: `0x0` lista y `0x4` sin papel |
+| El cobro **se niega** a imprimir con falla física | `plugin-impresora/ImpresoraTermica.java` | sí — con la tapa abierta no manda el trabajo |
 
 ---
 
@@ -30,6 +32,8 @@ cubierto.
    genera y que se convierte a bytes de impresora (542 bytes para un pedido
    para llevar). Que la impresora física lo imprima depende del papel, del
    Bluetooth y del lenguaje — eso solo se ve en el mostrador.
+   *Verificado a mano el 2026-09-18 contra la HiLabel: sale el papel, y con
+   la tapa abierta el cobro avisa en vez de fingir que imprimió.*
 2. **Que las fotos se vean en el APK.** Se verificó que el backend las sirve
    (HTTP 200, JPEG) y que la app arma bien la URL. Falta confirmarlo en
    pantalla.
@@ -74,15 +78,74 @@ era el bug. Si falta cualquiera de los cuatro globales, corta.
 
 ### "La impresora despierta y no imprime"
 
-Es el lenguaje, casi siempre. Una impresora de ETIQUETAS (Hilebel, Niimbot,
-Zebra…) no entiende ESC/POS: recibe los bytes, no reconoce ningún comando y no
-hace nada. **No hay error en ninguna parte.**
+Tiene DOS causas distintas, y se ven igual desde afuera.
+
+**1. El lenguaje.** Una impresora de ETIQUETAS (Hilebel, Niimbot, Zebra…) no
+entiende ESC/POS: recibe los bytes, no reconoce ningún comando y no hace nada.
+**No hay error en ninguna parte.**
 
 Pasó dos veces. La segunda al instalar la app de pruebas, que por tener otro
 `applicationId` arranca con almacenamiento propio y quedó en ESC/POS.
 
 **Ahora:** la app preselecciona TSPL si el nombre es de una marca de
 etiquetas, y el aviso de la prueba dice en qué lenguaje salió.
+
+**2. La impresora está trabada, y la app decía que había impreso.** Un
+`write()` sobre el socket SPP tiene éxito mientras el enlace RFCOMM esté vivo,
+y eso **no** significa que el firmware procesó nada: trabada, mantiene el
+enlace abierto y tira los bytes.
+
+Medido: cuatro trabajos seguidos registraron `enviados 888/888 bytes` sin un
+solo error y no salió ni un papel; los mismos, después de apagar y prender la
+impresora, salieron bien — **con logs idénticos**. El cajero cobraba, la app
+confirmaba, y nadie se enteraba de que el comensal no tenía su hoja.
+
+**Ahora:** se le pregunta a la impresora ANTES de mandarle el trabajo
+(`<ESC>!?` en TSPL, `DLE EOT 1` en ESC/POS) y se **lee** la respuesta — el
+socket siempre fue bidireccional, solo se estaba escribiendo. Con un motivo
+concreto corta antes de gastar el trabajo, y el botón **`Estado`** (Admin →
+Impresora) lo consulta sin gastar papel.
+
+El silencio **no** se trata como falla, a propósito: varias térmicas económicas
+no implementan la consulta, y rechazar por no obtener respuesta dejaría sin
+imprimir a una impresora sana. Detalle completo en `APK_ANDROID.md`.
+
+### Editar el Java de la impresora en el lugar equivocado
+
+`android/app/src/main/java/com/restomind/pos/ImpresoraTermica.java` es una
+**copia generada**. La fuente es `plugin-impresora/ImpresoraTermica.java`, y
+`tools/integrar-android.mjs` la copia encima **en cada build** — por diseño,
+para que no se pierda con `cap sync`.
+
+Editar la copia y compilar sale **BUILD SUCCESSFUL** con los cambios borrados.
+Se detecta preguntándole al puente qué métodos expone:
+
+```js
+Object.keys(window.Capacitor.Plugins.ImpresoraTermica)
+// si el método nuevo no está, se compiló la copia vieja
+```
+
+### `gradlew` no arranca si la ruta del proyecto tiene espacios
+
+```
+"D:\Cartera" no se reconoce como un comando interno o externo
+```
+
+Es un bug conocido de Node en Windows (`nodejs/node#38490`): el citado que
+arma para `cmd.exe /d /s /c` no sobrevive un `cwd` con espacios. Ya está
+corregido en `tools/compilar.mjs` (usa `shell: true`), pero si aparece en otro
+script que llame a un `.bat`, es esto.
+
+### Con la app en segundo plano, los callbacks del plugin no llegan
+
+Android congela el WebView cuando la app pasa a background: el **nativo sigue
+corriendo** (sondea, imprime) pero el resultado nunca vuelve al JS, así que el
+`await` queda colgado para siempre. Depurando por DevTools se ve como un bug
+del plugin.
+
+Se confirma en `http://localhost:9222/json/list`: `"visible": false`. En uso
+real no pasa —el cajero tiene la app al frente— pero si alguna vez un cobro
+queda colgado, mirá si la pantalla estaba apagada.
 
 ### 80 mm de papel no son 80 mm imprimibles
 

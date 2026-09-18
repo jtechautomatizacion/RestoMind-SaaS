@@ -2,7 +2,8 @@
 
 **Versión MVP:** 4.0 — Facturación SUNAT 100% en la nube
 **Implementado y probado:** ✅ 100% Autenticación + Seguridad + **Facturación SUNAT en la nube** (firma y envío desde el servidor) + Consulta de RUC contra el Padrón Reducido local + Dashboard Financiero + Validador de Caja + Notificaciones Push + Inventario + Vista Unificada (304/304 tests)
-**Última actualización:** 2026-09-13
+**Última actualización:** 2026-09-18
+**[NUEVA] La impresora confirma antes de imprimir:** un `write()` sobre el socket Bluetooth tiene éxito aunque la impresora esté trabada y descarte los bytes — así que la app decía "imprimió" sin que saliera papel. Ahora se le pregunta el estado ANTES de mandar el trabajo y se corta con el motivo puesto (sin papel, cabezal abierto, trabada). Botón `Estado` en Admin > Impresora para verificar sin gastar papel. Ver sección "QUÉ SE IMPRIME, SEGÚN EL MODO" más abajo.
 **[NUEVA] Interruptor de facturación (`Cliente.usar_sunat`):** emitir boleta SUNAT ya no se deduce de "¿tiene RUC?" — es una decisión operativa aparte, con su propio switch en Admin > Boletas. Sin activarlo, el cobro ya no muestra el toast rojo de "boleta no emitida" ni pide DNI/RUC al cliente. Ver sección "Interruptor de Facturación" más abajo.
 **[NUEVA] Vista Unificada ("Todo en uno"):** pantalla única con Mesas + Cocina + Cobro en tres columnas, pensada para el dueño que atiende solo (sin saltar entre pestañas). Interruptor por dispositivo, no reemplaza la vista clásica. Ver sección "Vista Unificada" más abajo.
 **[NUEVA] Inventario Básico:** Entradas/salidas manuales de stock (sin acoplamiento con comandas). Admin registra entrada (compra) o salida (uso/merma/ajuste). Sistema calcula automáticamente estado (ok/bajo/crítico) basado en cantidad actual vs mínimo. Alertas solo al cruzar umbral (no en cada salida). Historial auditable con reversión sin borrar (contra-asiento). Ver sección "Inventario Básico" más abajo.
@@ -1608,6 +1609,35 @@ contra ella.** De ahí las tres decisiones del diseño:
 
 Al cobrar en este modo no se imprime nada: no hay comprobante que emitir
 (ver el interruptor, más abajo).
+
+### La app ya no dice "imprimió" cuando no imprimió
+
+Esto vale para los dos modos, porque vive en el transporte y no en el
+formato: `plugin-impresora/ImpresoraTermica.java` (la fuente; el archivo
+bajo `android/` es una copia que se regenera en cada build).
+
+Un `write()` sobre el socket Bluetooth SPP tiene éxito mientras el enlace
+RFCOMM esté vivo, y eso **no** significa que el firmware procesó nada: una
+impresora trabada mantiene el enlace abierto y descarta los bytes. Medido
+en el celular: cuatro trabajos seguidos registraron `enviados 888/888
+bytes` sin un solo error y no salió ni un papel; los mismos, después de
+apagar y prender la impresora, salieron bien — **con logs idénticos**.
+
+Antes de mandar el trabajo se le pregunta a la impresora (`<ESC>!?` en
+TSPL, `DLE EOT 1` en ESC/POS) y se **lee** la respuesta. Con un motivo
+concreto —sin papel, cabezal abierto, atasco, trabada— corta **antes de
+tocar el trabajo** y muestra qué hacer.
+
+**El silencio NO se trata como falla.** Varias térmicas económicas no
+implementan la consulta de estado, y rechazar por no obtener respuesta
+dejaría sin imprimir a una impresora sana: un problema peor que el que esto
+viene a resolver. En esos modelos el botón `Estado` (Admin → Impresora) lo
+dice con esas palabras, en vez de fingir que todo está bien.
+
+El código de estado en crudo (`0x0`, `0x4`) va a **logcat y no a la
+pantalla**: al dueño de un restaurante un "código 0x0" le hace dudar justo
+cuando el mensaje dice que está todo bien. Detalle operativo y tabla de
+diagnóstico en [`docs/APK_ANDROID.md`](docs/APK_ANDROID.md).
 
 ---
 

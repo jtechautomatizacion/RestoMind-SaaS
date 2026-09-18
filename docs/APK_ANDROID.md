@@ -255,6 +255,19 @@ Imprime en consola cómo quedaría el papel a 48 columnas.
 
 ### Si no imprime
 
+**Empezá por el botón `Estado`** (Admin → Impresora). Pregunta y no gasta
+papel, y separa en un toque las causas que desde afuera se ven idénticas:
+
+| Lo que dice | Qué pasa |
+|---|---|
+| `Lista para imprimir` | La impresora está bien: el problema está en la app o en el lenguaje |
+| `La impresora no tiene papel` / `cabezal abierto` / `atascado` | Falla física, con el motivo puesto |
+| `La impresora está trabada. Apagala y prendela de nuevo.` | El firmware se declaró en error y descarta todo lo que le llega |
+| `Conectada, pero este modelo no informa su estado` | Ese modelo no contesta la consulta: si no sale papel, apagala y prendela |
+| `No se pudo conectar con la impresora` | Ni se llegó al enlace: apagada, lejos, o desemparejada |
+
+Después, si sigue sin salir:
+
 1. ¿Está **emparejada** en Ajustes → Bluetooth? La app puede buscar y
    emparejar desde Admin → Impresora, pero el emparejamiento tiene que
    existir antes de imprimir.
@@ -264,13 +277,46 @@ Imprime en consola cómo quedaría el papel a 48 columnas.
 4. Con **más de una** impresora emparejada, la app no adivina: hay que
    elegirla. Mandar la comanda a la equivocada es peor que no imprimir.
 
-Para ver en qué lenguaje salió de verdad (sin deducirlo de los bytes), el
-módulo lo deja en logcat:
+#### Por qué existe la consulta de estado
+
+Un `write()` sobre el socket SPP tiene éxito mientras el enlace RFCOMM esté
+vivo, y eso **no** significa que el firmware procesó nada: una impresora
+trabada mantiene el enlace abierto y tira los bytes. Medido: cuatro trabajos
+seguidos registraron `enviados 888/888 bytes` sin un solo error y no salió ni
+un papel; los mismos trabajos, después de apagar y prender la impresora,
+salieron bien — **con logs idénticos**. El cajero cobraba, la app confirmaba,
+y nadie se enteraba de que el comensal no tenía su hoja.
+
+Así que antes de mandar el trabajo se le pregunta a la impresora (`<ESC>!?` en
+TSPL, `DLE EOT 1` en ESC/POS) y se **lee** la respuesta. Con un motivo
+concreto se corta antes de gastar el trabajo.
+
+**El silencio NO se trata como falla**, a propósito: varias térmicas
+económicas no implementan la consulta, y rechazar por no obtener respuesta
+dejaría sin imprimir a una impresora sana — peor que el problema original.
+En esos modelos la app no puede avisar si se traba, y el botón `Estado` lo
+dice con esas palabras en vez de fingir que todo está bien.
+
+#### En logcat
 
 ```bash
-adb logcat -v time Capacitor/Console:V "*:S" | grep Termica
+adb logcat -v time | grep -iE "Termica"
 # [Termica] imprimiendo en tspl ancho 80 destino 86:67:...
+# D ImpresoraTermica: sonda tspl: 0x0 -> lista          <- el estado crudo
+# D ImpresoraTermica: enviados 565/565 bytes en trozos de 180
+# [Termica] la impresora confirmo estado: lista
 ```
+
+Los dos renglones que importan:
+
+- **`sonda ... -> ...`** es el estado en crudo (`0x0` lista, `0x4` sin papel).
+  El código hexadecimal va acá y **no** en pantalla: al dueño del restaurante
+  un "código 0x0" le hace dudar justo cuando el mensaje dice que está todo
+  bien.
+- **`la impresora confirmo estado`** vs **`NO confirmo`** distingue "imprimió"
+  de "se enviaron los bytes y nadie confirmó nada", que antes eran lo mismo.
+
+Si falla, **no aparece** la línea de `enviados`: cortó antes.
 
 ---
 
