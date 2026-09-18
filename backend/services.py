@@ -27,6 +27,11 @@ def comanda_to_response(comanda: Comanda) -> dict:
         "id": comanda.id,
         "cliente_id": comanda.cliente_id,
         "numero_mesa": comanda.numero_mesa,
+        # Sin esto el schema cae a su default ("mesa") y la respuesta MIENTE:
+        # el pedido queda bien guardado, pero el frontend imprime el ticket a
+        # partir de lo que le contesta el servidor, así que uno para llevar
+        # saldría rotulado "MESA 0".
+        "tipo_pedido": comanda.tipo_pedido or "mesa",
         "estado": comanda.estado,
         "total_cuenta": comanda.total_cuenta,
         "creado_en": comanda.creado_en,

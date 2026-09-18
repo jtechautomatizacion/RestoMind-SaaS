@@ -30,9 +30,12 @@ function renderMesas() {
     const container = document.getElementById('mozo-mesas');
     container.innerHTML = '';
 
+    // Sin mesas NO se sale de la función: "Para llevar" se agrega al final y
+    // tiene que seguir estando. Un local que arranca vendiendo solo en el
+    // mostrador —o que todavía no cargó sus mesas— igual tiene que poder
+    // tomar un pedido.
     if (estado.mesas.length === 0) {
         container.innerHTML = '<p class="empty-hint">Aún no hay mesas configuradas.</p>';
-        return;
     }
 
     // Restringido a "solo cobra" cuando la cuenta tiene cajero pero NO
@@ -85,6 +88,34 @@ function renderMesas() {
         }
         container.appendChild(btn);
     });
+
+    // "Para llevar" va DENTRO de la misma grilla, como una mesa más.
+    //
+    // Es el mismo gesto que ya conoce el mozo —tocar y armar el pedido— y
+    // ocupa el lugar donde va a mirar. Puesto aparte, arriba o en un menú, se
+    // vuelve una función escondida que hay que enseñar; acá se descubre sola.
+    //
+    // Se distingue por el ícono (una bolsa) y por el color, no solo por el
+    // texto: en una grilla de números, una palabra pasa desapercibida.
+    //
+    // No aparece para quien solo cobra: esa cuenta no toma pedidos nuevos,
+    // mismo criterio que las mesas libres apagadas de arriba.
+    if (!soloCobra) {
+        const llevar = document.createElement('button');
+        llevar.className = 'mesa-btn mesa-btn-llevar';
+        llevar.innerHTML = `
+            <svg class="mesa-icono" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6 8h12l-1 12H7L6 8z"/>
+                <path d="M9 8V6a3 3 0 0 1 6 0v2"/>
+            </svg>
+            <span class="mesa-numero mesa-numero-llevar">Para llevar</span>
+            <div class="mesa-capacidad">Se cobra al pedir</div>
+            <span class="mesa-estado-dot"></span>
+        `;
+        llevar.onclick = () => abrirPedidoParaLlevar();
+        container.appendChild(llevar);
+    }
 }
 
 function abrirMesa(mesa) {
@@ -111,6 +142,27 @@ function abrirNuevoPedido(mesa) {
     mesaActual = mesa;
     carrito = [];
     document.getElementById('modal-title').textContent = `Mesa ${mesa.numero} · Nuevo pedido`;
+    renderCategorias();
+    renderPlatos();
+    renderCarrito();
+    abrirModal('modal-comanda');
+}
+
+/**
+ * Pedido PARA LLEVAR: mismo modal, misma carta, mismo carrito.
+ *
+ * Se reusa todo el flujo de un pedido de mesa en vez de armar una pantalla
+ * aparte: elegir platos es idéntico, y duplicar el carrito o el envío sería
+ * tener dos versiones de lo mismo que se desincronizan.
+ *
+ * `mesaActual` con numero 0 es lo que marca la diferencia — 0 no es una mesa
+ * válida (se numeran desde 1), así que nada que filtre por número lo confunde
+ * con una. El backend igual recibe `tipo_pedido`, que es la fuente de verdad.
+ */
+function abrirPedidoParaLlevar() {
+    mesaActual = { numero: 0, paraLlevar: true };
+    carrito = [];
+    document.getElementById('modal-title').textContent = 'Para llevar · Nuevo pedido';
     renderCategorias();
     renderPlatos();
     renderCarrito();
@@ -247,15 +299,20 @@ async function enviarComanda() {
         return;
     }
 
+    const paraLlevar = Boolean(mesaActual && mesaActual.paraLlevar);
     const data = {
-        numero_mesa: mesaActual.numero,
+        numero_mesa: paraLlevar ? 0 : mesaActual.numero,
+        tipo_pedido: paraLlevar ? 'llevar' : 'mesa',
         platos: carrito.map(item => ({ plato_id: item.platoId, cantidad: item.cantidad })),
     };
 
     try {
         const comanda = await api.post('/comandas', data);
 
-        showToast('Comanda enviada a cocina', 'success');
+        // Para llevar se paga en el mostrador al pedirlo, así que el aviso
+        // dice que ya se cobró: si dijera solo "enviada a cocina", el cajero
+        // podría quedarse esperando cobrarlo después.
+        showToast(paraLlevar ? 'Pedido cobrado y enviado a cocina' : 'Comanda enviada a cocina', 'success');
         cerrarModal();
         await refreshMozo();
         // Solo si este rol ve Cocina — mismo criterio que la línea de
@@ -277,7 +334,11 @@ async function enviarComanda() {
             // pueda seguir trabajando sin esperar al servidor.
             const comandaLocal = construirComandaLocal(data, carrito);
             encolarComanda(data);
-            marcarMesaOcupadaLocal(mesaActual.numero, comandaLocal.total_cuenta);
+            // Un pedido para llevar no ocupa ninguna mesa, así que no hay
+            // nada que marcar: buscar la "mesa 0" no encontraría nada.
+            if (!paraLlevar) {
+                marcarMesaOcupadaLocal(mesaActual.numero, comandaLocal.total_cuenta);
+            }
 
             showToast('Sin conexión: pedido guardado, se enviará solo al volver la señal', 'warning');
             cerrarModal();
@@ -298,6 +359,10 @@ function construirComandaLocal(data, carritoSnapshot) {
     return {
         creado_en: new Date().toISOString(),
         numero_mesa: data.numero_mesa,
+        // Se copia para que el ticket impreso sin señal diga "PARA LLEVAR"
+        // igual que el que sale con el servidor respondiendo. Un papel que
+        // cambia según haya wifi confunde a quien lo recibe.
+        tipo_pedido: data.tipo_pedido || 'mesa',
         platos: carritoSnapshot.map(item => ({
             cantidad: item.cantidad,
             nombre: item.nombre,

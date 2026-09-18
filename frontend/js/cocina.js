@@ -136,7 +136,7 @@ async function refreshCocina() {
             return `
                 <div class="cocina-tarjeta ${alerta ? 'alerta' : ''}" id="cocina-${comanda.id}">
                     <div class="cocina-tarjeta-top">
-                        <div class="cocina-mesa">Mesa ${comanda.numero_mesa}</div>
+                        <div class="cocina-mesa">${comanda.numero_mesa ? `Mesa ${comanda.numero_mesa}` : `Para llevar #${comanda.id}`}</div>
                         <div class="cocina-tiempo ${alerta ? 'alerta' : ''}">${comanda.minutos_transcurridos} min</div>
                     </div>
                     <div class="cocina-platos">${platosHtml}</div>

@@ -121,6 +121,31 @@ def test_un_pedido_de_mesa_sin_numero_se_rechaza(
 # ---------------------------------------------------------------------------
 
 
+def test_la_respuesta_dice_que_es_para_llevar(
+    test_client_real_auth, test_cliente, test_platos, test_mesas
+):
+    """El servidor tiene que DECIR que el pedido es para llevar, no solo
+    guardarlo así.
+
+    El frontend imprime el ticket a partir de esta respuesta. Cuando el
+    serializador no incluía el campo, el schema caía a su default ("mesa"): el
+    pedido quedaba bien en la base y el reporte lo contaba bien, pero el papel
+    salía rotulado "MESA 0". Los diez tests que ya existían no lo vieron
+    porque ninguno miraba este campo de la respuesta.
+    """
+    client = test_client_real_auth
+    token = _login_restaurante(client)
+
+    creado = _pedir_para_llevar(client, token, [{"plato_id": test_platos[0].id, "cantidad": 1}]).json()
+    assert creado["tipo_pedido"] == "llevar"
+    assert creado["numero_mesa"] == 0
+
+    # Y también al volver a leerlo, no solo al crearlo.
+    listado = client.get("/api/comandas", headers=_auth(token)).json()
+    mismo = next(c for c in listado if c["id"] == creado["id"])
+    assert mismo["tipo_pedido"] == "llevar"
+
+
 def test_nace_cobrado_y_cuenta_como_venta(
     test_client_real_auth, test_cliente, test_platos, test_mesas
 ):

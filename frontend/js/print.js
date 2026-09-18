@@ -46,7 +46,7 @@ function _ticketHTML(titulo, comanda, { conPrecios }) {
 <body>
     <div class="ticket-header">
         <h1>${titulo}</h1>
-        <div class="ticket-mesa">MESA ${comanda.numero_mesa}</div>
+        <div class="ticket-mesa">${comanda.numero_mesa ? `MESA ${comanda.numero_mesa}` : `PARA LLEVAR N${String.fromCharCode(176)} ${comanda.id || ''}`}</div>
     </div>
     <div class="ticket-meta">${fechaStr} &middot; ${horaStr}</div>
     <table>${filas}</table>
@@ -127,7 +127,7 @@ function _ticketPrecuentaHTML(comanda, negocio, mozoNombre) {
     </div>
     <div class="campos">
         <div>MOZO: ${escapeHtml(mozoNombre || '-')}</div>
-        <div>MESA: ${comanda.numero_mesa}</div>
+        <div>${rotuloPedido(comanda)}</div>
         <div>CLIENTE: Publico General</div>
         <div>DOC: -</div>
     </div>
@@ -174,6 +174,20 @@ function _ticketPrecuentaHTML(comanda, negocio, mozoNombre) {
  * pueda confundirla con un comprobante. Entregar algo con aspecto de
  * boleta sin serlo es un problema mucho más caro que imprimir de más.
  */
+/**
+ * Cómo se identifica un pedido en el papel.
+ *
+ * `numero_mesa` vale 0 en un pedido para llevar, así que sin esto los tres
+ * tickets imprimirían "MESA: 0" — un número de mesa que no existe, que manda
+ * a buscar una mesa por todo el local. Para llevar se identifica por su
+ * número de pedido, que es lo que se canta en el mostrador.
+ */
+function rotuloPedido(comanda) {
+    return comanda && comanda.numero_mesa
+        ? `MESA: ${comanda.numero_mesa}`
+        : `PARA LLEVAR  N${String.fromCharCode(176)} ${(comanda && comanda.id) || ''}`.trim();
+}
+
 function _ticketPreventaHTML(comanda, negocio, atendidoPor) {
     const fecha = new Date(comanda.creado_en || Date.now());
     const fechaHoraStr = fecha.toLocaleString('es-PE', {
@@ -254,7 +268,7 @@ function _ticketPreventaHTML(comanda, negocio, atendidoPor) {
     </div>
     <div class="linea"></div>
     <div class="campos">
-        <span>MESA: ${comanda.numero_mesa}</span>
+        <span>${rotuloPedido(comanda)}</span>
         <span>N&ordm; ${comanda.id ?? '-'}</span>
     </div>
     <div class="campos">

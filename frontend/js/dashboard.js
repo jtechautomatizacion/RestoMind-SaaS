@@ -80,6 +80,7 @@ async function refreshDashboard() {
         renderTablaDiaria(document.getElementById('dashboard-tabla-diaria'), data.serie);
         renderTopPlatos(document.getElementById('top-platos-list'), data.top_platos);
         renderTopGastos(document.getElementById('top-gastos-list'), data.top_gastos);
+        renderVentasPorTipo(document.getElementById('ventas-por-tipo'), data.por_tipo_pedido);
     } catch (err) {
         console.error('Error cargando dashboard:', err);
         showToast('Error al cargar el dashboard', 'error');
@@ -355,6 +356,58 @@ function renderTopGastos(container, topGastos) {
             </div>
             <div class="top-plato-bar-wrapper">
                 <div class="top-plato-bar top-gasto-bar" style="width: ${porcentaje}%"></div>
+            </div>
+        `;
+        container.appendChild(div);
+    });
+}
+
+
+/**
+ * Salón contra mostrador: el reporte para decidir dónde poner esfuerzo.
+ *
+ * Reusa el mismo componente de barras que Top platos y Top gastos en vez de
+ * inventar un gráfico nuevo — son tres listas ordenadas con una magnitud, y
+ * el dueño ya sabe leer ese formato.
+ *
+ * Las DOS filas se muestran siempre, aunque una esté en cero: un restaurante
+ * que todavía no vendió para llevar tiene que ver el renglón para enterarse
+ * de que la función existe. Ocultarla haría que la pantalla dependiera de si
+ * ya se usó, que es justo al revés de lo que hace falta.
+ */
+function renderVentasPorTipo(container, porTipo) {
+    if (!container) return;
+    container.innerHTML = '';
+
+    const filas = porTipo || [];
+    const totalGeneral = filas.reduce((suma, f) => suma + f.total, 0);
+
+    if (!filas.length || totalGeneral === 0) {
+        container.innerHTML = '<p class="empty-hint">Sin ventas en este período.</p>';
+        return;
+    }
+
+    const ETIQUETAS = { mesa: 'En salón', llevar: 'Para llevar' };
+    const mayor = Math.max(...filas.map(f => f.total)) || 1;
+
+    filas.forEach((fila, idx) => {
+        // Sobre el TOTAL, no sobre la fila más grande: la pregunta real es
+        // "de cada 100 soles, cuántos entran por mostrador", y contra el
+        // máximo ese número no se puede leer.
+        const parte = totalGeneral ? Math.round((fila.total / totalGeneral) * 100) : 0;
+        const div = document.createElement('div');
+        div.className = 'top-plato-item';
+        div.innerHTML = `
+            <div class="top-plato-num">${idx + 1}</div>
+            <div class="top-plato-info">
+                <div class="top-plato-nombre">${ETIQUETAS[fila.tipo] || escapeHtml(fila.tipo)}</div>
+                <div class="top-plato-detalle">
+                    <span class="cantidad-badge">${fila.pedidos}${fila.pedidos === 1 ? ' pedido' : ' pedidos'} &middot; ${parte}%</span>
+                    <span class="top-plato-monto">${formatCurrency(fila.total)}</span>
+                </div>
+            </div>
+            <div class="top-plato-bar-wrapper">
+                <div class="top-plato-bar" style="width: ${(fila.total / mayor) * 100}%"></div>
             </div>
         `;
         container.appendChild(div);

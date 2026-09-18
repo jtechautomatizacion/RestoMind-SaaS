@@ -3730,3 +3730,31 @@ body {
 @media (prefers-reduced-motion: reduce) {
     .plegable-flecha { transition: none; }
 }
+
+/* ---- "Para llevar", dentro de la grilla de mesas --------------------------
+   Va como una mesa más porque es el mismo gesto (tocar y armar el pedido) y
+   está donde el mozo ya mira. Aparte, arriba o en un menú, sería una función
+   escondida que hay que enseñar.
+
+   Se distingue por color e ícono, no solo por el texto: en una grilla de
+   números, una palabra pasa desapercibida. */
+.mesa-btn-llevar {
+    border-color: var(--accent, #FF5A3C);
+    background: linear-gradient(160deg,
+        color-mix(in srgb, var(--accent, #FF5A3C) 14%, transparent),
+        transparent 70%);
+}
+.mesa-btn-llevar .mesa-icono {
+    color: var(--accent, #FF5A3C);
+    width: 34px;
+    height: 34px;
+}
+.mesa-btn-llevar .mesa-estado-dot { background: var(--accent, #FF5A3C); }
+/* El rótulo reemplaza al número de mesa, que en la grilla va en cuerpo
+   grande: "Para llevar" a ese tamaño se desborda del botón. */
+.mesa-numero-llevar {
+    font-size: .95rem;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: .01em;
+}
