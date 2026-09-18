@@ -110,6 +110,28 @@ El silencio **no** se trata como falla, a propósito: varias térmicas económic
 no implementan la consulta, y rechazar por no obtener respuesta dejaría sin
 imprimir a una impresora sana. Detalle completo en `APK_ANDROID.md`.
 
+### La consulta de estado dejó de imprimir TODO (y el síntoma era el mismo)
+
+La peor de todas, porque **el arreglo causó el bug que venía a arreglar**, con
+el mismo síntoma exacto: `sonda 0x0 -> lista`, `enviados 888/888 bytes`, cero
+errores, cero papel.
+
+TSPL es un protocolo de **líneas terminadas en CRLF** y la sonda (`<ESC>!?`) va
+sin terminador. La impresora contesta la consulta **y además deja esos tres
+bytes en su buffer de líneas**, así que el primer comando del trabajo le llega
+como `\x1B!?SIZE 72 mm,87 mm` — inválido, se descarta, la etiqueta nunca recibe
+su tamaño.
+
+**Cómo se encontró:** dos etiquetas idénticas mandadas directo al plugin, una
+con un `\r\n` adelante y otra sin él. La normal no imprimió; la del CRLF salió
+perfecta. Un experimento de dos casos vale más que leer el firmware.
+
+**Ahora:** la sonda manda el CRLF ella misma después de leer la respuesta. En
+ESC/POS no, porque ahí `0x0D`/`0x0A` mueven el papel.
+
+**La regla que queda:** una sonda de diagnóstico que comparte el canal con los
+datos tiene que devolver el parser al estado en que lo encontró.
+
 ### Editar el Java de la impresora en el lugar equivocado
 
 `android/app/src/main/java/com/restomind/pos/ImpresoraTermica.java` es una

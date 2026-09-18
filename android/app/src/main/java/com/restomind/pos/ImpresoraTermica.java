@@ -510,6 +510,10 @@ public class ImpresoraTermica extends Plugin {
     private static final byte[] SONDA_ESCPOS = { 0x10, 0x04, 0x01 };
     private static final long PLAZO_SONDEO_MS = 1500;
 
+    // CRLF. Cierra la linea que deja la sonda en el parser de TSPL — ver el
+    // final de sondear(), que explica por que sin esto no imprime NADA.
+    private static final byte[] FIN_LINEA_TSPL = { 0x0D, 0x0A };
+
     private Sondeo sondear(OutputStream salida, InputStream entrada, String lenguaje) throws Exception {
         boolean tspl = "tspl".equals(lenguaje);
         Sondeo s = new Sondeo();
@@ -539,6 +543,30 @@ public class ImpresoraTermica extends Plugin {
                 break;
             }
             Thread.sleep(50);
+        }
+
+        // LA SONDA TIENE QUE DEJAR EL PARSER LIMPIO.
+        //
+        // TSPL es un protocolo de LINEAS terminadas en CRLF, y la sonda va sin
+        // terminador. La HiLabel contesta la consulta —se lee el 0x00— pero
+        // IGUAL deja esos tres bytes en su buffer de lineas, asi que el primer
+        // comando del trabajo le llega como "\x1B!?SIZE 72 mm,87 mm": comando
+        // invalido, se descarta, la etiqueta nunca recibe su tamaño y no sale
+        // NADA. Sin un solo error en ninguna parte — el mismo sintoma que esta
+        // sonda vino a eliminar.
+        //
+        // Medido con un experimento de dos etiquetas identicas: la normal no
+        // imprimio, la que llevaba un CRLF adelante salio perfecta.
+        //
+        // En ESC/POS NO se manda: ahi 0x0D/0x0A son retorno de carro y avance
+        // de linea, o sea que moverian el papel en cada impresion.
+        if (tspl) {
+            try {
+                salida.write(FIN_LINEA_TSPL);
+                salida.flush();
+            } catch (IOException ignored) {
+                // Si el enlace se cayo justo aca, escribir() lo va a reportar.
+            }
         }
 
         if (primero < 0) {

@@ -1639,6 +1639,16 @@ pantalla**: al dueño de un restaurante un "código 0x0" le hace dudar justo
 cuando el mensaje dice que está todo bien. Detalle operativo y tabla de
 diagnóstico en [`docs/APK_ANDROID.md`](docs/APK_ANDROID.md).
 
+**La sonda cierra su línea con CRLF, y no es opcional.** TSPL es un
+protocolo de líneas terminadas en CRLF; la sonda va sin terminador, y la
+impresora contesta la consulta pero igual deja esos bytes en su buffer de
+líneas. Sin el CRLF, el primer comando del trabajo le llega como
+`\x1B!?SIZE 72 mm,87 mm` —inválido— y la etiqueta nunca recibe su tamaño:
+**no sale nada, con el mismo síntoma que esta sonda vino a eliminar.** En
+ESC/POS no se manda, porque ahí `0x0D`/`0x0A` mueven el papel. La regla
+general: una sonda que comparte el canal con los datos tiene que devolver
+el parser al estado en que lo encontró.
+
 ---
 
 ## 🔌 EL SWITCH DE FACTURACIÓN SE HACE VALER EN EL SERVIDOR

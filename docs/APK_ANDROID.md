@@ -291,6 +291,34 @@ Así que antes de mandar el trabajo se le pregunta a la impresora (`<ESC>!?` en
 TSPL, `DLE EOT 1` en ESC/POS) y se **lee** la respuesta. Con un motivo
 concreto se corta antes de gastar el trabajo.
 
+##### La sonda tiene que dejar el parser limpio (o no imprime nada)
+
+Esto se rompió de verdad, y el síntoma fue **idéntico** al bug que la sonda
+venía a eliminar: `sonda 0x0 -> lista`, `enviados 888/888 bytes`, cero
+errores, cero papel.
+
+TSPL es un protocolo de **líneas terminadas en CRLF**, y la sonda va sin
+terminador. La HiLabel contesta la consulta —se lee el `0x00`— pero **igual
+deja esos tres bytes en su buffer de líneas**. El primer comando del trabajo
+le llega entonces como:
+
+```
+\x1B!?SIZE 72 mm,87 mm     <- comando invalido, se descarta
+```
+
+Sin `SIZE`, la etiqueta nunca recibe su tamaño y no sale nada.
+
+Se confirmó con dos etiquetas idénticas mandadas al plugin: la normal no
+imprimió, la que llevaba un `\r\n` adelante salió perfecta. **Ahora la sonda
+manda el CRLF ella misma** después de leer la respuesta.
+
+En **ESC/POS no se manda**: ahí `0x0D`/`0x0A` son retorno de carro y avance de
+línea, o sea que moverían el papel en cada impresión.
+
+> **La regla general:** una sonda de diagnóstico que comparte el canal con los
+> datos tiene que devolver el parser al estado en que lo encontró. Si no, el
+> diagnóstico se convierte en la causa.
+
 **El silencio NO se trata como falla**, a propósito: varias térmicas
 económicas no implementan la consulta, y rechazar por no obtener respuesta
 dejaría sin imprimir a una impresora sana — peor que el problema original.
