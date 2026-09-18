@@ -28,9 +28,15 @@
     //
     // El valor NO vive acá: lo pone js/destino-api.js, que se carga antes y
     // que la compilación reemplaza según se arme un APK de pruebas o uno de
-    // producción. Ver ese archivo para el por qué. El respaldo cubre el caso
-    // de que alguien cargue este script sin el otro.
-    const API_REMOTA = window.RESTOMIND_API_DESTINO || 'https://app.jtechsolutiones.com';
+    // producción. Ver ese archivo para el por qué.
+    //
+    // NO HAY RESPALDO A PRODUCCIÓN, y es deliberado. Poner
+    // `|| 'https://app.jtechsolutiones.com'` parece prudente y es justo lo
+    // contrario: si destino-api.js no cargara en un APK de PRUEBAS, ese
+    // respaldo lo mandaría a escribir en la base del restaurante sin que nada
+    // lo avisara — el mismo accidente que este archivo viene a evitar.
+    // Quedarse sin destino es un error de compilación, y tiene que verse.
+    const API_REMOTA = window.RESTOMIND_API_DESTINO || '';
 
     const esNativo = Boolean(
         window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function'
@@ -45,6 +51,14 @@
     window.RESTOMIND_API_BASE = esNativo ? API_REMOTA : '';
 
     if (!esNativo) return;
+
+    // Empaquetado y sin destino = el APK se armó mal. Sin este aviso la app
+    // arranca igual y falla mucho después, con un "Sin conexión" que manda a
+    // revisar el wifi del local en vez de la compilación.
+    if (!API_REMOTA) {
+        console.error('[RestoMind] El APK no tiene backend configurado: falta js/destino-api.js. '
+            + 'Recompilar con  npm run apk  o  npm run apk:testing');
+    }
 
     // ---- Token de notificaciones -------------------------------------
     // Se expone con la MISMA forma que espera push-notifications.js

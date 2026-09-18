@@ -14,6 +14,12 @@ restomind.db
 # contraseña. Un glob que cubre un solo nombre de backup es un glob que
 # tarde o temprano no cubre el que alguien escribió a mano.
 restomind.db.*
+
+# Base del entorno de pruebas (npm run servir-testing). Existe justamente para
+# que las pruebas NO toquen datos reales; versionarla sería volver a mezclar.
+restomind-testing.db
+restomind-testing.db-shm
+restomind-testing.db-wal
 *.db.bak
 *.db.bak-*
 *.db.backup-*

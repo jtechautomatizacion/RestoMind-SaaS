@@ -229,5 +229,28 @@ if (enTextoPlano) {
 }
 fs.writeFileSync(manifiesto, man, 'utf8');
 
+// --- 5. Contenido mixto: son DOS permisos distintos, no uno ----------------
+//
+// El punto 4 convence a ANDROID de permitir http. Falta convencer al WEBVIEW,
+// que es otra política y bloquea por su cuenta: la página se sirve desde
+// https://localhost (androidScheme de Capacitor), así que pedirle algo a un
+// http:// es "contenido mixto" y lo corta antes de que salga a la red.
+//
+// El síntoma engaña: el backend no registra NINGUNA petición, así que parece
+// un problema de red o de firewall. Solo logcat lo dice, con todas las letras:
+//   "Mixed Content: ... requested an insecure resource ... has been blocked"
+//
+// Se toca la copia que quedó en assets/ —que es la que lee la app— y no
+// capacitor.config.json del repo, para que un APK de producción nunca salga
+// con contenido mixto habilitado.
+const cfgAssets = path.join(raiz, 'android', 'app', 'src', 'main', 'assets', 'capacitor.config.json');
+if (fs.existsSync(cfgAssets)) {
+    const cfg = JSON.parse(fs.readFileSync(cfgAssets, 'utf8'));
+    cfg.android = cfg.android || {};
+    cfg.android.allowMixedContent = enTextoPlano;
+    fs.writeFileSync(cfgAssets, JSON.stringify(cfg, null, 2), 'utf8');
+    console.log(`  contenido mixto: ${enTextoPlano ? 'permitido (solo pruebas)' : 'bloqueado'}`);
+}
+
 console.log(`\nEste APK habla con: ${destinoApk || '(no pude leerlo de dist-apk/)'}`);
 console.log('Listo. Ahora:  cd android && ./gradlew assembleDebug');
