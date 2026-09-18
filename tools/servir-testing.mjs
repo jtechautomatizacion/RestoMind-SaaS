@@ -64,7 +64,7 @@ function ipDeEstaPC() {
 const ip = ipDeEstaPC();
 console.log('\n  BACKEND DE PRUEBAS');
 console.log('  base de datos:  restomind-testing.db   (produccion NO se toca)');
-console.log(`  el celular lo busca en:  http://${ip || '<ip-de-esta-pc>'}:8000\n`);
+console.log(`  el celular lo busca en:  http://${ip || '<ip-de-esta-pc>'}:${PUERTO}\n`);
 if (ip) {
     console.log('  Si el APK no conecta, casi siempre es el firewall de Windows:');
     console.log('  la primera vez pide permiso para python.exe y hay que darle');

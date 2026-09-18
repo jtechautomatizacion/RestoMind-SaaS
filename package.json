@@ -12,6 +12,8 @@
     "apk": "node tools/preparar-apk.mjs && cap sync android && node tools/integrar-android.mjs && node tools/compilar.mjs produccion",
     "apk:testing": "node tools/preparar-apk.mjs local && cap sync android && node tools/integrar-android.mjs && node tools/compilar.mjs testing",
     "servir-testing": "node tools/servir-testing.mjs",
+    "clonar-a-pruebas": ".venv/Scripts/python.exe tools/clonar-a-pruebas.py",
+    "iconos": ".venv/Scripts/python.exe tools/generar-iconos.py",
     "version": "node tools/subir-version.mjs"
   },
   "dependencies": {
