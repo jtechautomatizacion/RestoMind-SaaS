@@ -982,7 +982,48 @@
             : 'Ninguna emparejada. Emparejala en Ajustes → Bluetooth del celular.';
 
         alternarCampoIP();
-        selDestino.onchange = alternarCampoIP;
+        selDestino.onchange = function () {
+            alternarCampoIP();
+            sugerirLenguaje(selDestino, Boolean(cfg));
+        };
+        // También al abrir la pantalla: si todavía no hay nada guardado, el
+        // desplegable ya aparece con el lenguaje que le corresponde a la
+        // impresora elegida, en vez de con el que venía por defecto.
+        sugerirLenguaje(selDestino, Boolean(cfg));
+    }
+
+    // Marcas cuyas impresoras son de ETIQUETAS y hablan TSPL, no ESC/POS.
+    const MARCAS_ETIQUETA = /hilebel|hi-?label|niimbot|phomemo|tsc|zebra|godex|argox|brother\s*ql|xprinter\s*d/i;
+
+    /**
+     * Preselecciona el lenguaje según la impresora elegida.
+     *
+     * POR QUÉ HACE FALTA
+     * ------------------
+     * Una de etiquetas NO entiende ESC/POS: recibe los bytes, no reconoce
+     * ningún comando y no hace nada. El síntoma es el peor posible — "la
+     * impresora despierta y no imprime" — porque no hay error en ninguna
+     * parte: ni en la app, ni en el papel.
+     *
+     * Ya pasó dos veces en este proyecto. La segunda fue al instalar la app
+     * de pruebas, que por tener otro applicationId arranca con almacenamiento
+     * propio: la impresora quedó guardada como ESC/POS y no imprimía nada, sin
+     * ninguna pista de por qué.
+     *
+     * Es una SUGERENCIA, no una imposición: solo actúa cuando el usuario
+     * todavía no eligió nada, y el desplegable queda disponible para corregirla.
+     * Acertar el 90% de las veces sin quitarle la decisión a nadie.
+     */
+    function sugerirLenguaje(selDestino, yaHayConfiguracion) {
+        // Si ya guardó una configuración, su elección manda: no se le cambia
+        // el lenguaje por debajo a alguien que ya lo dejó andando.
+        if (yaHayConfiguracion) return;
+        const selLeng = elemento('impresora-lenguaje');
+        if (!selLeng || !selDestino) return;
+
+        const opcion = selDestino.options[selDestino.selectedIndex];
+        const nombre = opcion ? opcion.textContent : '';
+        if (MARCAS_ETIQUETA.test(nombre)) selLeng.value = 'tspl';
     }
 
     function alternarCampoIP() {
@@ -1112,7 +1153,17 @@
             // Se imprime con lo que hay en el formulario, SIN guardar: así se
             // puede probar un ancho antes de dejarlo fijo.
             await imprimirPrueba(cfg);
-            if (typeof showToast === 'function') showToast('Prueba enviada', 'success');
+            // El aviso NOMBRA el lenguaje que se usó, y eso es lo importante.
+            //
+            // "Prueba enviada" a secas es inútil justo cuando más se necesita:
+            // si no sale papel, el usuario se queda sin saber qué probar. Una
+            // de etiquetas alimentada con ESC/POS no imprime NADA y tampoco da
+            // error — ni en la app ni en el papel. Nombrando el lenguaje, un
+            // callejón sin salida se convierte en una decisión de dos opciones.
+            if (typeof showToast === 'function') {
+                const comoSe = cfg.lenguaje === 'tspl' ? 'etiquetas (TSPL)' : 'tickets (ESC/POS)';
+                showToast(`Prueba enviada como ${comoSe}. Si no salió nada, cambiá el tipo de impresora.`, 'success');
+            }
         } catch (err) {
             if (typeof showToast === 'function') {
                 showToast(err && err.message ? err.message : 'No se pudo imprimir', 'error');
