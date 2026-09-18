@@ -71,6 +71,14 @@ def main() -> None:
     destino = sqlite3.connect(DESTINO)
     try:
         origen.backup(destino)
+        # Consolidar el WAL dentro del .db antes de soltarlo.
+        #
+        # Sin esto, todo lo copiado queda en el archivo `-wal` de al lado y el
+        # .db principal se queda en 4 KB. SQLite lo lee bien —junta los dos—
+        # así que la app funciona y nada avisa. El problema aparece después:
+        # copiar o respaldar "la base de datos" sin llevarse también el -wal
+        # da una base VACÍA, y eso se descubre cuando ya es tarde.
+        destino.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     finally:
         destino.close()
         origen.close()
