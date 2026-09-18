@@ -821,11 +821,41 @@
     async function enviar(cfg, bytes) {
         const p = plugin();
         if (!p) throw new Error('La impresión nativa no está disponible');
-        await p.imprimir({
+        // `lenguaje` viaja al nativo para poder LEER el byte de estado: la
+        // sonda y la respuesta son distintas en TSPL y en ESC/POS. Sin esto
+        // no hay forma de saber si la impresora está trabada.
+        return await p.imprimir({
             tipo: cfg.tipo || 'bluetooth',
             destino: cfg.destino,
             datos: aBase64(bytes),
+            lenguaje: cfg.lenguaje || 'escpos',
         });
+    }
+
+    /**
+     * Pregunta el estado SIN imprimir.
+     *
+     * Devuelve siempre un objeto (nunca lanza): esta consulta es para
+     * DIAGNOSTICAR, así que "no pude ni conectarme" es una respuesta válida y
+     * no un error que haya que atrapar en cada llamador.
+     */
+    async function consultarEstado(cfg) {
+        const p = plugin();
+        if (!p || !p.estado) {
+            return { conecto: false, respondio: false, codigo: -1, estado: 'La app no soporta esta consulta' };
+        }
+        try {
+            return await p.estado({
+                tipo: cfg.tipo || 'bluetooth',
+                destino: cfg.destino,
+                lenguaje: cfg.lenguaje || 'escpos',
+            });
+        } catch (err) {
+            return {
+                conecto: false, respondio: false, codigo: -1,
+                estado: (err && err.message) || 'No se pudo consultar',
+            };
+        }
     }
 
     /**
@@ -877,7 +907,14 @@
             // garabatos, lo primero que hay que saber es en que lenguaje se
             // emitio, y eso no se puede deducir mirando la impresora.
             console.log('[Termica] imprimiendo en', cfg.lenguaje, 'ancho', cfg.ancho, 'destino', cfg.destino);
-            await enviar(cfg, convertir(html, COLUMNAS[cfg.ancho] || 48, cfg.lenguaje));
+            const r = await enviar(cfg, convertir(html, COLUMNAS[cfg.ancho] || 48, cfg.lenguaje));
+            // Este renglon es el que faltaba para poder diagnosticar. Antes,
+            // "se enviaron todos los bytes" era lo unico que quedaba
+            // registrado, y salia IGUAL con la impresora sana y con la
+            // impresora trabada descartando todo en silencio.
+            console.log('[Termica] la impresora',
+                r && r.confirmado ? 'confirmo estado: ' + r.estado
+                                  : 'NO confirmo (no contesta consultas de estado)');
             return true;
         } catch (err) {
             console.error('[Térmica] Falló la impresión:', err);
@@ -916,6 +953,7 @@
         anchosPosibles: Object.keys(COLUMNAS),
         imprimirHTML: imprimirHTMLenTermica,
         prueba: imprimirPrueba,
+        estado: consultarEstado,
         // Se exporta para poder probar la conversión sin impresora.
         _convertir: convertir,
     };
@@ -1141,6 +1179,65 @@
     };
 
 
+
+    /**
+     * "Estado de la impresora" — verifica sin gastar papel.
+     *
+     * POR QUÉ EXISTE
+     * --------------
+     * Antes, la única forma de saber si la impresora estaba respondiendo era
+     * mandarle un ticket y mirar si salía papel. Y cuando no salía, no había
+     * ninguna pista: la app registraba "enviados 888/888 bytes" tanto con la
+     * impresora sana como trabada. Este botón pregunta y muestra la respuesta
+     * cruda, así "no imprime" deja de ser un callejón sin salida.
+     */
+    window.verEstadoImpresora = async function () {
+        const cfg = leerFormulario();
+        const hint = elemento('impresora-hint');
+        if (!cfg) {
+            if (typeof showToast === 'function') showToast('Elegí una impresora o escribí la IP', 'warning');
+            return;
+        }
+
+        if (hint) hint.textContent = 'Consultando a la impresora…';
+
+        const r = await consultarEstado(cfg);
+
+        // NADA de codigos en pantalla. El que lee esto es el dueño del
+        // restaurante: "codigo 0x0" no le dice nada y le hace dudar de si
+        // algo anda mal justo cuando el mensaje dice que esta todo bien. El
+        // valor crudo igual queda en el log de abajo, que es donde sirve.
+        let texto;
+        let tono;
+        if (!r.conecto) {
+            texto = 'No se pudo conectar con la impresora. ¿Esta encendida y cerca?';
+            tono = 'error';
+        } else if (!r.respondio) {
+            texto = 'Conectada, pero este modelo no informa su estado. Si no sale papel, apagala y prendela.';
+            tono = 'warning';
+        } else if (r.motivo) {
+            // Ya viene accionable y en castellano desde el plugin
+            // ("El cabezal de la impresora esta abierto.").
+            texto = r.motivo;
+            tono = 'error';
+        } else {
+            texto = 'Lista para imprimir';
+            tono = 'success';
+        }
+
+        // El texto queda FIJO en la pantalla, no solo en un toast: un toast se
+        // va en tres segundos y esto es justo lo que el dueño va a querer
+        // releer mientras revisa la impresora.
+        if (hint) hint.textContent = texto;
+        if (typeof showToast === 'function') showToast(texto, tono);
+
+        // Acá SÍ va el codigo crudo. Es lo que permite diagnosticar un modelo
+        // que contesta algo fuera del estandar, y en logcat no le ensucia la
+        // pantalla a nadie.
+        console.log('[Termica] estado: codigo=0x'
+            + (r.codigo >= 0 ? Number(r.codigo).toString(16) : '?'),
+            'conecto=' + r.conecto, 'respondio=' + r.respondio, r.estado);
+    };
 
     window.probarImpresora = async function () {
         const cfg = leerFormulario();

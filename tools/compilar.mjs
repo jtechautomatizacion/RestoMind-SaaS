@@ -54,15 +54,18 @@ const carpetaAndroid = path.join(raiz, 'android');
 const gradlew = path.join(carpetaAndroid, process.platform === 'win32' ? 'gradlew.bat' : 'gradlew');
 
 console.log(`\nCompilando ${entorno} (${cfg.tarea})...`);
-// En Windows gradlew es un .bat y hay que pasarlo por cmd. Se invoca cmd
-// EXPLICITAMENTE en vez de usar `shell: true`, que concatena los argumentos
-// en una cadena sin escaparlos — acá no hay entrada de nadie, pero es un
-// patrón que no conviene dejar escrito para que alguien lo copie después.
+// En Windows gradlew es un .bat y hay que pasarlo por cmd. `cmd.exe /d /s /c`
+// invocado a mano rompe con rutas que tienen espacios (bug conocido de Node
+// en Windows: https://github.com/nodejs/node/issues/38490 — el citado que
+// arma Node para /S no sobrevive un cwd con espacios, ej. "D:\Cartera de
+// proyectos\..."). `shell: true` sí cita bien el ejecutable; los argumentos
+// no llevan entrada de nadie (cfg.tarea sale de ENTORNOS, fijo en este
+// archivo), así que no hay riesgo de inyección pese al warning de Node.
 const esWindows = process.platform === 'win32';
 const r = spawnSync(
-    esWindows ? process.env.ComSpec || 'cmd.exe' : gradlew,
-    esWindows ? ['/d', '/s', '/c', gradlew, cfg.tarea] : [cfg.tarea],
-    { cwd: carpetaAndroid, stdio: 'inherit', env },
+    esWindows ? `"${gradlew}"` : gradlew,
+    [cfg.tarea],
+    { cwd: carpetaAndroid, stdio: 'inherit', env, shell: esWindows },
 );
 
 if (r.status !== 0) process.exit(r.status ?? 1);

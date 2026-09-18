@@ -21,6 +21,7 @@ import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
@@ -311,6 +312,11 @@ public class ImpresoraTermica extends Plugin {
         final String destino = call.getString("destino");
         final String tipo = call.getString("tipo", "bluetooth");
         final String datos = call.getString("datos");
+        // Para leer el byte de estado hace falta saber en qué lenguaje
+        // contesta. NO rompe la regla de la cabecera de este archivo: la
+        // clase sigue sin saber QUÉ imprime (el documento lo arma el JS);
+        // preguntar "¿estás lista?" es transporte, no formato.
+        final String lenguaje = call.getString("lenguaje", "escpos");
 
         if (destino == null || destino.isEmpty() || datos == null || datos.isEmpty()) {
             call.reject("Faltan la impresora o el contenido");
@@ -328,9 +334,16 @@ public class ImpresoraTermica extends Plugin {
             public void run() {
                 try {
                     byte[] bytes = Base64.decode(datos, Base64.DEFAULT);
-                    if ("red".equals(tipo)) enviarPorRed(destino, bytes);
-                    else enviarPorBluetooth(destino, bytes);
-                    call.resolve();
+                    Sondeo s = "red".equals(tipo)
+                            ? enviarPorRed(destino, bytes, lenguaje)
+                            : enviarPorBluetooth(destino, bytes, lenguaje);
+                    JSObject r = new JSObject();
+                    // Se devuelve lo que contestó la impresora para que la app
+                    // pueda distinguir "imprimió" de "se enviaron los bytes y
+                    // nadie confirmó nada" — que hasta ahora eran lo mismo.
+                    r.put("confirmado", s.respondio);
+                    r.put("estado", s.descripcion);
+                    call.resolve(r);
                 } catch (Exception e) {
                     call.reject(mensajeUtil(e));
                 }
@@ -338,7 +351,63 @@ public class ImpresoraTermica extends Plugin {
         });
     }
 
-    private void enviarPorBluetooth(String mac, byte[] bytes) throws Exception {
+    /**
+     * Consulta el estado SIN imprimir nada.
+     *
+     * Existe para que el dueño pueda verificar la impresora sin cobrar una
+     * mesa de prueba: hasta ahora la única forma de saber si respondía era
+     * mandarle un ticket y mirar el papel.
+     */
+    @PluginMethod
+    public void estado(final PluginCall call) {
+        final String destino = call.getString("destino");
+        final String tipo = call.getString("tipo", "bluetooth");
+        final String lenguaje = call.getString("lenguaje", "escpos");
+
+        if (destino == null || destino.isEmpty()) { call.reject("Falta la impresora"); return; }
+        if (!"red".equals(tipo) && faltaPermiso()) {
+            requestPermissionForAlias(PERMISO_BT, call, "trasPedirPermiso");
+            return;
+        }
+
+        hilo.execute(new Runnable() {
+            @Override
+            public void run() {
+                JSObject r = new JSObject();
+                try {
+                    Sondeo s = "red".equals(tipo)
+                            ? enviarPorRed(destino, null, lenguaje)
+                            : enviarPorBluetooth(destino, null, lenguaje);
+                    r.put("conecto", true);
+                    r.put("respondio", s.respondio);
+                    r.put("codigo", s.codigo);
+                    r.put("estado", s.descripcion);
+                    r.put("motivo", s.motivo == null ? "" : s.motivo);
+                } catch (Exception e) {
+                    // Una consulta de diagnóstico NO se rechaza: "no pude ni
+                    // conectarme" es justamente uno de los resultados que se
+                    // quieren ver en pantalla.
+                    r.put("conecto", false);
+                    r.put("respondio", false);
+                    r.put("codigo", -1);
+                    r.put("estado", mensajeUtil(e));
+                    r.put("motivo", mensajeUtil(e));
+                }
+                call.resolve(r);
+            }
+        });
+    }
+
+    /** Lo que contestó la impresora a la sonda de estado. */
+    private static class Sondeo {
+        boolean respondio = false;
+        int codigo = -1;
+        String descripcion = "sin respuesta";
+        String motivo = null;     // != null => no se debe imprimir
+    }
+
+    /** `bytes == null` significa "solo sondear, no imprimir". */
+    private Sondeo enviarPorBluetooth(String mac, byte[] bytes, String lenguaje) throws Exception {
         BluetoothSocket socket = null;
         try {
             BluetoothAdapter adapter = adaptador();
@@ -353,7 +422,7 @@ public class ImpresoraTermica extends Plugin {
             try { adapter.cancelDiscovery(); } catch (SecurityException ignored) { }
 
             socket = conectar(device);
-            escribir(socket.getOutputStream(), bytes);
+            return trabajar(socket.getOutputStream(), socket.getInputStream(), bytes, lenguaje);
         } finally {
             if (socket != null) {
                 try { socket.close(); } catch (IOException ignored) { }
@@ -368,7 +437,7 @@ public class ImpresoraTermica extends Plugin {
      * este método y cubre todo un tipo de impresora que por Bluetooth no
      * aparecería nunca.
      */
-    private void enviarPorRed(String destino, byte[] bytes) throws Exception {
+    private Sondeo enviarPorRed(String destino, byte[] bytes, String lenguaje) throws Exception {
         String host = destino;
         int puerto = 9100;
         int sep = destino.lastIndexOf(':');
@@ -383,10 +452,138 @@ public class ImpresoraTermica extends Plugin {
             // cajero mirando la pantalla ~2 minutos antes de que el sistema
             // se dé por vencido.
             socket.connect(new InetSocketAddress(host, puerto), 6000);
-            escribir(socket.getOutputStream(), bytes);
+            return trabajar(socket.getOutputStream(), socket.getInputStream(), bytes, lenguaje);
         } finally {
             try { socket.close(); } catch (IOException ignored) { }
         }
+    }
+
+    /**
+     * Sondea el estado y, si se puede, imprime.
+     *
+     * POR QUÉ SE SONDEA ANTES Y NO DESPUÉS
+     * ------------------------------------
+     * Un write() sobre un socket SPP tiene éxito mientras el enlace RFCOMM
+     * esté vivo, y eso NO significa que el firmware procesó nada: una
+     * impresora trabada mantiene el enlace abierto y descarta los bytes en
+     * silencio. Medido en este proyecto: cuatro trabajos seguidos registraron
+     * "enviados 888/888 bytes" sin un solo error y no salió ni un papel; los
+     * mismos trabajos, después de apagar y prender la impresora, salieron
+     * bien — con logs IDÉNTICOS. Preguntarle a la impresora antes de mandarle
+     * el trabajo es la única forma de separar los dos casos.
+     */
+    private Sondeo trabajar(OutputStream salida, InputStream entrada, byte[] bytes, String lenguaje)
+            throws Exception {
+        // El socket queda listo ANTES que la impresora. Preguntarle de
+        // inmediato se pierde igual que se perdía el ESC @ (ver escribir()).
+        Thread.sleep(PAUSA_TRAS_CONECTAR_MS);
+
+        Sondeo s = sondear(salida, entrada, lenguaje);
+
+        // Sin nada que imprimir, esto es una CONSULTA: se devuelven los
+        // hechos tal como vinieron. Lanzar acá convertía "la impresora
+        // contestó que no tiene papel" en "no se pudo conectar" —  una causa
+        // distinta, que manda a revisar el Bluetooth en vez de poner papel.
+        if (bytes == null) return s;
+
+        // SOLO se aborta con un motivo CONCRETO ("sin papel", "cabezal
+        // abierto"). El silencio NO se trata como falla: muchas térmicas
+        // económicas no implementan la consulta de estado, y rechazar por
+        // no recibir respuesta dejaría sin imprimir a una impresora sana —
+        // un problema peor que el que esto viene a resolver.
+        if (s.motivo != null) throw new EstadoImpresoraException(s.motivo);
+
+        escribir(salida, bytes);
+        return s;
+    }
+
+    /** Falla con un motivo que la impresora misma reportó. */
+    private static class EstadoImpresoraException extends IOException {
+        EstadoImpresoraException(String m) { super(m); }
+    }
+
+    // Sondas de estado en TIEMPO REAL: las dos se contestan aunque la
+    // impresora tenga trabajo encolado, que es justo el caso que interesa.
+    //   TSPL:    <ESC> ! ?      -> 1 byte de banderas
+    //   ESC/POS: DLE EOT 1      -> 1 byte de estado
+    private static final byte[] SONDA_TSPL = { 0x1B, 0x21, 0x3F };
+    private static final byte[] SONDA_ESCPOS = { 0x10, 0x04, 0x01 };
+    private static final long PLAZO_SONDEO_MS = 1500;
+
+    private Sondeo sondear(OutputStream salida, InputStream entrada, String lenguaje) throws Exception {
+        boolean tspl = "tspl".equals(lenguaje);
+        Sondeo s = new Sondeo();
+
+        // Se descarta lo que haya quedado de una sesión anterior: mezclado
+        // con la respuesta, el primer byte que se lea no sería el estado.
+        try {
+            while (entrada.available() > 0) {
+                if (entrada.skip(entrada.available()) <= 0) break;
+            }
+        } catch (IOException ignored) { }
+
+        // Si ni la sonda se puede escribir, el enlace está roto de verdad:
+        // eso sí es un error que vale propagar.
+        salida.write(tspl ? SONDA_TSPL : SONDA_ESCPOS);
+        salida.flush();
+
+        long limite = System.currentTimeMillis() + PLAZO_SONDEO_MS;
+        int primero = -1;
+        while (System.currentTimeMillis() < limite) {
+            int hay;
+            try { hay = entrada.available(); } catch (IOException e) { break; }
+            if (hay > 0) {
+                byte[] buf = new byte[hay];
+                int leidos = entrada.read(buf, 0, hay);
+                if (leidos > 0) primero = buf[0] & 0xFF;
+                break;
+            }
+            Thread.sleep(50);
+        }
+
+        if (primero < 0) {
+            android.util.Log.d("ImpresoraTermica", "sonda " + lenguaje + ": sin respuesta");
+            return s;   // respondio=false, motivo=null -> se imprime igual
+        }
+
+        s.respondio = true;
+        s.codigo = primero;
+        s.motivo = motivoParaNoImprimir(primero, tspl);
+        s.descripcion = s.motivo != null ? s.motivo : "lista";
+        android.util.Log.d("ImpresoraTermica",
+                "sonda " + lenguaje + ": 0x" + Integer.toHexString(primero) + " -> " + s.descripcion);
+        return s;
+    }
+
+    /**
+     * Traduce el byte de estado a un motivo para NO imprimir, o null si se
+     * puede seguir.
+     *
+     * Solo se bloquea por banderas que el estándar define sin ambigüedad. Un
+     * valor desconocido se deja pasar a propósito: estas impresoras son
+     * baratas y algunas devuelven cualquier cosa, así que interpretar de más
+     * terminaría bloqueando impresoras sanas. El código crudo queda en el log
+     * y en la pantalla de Estado para poder diagnosticarlo.
+     */
+    private String motivoParaNoImprimir(int estado, boolean tspl) {
+        if (tspl) {
+            if (estado == 0x00) return null;                 // lista
+            if ((estado & 0x20) != 0) return null;           // imprimiendo: viva, encola
+            if ((estado & 0x04) != 0) return "La impresora no tiene papel.";
+            if ((estado & 0x01) != 0) return "El cabezal de la impresora está abierto.";
+            if ((estado & 0x02) != 0) return "Hay papel atascado en la impresora.";
+            if ((estado & 0x08) != 0) return "La impresora no tiene cinta (ribbon).";
+            if ((estado & 0x10) != 0) return "La impresora está en pausa. Soltá la pausa y volvé a intentar.";
+            if ((estado & 0x80) != 0) {
+                // El estado del que se sale apagando y prendiendo: el firmware
+                // se declara en error y descarta todo lo que le llega.
+                return "La impresora está trabada. Apagala y prendela de nuevo.";
+            }
+            return null;
+        }
+        // ESC/POS, respuesta de DLE EOT 1: el bit 3 es "offline".
+        if ((estado & 0x08) != 0) return "La impresora está fuera de línea. ¿Tiene papel y la tapa cerrada?";
+        return null;
     }
 
     // Tamaño de trozo y pausas. NO son números arbitrarios: casi todas las
@@ -456,6 +653,11 @@ public class ImpresoraTermica extends Plugin {
      */
     private String mensajeUtil(Exception e) {
         String texto = e.getMessage() != null ? e.getMessage() : "";
+        // Lo que reportó la impresora ya viene accionable y en castellano: se
+        // devuelve tal cual. Pasarlo por las reglas de abajo lo reescribiría
+        // con una causa inventada — "sin papel" no es "la impresora no
+        // responde".
+        if (e instanceof EstadoImpresoraException) return texto;
         String bajo = texto.toLowerCase();
         if (e instanceof SocketTimeoutException || bajo.contains("timed out")) {
             return "La impresora de red no contesta. ¿La IP es correcta y está en la misma WiFi?";

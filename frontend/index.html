@@ -1405,6 +1405,12 @@
                             <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:4px">
                                 <button class="btn btn-primary" onclick="guardarImpresora()">Guardar</button>
                                 <button class="btn" onclick="probarImpresora()">Imprimir prueba</button>
+                                <!-- Pregunta y NO gasta papel. Va antes de
+                                     "Buscar" porque cuando "no imprime", esto
+                                     es lo primero que hay que tocar: separa
+                                     "está trabada" de "no llega la orden", que
+                                     desde afuera se ven idénticos. -->
+                                <button class="btn" onclick="verEstadoImpresora()">Estado</button>
                                 <!-- Emparejar es del sistema operativo, no de
                                      la app: este botón lleva a la pantalla
                                      correcta en vez de dejar al usuario
