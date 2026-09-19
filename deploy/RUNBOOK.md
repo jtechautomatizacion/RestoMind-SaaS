@@ -352,6 +352,74 @@ servidor periódicamente (FileZilla sirve) o mandala a otro lado.
 
 ---
 
+## 8. Repartir el APK
+
+El APK se sirve **desde el propio dominio**, no desde Google Drive. Drive
+funciona, pero avisa que "no pudo analizar el archivo" y obliga a elegirlo
+dentro de una carpeta: en un celular eso se lee como que la app no es
+confiable, justo en el momento más delicado.
+
+```
+https://app.jtechsolutiones.com/descargas/RestoMind.apk
+```
+
+La carpeta vive en `/home/restomind/descargas/`, **fuera del checkout de
+git**: así un `git pull` no la pisa y no hay un binario de 3 MB en el repo.
+La `location /descargas/` de nginx tiene tres cosas que no son adorno:
+
+- `application/vnd.android.package-archive` — sin ese tipo MIME Android baja
+  el archivo pero no ofrece instalarlo: lo trata como un binario cualquiera.
+- `Cache-Control: no-cache` — el nombre del archivo no cambia entre
+  versiones, así que sin esto un celular que ya lo bajó se queda con el viejo.
+- `autoindex off` — la carpeta no se lista.
+
+Para publicar una versión nueva:
+
+```bash
+# En la PC de desarrollo
+npm run version            # sube versionCode y versionName
+npm run apk                # compila y FIRMA (necesita android/restomind.jks)
+scp RestoMind.apk root@TU_IP:/home/restomind/descargas/RestoMind.apk
+
+# En el VPS: que APK_VERSION_CODE coincida con el del APK, o la app no
+# avisa de la actualización (ver backend/routes/app_version.py).
+sudo -u restomind nano /home/restomind/app/.env   # APK_VERSION_CODE / APK_VERSION_NAME
+systemctl restart restomind
+curl -s https://app.jtechsolutiones.com/api/app/version   # hay_publicada: true
+```
+
+## 9. Endurecimiento de seguridad
+
+Revisado el 2026-09-19 contra el VPS. Lo que está puesto y por qué:
+
+| | Estado |
+|---|---|
+| `/docs`, `/redoc`, `/openapi.json` | **cerrados** con `ENVIRONMENT=production` — publicaban el mapa completo de la API sin pedir nada. Test: `tests/integration/test_docs_produccion.py` |
+| Cabeceras | CSP, HSTS 1 año + includeSubDomains, X-Frame-Options DENY, nosniff, referrer-policy |
+| CORS | un origen ajeno recibe 400 y **ningún** `access-control-allow-origin` |
+| Puertos | 8000, 8100, 8010 y los de base de datos, **cerrados** desde internet (ufw: solo 22/80/443) |
+| Rate limit | 5 fallos de login → 429 al sexto |
+| Secretos | `.env` en 600, `certs/` en 750 |
+| `fail2ban` | activo, jail `sshd`: 5 fallos en 10 min → ban de 1 h |
+| `unattended-upgrades` | activo (parches de seguridad automáticos) |
+
+**Pendiente, y es el mayor riesgo que queda:** el SSH acepta
+`PermitRootLogin yes` + `PasswordAuthentication yes` con el puerto 22 abierto.
+`fail2ban` lo mitiga —al instalarlo ya había **204 intentos fallidos**
+acumulados y baneó 2 IPs en el primer minuto— pero la solución de fondo es
+`PasswordAuthentication no` y entrar solo por clave. No se aplicó porque deja
+sin acceso a quien no tenga la clave respaldada: hacerlo **solo** con
+`~/.ssh/restomind_vps` guardada fuera de la PC, o con la consola web del
+proveedor a mano.
+
+**Conocido y no resuelto:** `npm audit` marca 1 crítica + 1 alta en
+`node-tar`, vía `@capacitor/cli`. Es una herramienta de **compilación**: no
+viaja dentro del APK ni corre en el servidor. El único arreglo no-breaking
+(forzar `tar` a 7.5.21+ con `overrides`) se probó y **rompe `cap sync`**
+—`Cannot read properties of undefined (reading 'extract')`, la API cambió
+entre tar 6 y 7—. La alternativa es subir Capacitor 6 → 8, una migración
+mayor que pondría en riesgo el plugin nativo de impresora.
+
 ## Actualizar producción (a partir de acá, cada vez)
 
 ```bash
