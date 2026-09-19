@@ -377,7 +377,9 @@ Para publicar una versión nueva:
 
 ```bash
 # En la PC de desarrollo
-npm run version            # sube versionCode y versionName
+# Subir versionCode (solo sube, de a uno) y versionName en version.json.
+# Es la fuente unica: la leen android/app/build.gradle y el backend.
+nano version.json
 npm run apk                # compila y FIRMA (necesita android/restomind.jks)
 scp RestoMind.apk root@TU_IP:/home/restomind/descargas/RestoMind.apk
 
