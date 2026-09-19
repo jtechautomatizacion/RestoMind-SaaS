@@ -314,6 +314,17 @@ function _ticketPreventaHTML(comanda, negocio, atendidoPor) {
  * sale. Por eso la ruta térmica avisa por toast cuando no puede, en vez de
  * fallar callada.
  */
+// Cuánto se espera entre un papel y el siguiente cuando salen dos seguidos
+// (modo SUNAT: cocina y pre-cuenta). Es el tiempo que la impresora necesita
+// para terminar de sacar el papel del primero: si el segundo connect cae antes,
+// el ticket sale cortado. Generoso a propósito — tres segundos de más no los
+// nota nadie, medio ticket sí.
+const PAUSA_ENTRE_PAPELES_MS = 3000;
+
+function _esperar(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function _imprimirHTML(html) {
     if (window.ImpresoraTermica && window.ImpresoraTermica.disponible()) {
         const salio = await window.ImpresoraTermica.imprimirHTML(html);
@@ -567,9 +578,22 @@ async function imprimirComandaNueva(comanda) {
         const ticketCocina = _ticketHTML('COCINA', comanda, { conPrecios: false });
         const ticketMozo = _ticketPrecuentaHTML(comanda, negocio, quien);
 
-        // Secuencial: dos print() al mismo tiempo se pisan entre sí, y en la
-        // práctica cada uno necesita que el mozo elija una impresora distinta.
+        // DOS TRABAJOS INDEPENDIENTES, CON AIRE EN EL MEDIO.
+        //
+        // Cada uno abre su propia conexión con la impresora, escribe y la
+        // cierra. Eso NO se junta en una sola conexión: se probó y sale peor.
+        // Esta impresora CIERRA el socket cuando termina un PRINT, así que al
+        // reusarlo para el segundo documento la escritura falla y la app dice
+        // "no se pudo imprimir" — con el primer ticket ya impreso y el segundo
+        // perdido. Medido en el local, con las dos modalidades.
+        //
+        // Lo que sí hacía falta era la ESPERA. Sin ella el segundo connect cae
+        // mientras la impresora todavía está sacando el papel del primero, y
+        // ahí se cortaba el ticket. Cada papel es su propio trabajo —como debe
+        // ser, porque en un local con dos impresoras van a destinos
+        // distintos—; lo único que se agrega es no pisarle el motor.
         await _imprimirHTML(ticketCocina);
+        await _esperar(PAUSA_ENTRE_PAPELES_MS);
         await _imprimirHTML(ticketMozo);
     } catch (err) {
         // Un fallo de impresión (sin impresora configurada, navegador que
