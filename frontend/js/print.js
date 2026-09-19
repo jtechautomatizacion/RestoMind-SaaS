@@ -1,14 +1,24 @@
 /**
- * Impresión de comandas.
+ * Impresión de comandas, pre-cuentas y boletas.
  *
- * Al enviar un pedido a cocina se necesitan dos papeles físicos, no uno:
- * uno para cocina (qué preparar, sin precios) y otro para el mozo (su
- * propio comprobante con precios, para reclamos de mesa o cuadre de caja
- * al cerrar turno). En un restaurante real cada ticket normalmente va a
- * una impresora distinta (la de cocina suele estar en la cocina misma; la
- * del mozo, en la caja/POS), así que se imprimen uno tras otro —no en
- * paralelo— para que el diálogo de impresión del sistema permita elegir
- * una impresora diferente para cada uno.
+ * CUÁNTOS PAPELES SALEN NO ES FIJO: lo deciden dos preguntas independientes,
+ * y la tabla completa vive en _papelesAlPedir() más abajo — un solo lugar.
+ *
+ *   ¿Hay alguien más en el turno?  ->  decide el papel de COCINA
+ *   ¿El local emite comprobante?   ->  decide CUÁL es el papel del comensal
+ *
+ *                    | Atiendo solo   | En equipo
+ *   -----------------|----------------|--------------------
+ *   Sin SUNAT        | 1 papel        | 2 papeles
+ *   Con SUNAT        | 1 + boleta     | 2 + boleta
+ *
+ * La boleta sale al COBRAR y no al pedir, así que no entra en esa tabla:
+ * ver imprimirBoletaVenta.
+ *
+ * Los papeles se imprimen UNO POR UNO y con una pausa en el medio. No es
+ * preferencia de estilo: la térmica cierra su conexión al terminar cada
+ * trabajo, y sin la pausa el siguiente cae mientras todavía está sacando
+ * papel — el ticket sale cortado. Está medido; ver PAUSA_ENTRE_PAPELES_MS.
  */
 
 function _ticketHTML(titulo, comanda, { conPrecios }) {
@@ -162,11 +172,11 @@ function _ticketPrecuentaHTML(comanda, negocio, mozoNombre) {
  * a veces de pie y con poca luz. Va en cuerpo grande y con su propio
  * recuadro, no perdido al final de una columna de importes.
  *
- * Es UNA sola impresión, a diferencia del modo con SUNAT (que imprime el
- * papel de cocina y la pre-cuenta por separado). Un restaurante que
- * trabaja sin facturación electrónica suele ser el dueño solo o con una
- * persona: ahí el pedido se ve en la pantalla de Cocina, y el segundo
- * papel era papel tirado.
+ * Va SOLA cuando el dispositivo está en "Atiendo solo": ahí quien cocina es
+ * quien tomó el pedido y lo tiene en su pantalla, así que el papel de cocina
+ * se tira sin leerlo. En "En equipo" sale acompañada de la comanda, porque
+ * cocina es otra persona y no está mirando esta pantalla. Ver
+ * _papelesAlPedir().
  *
  * Lo que NO dice, y es deliberado: en ninguna parte se parece a una boleta.
  * "PRE-VENTA", "NO ES COMPROBANTE DE PAGO" y la instrucción de llevarla a
@@ -559,6 +569,45 @@ async function imprimirBoletaVenta(factura) {
  * decide si al cobrar se emite boleta y si se piden DNI/RUC (ver mozo.js).
  * Una sola fuente de verdad para las tres decisiones.
  */
+/**
+ * QUÉ PAPELES SALEN AL MANDAR UN PEDIDO. UNA SOLA TABLA, EN UN SOLO LUGAR.
+ *
+ * Antes esta decisión estaba repartida entre un `if (!usar_sunat)` con un
+ * `return` temprano y el bloque de abajo, y el modo del dispositivo no
+ * participaba. Eso hacía que cada cambio hubiera que pensarlo dos veces y que
+ * un caso quedara sin cubrir: atendiendo solo salía igual el papel de cocina,
+ * para alguien que ya tiene el pedido en su propia pantalla.
+ *
+ * Las dos preguntas son independientes y por eso se contestan por separado:
+ *
+ *   ¿Hay alguien más en el turno?  ->  decide el papel de COCINA
+ *   ¿El local emite comprobante?   ->  decide CUÁL es el papel del comensal
+ *
+ * De ahí salen los cuatro casos, sin ningún caso especial:
+ *
+ *                    | Atiendo solo        | En equipo
+ *   -----------------|---------------------|--------------------------
+ *   Sin SUNAT        | pre-venta           | cocina + pre-venta
+ *   Con SUNAT        | pre-cuenta          | cocina + pre-cuenta
+ *
+ * La BOLETA no está acá: sale al COBRAR, no al pedir (ver imprimirBoletaVenta).
+ * Así el total por pedido queda 1 y 2 atendiendo solo, y 2 y 3 en equipo.
+ */
+function _papelesAlPedir({ atiendeSolo, conSunat }) {
+    const papeles = [];
+
+    // Cocina solo cuando hay equipo. Atendiendo solo, quien cocina es quien
+    // tomó el pedido y lo ve en su pantalla: ese papel se tira sin leerlo.
+    if (!atiendeSolo) papeles.push('cocina');
+
+    // El papel del comensal va SIEMPRE, y su formato depende del modo fiscal:
+    // sin comprobante es la pre-venta (total en grande, se entrega en caja);
+    // con comprobante es la pre-cuenta, porque la boleta llega al cobrar.
+    papeles.push(conSunat ? 'precuenta' : 'preventa');
+
+    return papeles;
+}
+
 async function imprimirComandaNueva(comanda) {
     try {
         const negocio = {
@@ -570,31 +619,40 @@ async function imprimirComandaNueva(comanda) {
         };
         const quien = estado.usuario?.nombre;
 
-        if (!estado.usuario?.cliente_usar_sunat) {
-            await _imprimirHTML(_ticketPreventaHTML(comanda, negocio, quien));
-            return;
+        // El modo es DEL DISPOSITIVO (ver modoAtiendeSolo en vista-unificada.js):
+        // el celular puesto en "Atiendo solo" es el de quien hace todo. Si esa
+        // función no existe todavía, se asume equipo — el caso conservador, que
+        // imprime de más en vez de dejar a cocina sin su papel.
+        const atiendeSolo = typeof modoAtiendeSolo === 'function' && modoAtiendeSolo();
+        const conSunat = Boolean(estado.usuario?.cliente_usar_sunat);
+
+        const documentos = _papelesAlPedir({ atiendeSolo, conSunat }).map(papel => {
+            if (papel === 'cocina') return _ticketHTML('COCINA', comanda, { conPrecios: false });
+            if (papel === 'precuenta') return _ticketPrecuentaHTML(comanda, negocio, quien);
+            return _ticketPreventaHTML(comanda, negocio, quien);
+        });
+
+        console.log('[Print] pedido:',
+            atiendeSolo ? 'atiendo solo' : 'en equipo',
+            conSunat ? '+ SUNAT' : 'sin SUNAT',
+            '->', documentos.length, documentos.length === 1 ? 'papel' : 'papeles');
+
+        // UNO POR UNO, CON AIRE EN EL MEDIO.
+        //
+        // Cada papel abre su propia conexión, escribe y la cierra. Juntarlos en
+        // UNA conexión se probó y salió peor: esta impresora CIERRA el socket
+        // al terminar un PRINT, así que reusarlo hacía fallar la escritura del
+        // segundo — el primer ticket salía y el segundo se perdía con un "no se
+        // pudo imprimir". Medido en el local.
+        //
+        // Lo que sí hacía falta era la espera: sin ella el segundo connect cae
+        // mientras la impresora todavía está sacando el papel del primero, y el
+        // ticket sale cortado. Antes del PRIMER papel no se espera: no hay nada
+        // en curso que respetar.
+        for (let i = 0; i < documentos.length; i++) {
+            if (i > 0) await _esperar(PAUSA_ENTRE_PAPELES_MS);
+            await _imprimirHTML(documentos[i]);
         }
-
-        const ticketCocina = _ticketHTML('COCINA', comanda, { conPrecios: false });
-        const ticketMozo = _ticketPrecuentaHTML(comanda, negocio, quien);
-
-        // DOS TRABAJOS INDEPENDIENTES, CON AIRE EN EL MEDIO.
-        //
-        // Cada uno abre su propia conexión con la impresora, escribe y la
-        // cierra. Eso NO se junta en una sola conexión: se probó y sale peor.
-        // Esta impresora CIERRA el socket cuando termina un PRINT, así que al
-        // reusarlo para el segundo documento la escritura falla y la app dice
-        // "no se pudo imprimir" — con el primer ticket ya impreso y el segundo
-        // perdido. Medido en el local, con las dos modalidades.
-        //
-        // Lo que sí hacía falta era la ESPERA. Sin ella el segundo connect cae
-        // mientras la impresora todavía está sacando el papel del primero, y
-        // ahí se cortaba el ticket. Cada papel es su propio trabajo —como debe
-        // ser, porque en un local con dos impresoras van a destinos
-        // distintos—; lo único que se agrega es no pisarle el motor.
-        await _imprimirHTML(ticketCocina);
-        await _esperar(PAUSA_ENTRE_PAPELES_MS);
-        await _imprimirHTML(ticketMozo);
     } catch (err) {
         // Un fallo de impresión (sin impresora configurada, navegador que
         // bloquea el diálogo, etc.) no debe deshacer la comanda: el pedido

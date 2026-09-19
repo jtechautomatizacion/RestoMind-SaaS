@@ -92,6 +92,25 @@ function initVistaUnificada() {
     aplicarVistaUnificada(localStorage.getItem(VU_PREF_KEY) === '1');
 }
 
+/**
+ * ¿Este dispositivo está en "Atiendo solo"?
+ *
+ * Lo consulta print.js para decidir si sacar el papel de cocina: atendiendo
+ * solo, quien cocina es quien tomó el pedido y lo tiene en su pantalla, así
+ * que ese papel es papel tirado (ver _papelesAlPedir en print.js).
+ *
+ * Se expone como función y NO se lee `localStorage` desde print.js a
+ * propósito: la clave viviría escrita en dos archivos y el día que cambie,
+ * uno queda viejo. Acá también está la única regla que decide el valor.
+ *
+ * Para un mozo, un cajero o cocina esto es SIEMPRE false —la vista unificada
+ * no está disponible para esos roles (ver vistaUnificadaDisponible)— y eso es
+ * correcto: si hay un mozo, hay equipo, y cocina necesita su comanda.
+ */
+function modoAtiendeSolo() {
+    return vuActiva === true;
+}
+
 function toggleVistaUnificada(activar) {
     aplicarVistaUnificada(typeof activar === 'boolean' ? activar : !vuActiva);
 }
