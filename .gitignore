@@ -23,6 +23,14 @@ restomind-testing.db-wal
 *.db.bak
 *.db.bak-*
 *.db.backup-*
+
+# Backups que se BAJAN del VPS antes de un despliegue. Son la base REAL de
+# producción —clientes, comprobantes, hashes de contraseña— y el nombre no
+# empieza con "restomind.db", así que ninguna regla de arriba los cubría.
+# Ya pasó una vez que una base real se colara al repo (ver el comentario de
+# restomind.db.*): la carpeta entera queda fuera, no un patrón de nombre.
+backups-prod/
+backups/
 # Con modo WAL activado (backend/database.py) SQLite mantiene estos dos
 # archivos auxiliares junto al .db mientras el proceso está corriendo —
 # runtime, no algo para versionar, igual que el .db mismo.
