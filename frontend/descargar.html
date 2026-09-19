@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Instalar RestoMind</title>
+<!--
+  POR QUÉ ESTA PÁGINA EXISTE, Y NO SE MANDA EL .apk DIRECTO.
+
+  El enlace al archivo funcionaba en una computadora y se quedaba girando en
+  el celular. La causa no es el archivo: es DÓNDE se abre el enlace. Tocarlo
+  dentro de Gmail (o WhatsApp, o Instagram) no abre Chrome — abre el navegador
+  embebido de esa app, que no tiene gestor de descargas. No falla: gira. Y para
+  el que está del otro lado, una descarga que gira sin explicación se lee como
+  que la app no es confiable.
+
+  Una PÁGINA sí carga en ese navegador embebido. Desde acá se detecta el caso y
+  se le dice qué hacer, en vez de dejarlo esperando. De paso resuelve lo otro:
+  una página en el dominio del negocio, con su nombre, da la confianza que un
+  archivo suelto bajando de la nada no da.
+
+  Es HTML plano y autocontenido a propósito: sin fuentes ni scripts de
+  terceros, para que cargue con la CSP del backend y con mala señal.
+-->
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #F4F6F8;
+    color: #1A1F2B;
+    line-height: 1.55;
+    padding: 24px 16px 48px;
+    -webkit-text-size-adjust: 100%;
+  }
+  .caja {
+    max-width: 460px;
+    margin: 0 auto;
+    background: #FFF;
+    border: 1px solid #E2E6EB;
+    border-radius: 16px;
+    padding: 28px 22px;
+  }
+  .marca { text-align: center; margin-bottom: 22px; }
+  .marca h1 { font-size: 26px; font-weight: 800; color: #1B5FAA; letter-spacing: -.3px; }
+  .marca p { font-size: 14px; color: #64707F; margin-top: 4px; }
+
+  .aviso {
+    display: none;
+    background: #FFF6E5;
+    border: 1px solid #F0C67A;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 20px;
+    font-size: 14px;
+  }
+  .aviso b { display: block; margin-bottom: 4px; }
+
+  .btn {
+    display: block;
+    width: 100%;
+    text-align: center;
+    text-decoration: none;
+    background: #1B5FAA;
+    color: #FFF;
+    font-size: 17px;
+    font-weight: 700;
+    padding: 16px;
+    border-radius: 12px;
+    margin: 4px 0 8px;
+  }
+  .btn:active { background: #164E8C; }
+  .peso { text-align: center; font-size: 13px; color: #8A94A2; margin-bottom: 26px; }
+
+  h2 { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+  ol { margin: 0 0 4px 20px; }
+  ol li { font-size: 14.5px; margin-bottom: 11px; }
+  .nota {
+    background: #F4F6F8;
+    border-radius: 10px;
+    padding: 13px 15px;
+    font-size: 13.5px;
+    color: #4A5563;
+    margin-top: 18px;
+  }
+  .pie { text-align: center; font-size: 12.5px; color: #8A94A2; margin-top: 22px; }
+  code { background: #EDF0F4; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="caja">
+  <div class="marca">
+    <h1>RestoMind</h1>
+    <p>Sistema de gestión para restaurantes</p>
+  </div>
+
+  <div class="aviso" id="aviso-navegador">
+    <b>Abrilo en Chrome para poder descargar</b>
+    Estás viendo esta página dentro de otra app (Gmail, WhatsApp), y desde ahí
+    el teléfono no puede guardar archivos. Tocá los <b style="display:inline">⋮</b>
+    de arriba y elegí <b style="display:inline">“Abrir en Chrome”</b> o
+    <b style="display:inline">“Abrir en el navegador”</b>.
+  </div>
+
+  <a class="btn" id="btn-descargar" href="/descargas/RestoMind.apk" download="RestoMind.apk">
+    Descargar la app
+  </a>
+  <p class="peso">Android · 3 MB · versión <span id="version">1.1.0</span></p>
+
+  <h2>Cómo instalarla</h2>
+  <ol>
+    <li>Tocá <b>Descargar la app</b>. Al terminar, tocá la descarga.</li>
+    <li>Android va a avisar que el archivo viene de una fuente desconocida.
+        Es lo normal cuando una app no se instala desde Play Store:
+        elegí <b>Ajustes</b> y activá el permiso para instalar.</li>
+    <li>Tocá <b>Instalar</b>. Listo — queda como cualquier otra app.</li>
+  </ol>
+
+  <div class="nota">
+    Ya viene configurada: al abrirla se conecta sola al sistema de tu
+    restaurante. Solo tenés que iniciar sesión con tu usuario.
+  </div>
+
+  <p class="pie">Si algo no funciona, escribinos y lo resolvemos.</p>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // Los navegadores embebidos no se identifican de una sola forma, así que se
+  // buscan las marcas de los que importan acá: Gmail y el visor de Android
+  // (wv), Facebook, Instagram y WhatsApp. Es una heurística, no una certeza —
+  // por eso el aviso SUGIERE y el botón sigue estando: si la detección se
+  // equivoca, nadie queda bloqueado.
+  var ua = navigator.userAgent || '';
+  var embebido = /\bwv\b|; wv\)|FBAN|FBAV|Instagram|Line\/|WhatsApp|GSA\//i.test(ua);
+
+  if (embebido) {
+    var aviso = document.getElementById('aviso-navegador');
+    if (aviso) aviso.style.display = 'block';
+  }
+
+  // La versión sale del servidor, para no tener que tocar este archivo en cada
+  // publicación. Si la consulta falla, queda el número escrito en el HTML.
+  fetch('/api/app/version')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (d && d.version_name) {
+        document.getElementById('version').textContent = d.version_name;
+      }
+    })
+    .catch(function () { /* sin conexión: se deja el valor del HTML */ });
+})();
+</script>
+</body>
+</html>

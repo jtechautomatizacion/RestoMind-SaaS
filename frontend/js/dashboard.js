@@ -289,6 +289,75 @@ function renderTopPlatos(container, topPlatos) {
     });
 }
 
+/** Un blob a base64 pelado (sin el prefijo "data:...;base64,"), que es lo que
+ *  espera Filesystem.writeFile. */
+function _blobABase64(blob) {
+    return new Promise((resolve, reject) => {
+        const lector = new FileReader();
+        lector.onerror = () => reject(new Error('No se pudo leer el archivo generado'));
+        lector.onload = () => {
+            const s = String(lector.result || '');
+            resolve(s.slice(s.indexOf(',') + 1));
+        };
+        lector.readAsDataURL(blob);
+    });
+}
+
+/**
+ * Guarda el reporte en el teléfono y abre el menú de compartir.
+ *
+ * Devuelve false si no estamos en la app instalada, para que el llamador caiga
+ * al camino del navegador. Nunca lanza: si el guardado falla, se avisa y se
+ * deja que el otro camino lo intente.
+ *
+ * POR QUÉ SE COMPARTE Y NO SE "DESCARGA"
+ * --------------------------------------
+ * Escribir en la carpeta de Descargas necesita permisos que cambian en cada
+ * versión de Android, y si se conceden igual queda un archivo que el dueño
+ * tiene que ir a buscar con un explorador. El menú de compartir resuelve las
+ * dos cosas de una: desde ahí lo manda por WhatsApp a su contador, lo sube a
+ * Drive o lo abre en Excel — que es lo que va a hacer con un reporte, no
+ * dejarlo guardado en el teléfono.
+ *
+ * Se escribe en CACHE y no en Documentos por lo mismo: no pide permisos, y el
+ * sistema la limpia solo. El archivo ya salió para donde tenía que ir.
+ */
+async function _guardarReporteEnNativo(blob, nombreArchivo) {
+    const P = window.Capacitor && window.Capacitor.Plugins;
+    const Filesystem = P && P.Filesystem;
+    if (!Filesystem) return false;
+
+    try {
+        const escrito = await Filesystem.writeFile({
+            path: nombreArchivo,
+            data: await _blobABase64(blob),
+            directory: 'CACHE',
+            recursive: true,
+        });
+
+        const Share = P && P.Share;
+        if (Share) {
+            await Share.share({
+                title: nombreArchivo,
+                url: escrito.uri,
+                dialogTitle: 'Guardar o enviar el reporte',
+            });
+        } else {
+            showToast('Reporte guardado: ' + nombreArchivo, 'success');
+        }
+        return true;
+    } catch (err) {
+        // Cancelar el menú de compartir también llega acá, y NO es un error: el
+        // archivo ya se escribió. Se distingue por el mensaje porque el plugin
+        // no expone un código.
+        const msg = String((err && err.message) || err);
+        if (/cancel/i.test(msg)) return true;
+        console.error('[Reporte] no se pudo guardar en el dispositivo:', err);
+        showToast('No se pudo guardar el reporte en este dispositivo', 'error');
+        return true;
+    }
+}
+
 async function descargarReporteExcel() {
     const boton = document.getElementById('btn-descargar-reporte');
     const textoOriginal = boton.innerHTML;
@@ -312,6 +381,15 @@ async function descargarReporteExcel() {
 
         const blob = await resp.blob();
         const nombreArchivo = resp.headers.get('Content-Disposition')?.match(/filename="(.+)"/)?.[1] || 'reporte.xlsx';
+
+        // DENTRO DEL APK EL CAMINO DE ABAJO NO SIRVE, Y FALLA EN SILENCIO.
+        //
+        // Un <a download> con href de blob: es inerte en un WebView de
+        // Android: no hay gestor de descargas conectado a las URLs blob:, así
+        // que el click no hace absolutamente nada y tampoco tira error. El
+        // botón se veía funcionar —decía "Generando...", volvía a la normalidad—
+        // y el archivo no aparecía en ninguna parte.
+        if (await _guardarReporteEnNativo(blob, nombreArchivo)) return;
 
         // Truco estándar para forzar la descarga de un blob sin backend de
         // por medio en la navegación: un <a> invisible con href de blob.

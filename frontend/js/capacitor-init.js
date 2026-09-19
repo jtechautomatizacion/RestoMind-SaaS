@@ -164,6 +164,17 @@
         if (!App) return;
         try {
             App.addListener('backButton', function (info) {
+                // EL TECLADO SE CIERRA PRIMERO, ANTES QUE CUALQUIER OTRA COSA.
+                //
+                // Android cierra el teclado con "atrás" por sí solo, pero este
+                // listener intercepta la tecla y le gana: el resultado era que
+                // escribiendo en un campo, "atrás" cerraba el MODAL ENTERO y
+                // se perdía lo tipeado. Cerrar el teclado y no hacer nada más
+                // es lo que el usuario espera y lo que hace el resto de las
+                // apps del teléfono.
+                if (typeof window.cerrarTeclado === 'function' && window.cerrarTeclado()) {
+                    return;
+                }
                 // Si hay un modal abierto, el "atrás" lo cierra en vez de
                 // navegar: salir de la app con un pedido a medio cargar
                 // sería perderlo.

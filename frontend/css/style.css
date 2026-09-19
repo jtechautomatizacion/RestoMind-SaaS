@@ -573,13 +573,34 @@ body {
 
 /* ============ MESAS GRID ============ */
 
+/* POR QUÉ minmax(0, 1fr) Y NO 1fr A SECAS — vale para TODAS las grillas de
+   este archivo, no solo esta.
+
+   `1fr` significa en realidad `minmax(auto, 1fr)`, y ese `auto` es un MÍNIMO:
+   la columna se niega a bajar del ancho de contenido mínimo de lo que tiene
+   adentro. Con tres columnas iguales, basta que UN tile tenga un texto largo
+   para que las tres crezcan y la grilla entera se salga de la pantalla.
+
+   Pasó de verdad acá: el tile "Para llevar" lleva la nota "Se cobra al pedir"
+   (ver mozo.js), y eso desbordaba la grilla de mesas en un celular de 360 px
+   — la tercera columna quedaba cortada. Y no se veía como "sobra texto": se
+   veía como que la app está descuadrada.
+
+   `minmax(0, 1fr)` le permite a la columna bajar de su contenido. A cambio,
+   el texto puede desbordar SU PROPIA celda, así que lo que sea largo tiene
+   que saber recortarse (ver .mesa-capacidad más abajo). */
 .mesas-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
 }
 
 .mesa-btn {
+    /* La otra mitad del arreglo de arriba: aflojar la COLUMNA no alcanza si el
+       item que va adentro tampoco cede. Un item de grid arranca también en
+       min-width:auto, así que sin esto el tile se niega a encogerse y la
+       grilla sigue desbordando igual, aunque la pista ya lo permita. */
+    min-width: 0;
     position: relative;
     aspect-ratio: 1;
     border: 1.5px solid var(--border);
@@ -868,14 +889,14 @@ body {
 
 .platos-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
     padding: 8px 0;
 }
 
 @media (min-width: 600px) {
     .platos-grid {
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
 
@@ -1286,7 +1307,7 @@ body {
 
 .date-range-inputs {
     display: grid;
-    grid-template-columns: 1fr 1fr auto;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
     gap: 10px;
     padding: 12px;
     background: var(--surface);
@@ -1330,7 +1351,7 @@ body {
    "Aplicar" ocupa su propia fila completa, en vez de competir por espacio. */
 @media (max-width: 480px) {
     .date-range-inputs {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
 
     .date-range-inputs #btn-aplicar-filtro {
@@ -1377,14 +1398,14 @@ body {
 
 .stats-row {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
     margin-bottom: 20px;
 }
 
 @media (max-width: 500px) {
     .stats-row {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
     }
 }
 
@@ -1890,7 +1911,7 @@ body {
 
 .icono-picker {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 6px;
     margin-bottom: 12px;
 }
@@ -2002,7 +2023,7 @@ body {
    filas completas desperdicia altura de pantalla en un celular. */
 .form-row {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 10px;
 }
 
@@ -2537,7 +2558,7 @@ body {
 
 .caja-live-stats {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 12px;
     padding: 16px;
 }
@@ -2862,7 +2883,7 @@ body {
 
 .vu-grid {
     display: grid;
-    grid-template-columns: 1fr 1.35fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) minmax(0, 1fr);
     gap: 12px;
     align-items: start;
 }
@@ -3301,7 +3322,7 @@ body {
         color: var(--accent-dark);
     }
 
-    .vu-grid { grid-template-columns: 1fr; }
+    .vu-grid { grid-template-columns: minmax(0, 1fr); }
 
     .vu-col { display: none; }
     .vu-panel[data-col="mesas"]  .vu-col[data-col="mesas"],
@@ -3706,14 +3727,14 @@ body {
 
 .cobro-botonera {
     display: grid;
-    grid-template-columns: 1.4fr 1fr;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
     gap: 8px;
 }
 
 /* Bajo 360px los dos botones lado a lado dejan el principal demasiado
    angosto para el pulgar; se apilan, con "Cobrar" arriba. */
 @media (max-width: 360px) {
-    .cobro-botonera { grid-template-columns: 1fr; }
+    .cobro-botonera { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (prefers-reduced-motion: reduce) {

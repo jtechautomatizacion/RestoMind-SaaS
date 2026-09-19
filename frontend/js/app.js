@@ -602,6 +602,52 @@ function cerrarModalConEscape() {
     return true;
 }
 
+/**
+ * ¿Hay un campo con el foco? (o sea: ¿está abierto el teclado?)
+ *
+ * En un WebView no hay forma de preguntarle al sistema si el teclado está
+ * arriba, pero sí de saber si un campo tiene el foco — que es la única razón
+ * por la que Android lo levanta.
+ */
+function hayTecladoAbierto() {
+    const a = document.activeElement;
+    return Boolean(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'));
+}
+
+function cerrarTeclado() {
+    if (hayTecladoAbierto()) {
+        document.activeElement.blur();
+        return true;
+    }
+    return false;
+}
+
+/**
+ * TOCAR FUERA DE UN CAMPO CIERRA EL TECLADO.
+ *
+ * En un navegador de escritorio esto no hace falta: no hay teclado que tape
+ * nada. En el celular sí, y sin esto el teclado se queda arriba ocupando media
+ * pantalla — tapando justamente el botón que el usuario quiere apretar
+ * después. La única salida era el botón atrás de Android, que encima estaba
+ * cerrando el modal entero (ver capacitor-init.js).
+ *
+ * Se escucha `click` y NO `pointerdown` a propósito: al cerrarse el teclado la
+ * pantalla se reacomoda, y si eso pasara en medio del gesto, el botón al que
+ * el usuario apuntaba se movería y el toque caería en otro lado. Con `click`
+ * el toque ya terminó.
+ *
+ * Tampoco se cierra si el toque cayó sobre algo interactivo: ahí el control
+ * tiene que hacer su trabajo (guardar, cambiar de pestaña) sin que le movamos
+ * el piso antes.
+ */
+const SELECTOR_INTERACTIVO = 'input, textarea, select, button, a, label, [onclick], [role="button"]';
+
+document.addEventListener('click', function (e) {
+    if (!hayTecladoAbierto()) return;
+    if (e.target.closest && e.target.closest(SELECTOR_INTERACTIVO)) return;
+    cerrarTeclado();
+});
+
 function cerrarModalPlato() {
     document.getElementById('modal-plato').classList.add('hidden');
     document.getElementById('form-plato').reset();
