@@ -472,29 +472,41 @@ public class ImpresoraTermica extends Plugin {
      * bien — con logs IDÉNTICOS. Preguntarle a la impresora antes de mandarle
      * el trabajo es la única forma de separar los dos casos.
      */
+    /**
+     * IMPRIMIR Y CONSULTAR NO COMPARTEN BYTES EN EL CABLE. A PROPÓSITO.
+     *
+     * Antes esta función sondeaba el estado ANTES de cada impresión, y eso fue
+     * un error de diseño con consecuencias medidas en el local: la sonda
+     * inyecta bytes ajenos al documento en el mismo canal, justo delante de
+     * él. `<ESC>!?` son `1B 21 3F`, y en ESC/POS `ESC !` es "seleccionar modo
+     * de impresión" — en un firmware que entiende los dos lenguajes (estas
+     * térmicas suelen), la "consulta" se lee como un comando de modo y el TSPL
+     * que viene atrás se ignora. El síntoma fue el peor posible: imprimía,
+     * dejó de imprimir, y apagar y prender no servía porque la sonda se
+     * mandaba de nuevo en el ticket siguiente.
+     *
+     * Lo que la sonda aportaba al imprimir era abortar con "sin papel" — útil,
+     * pero no vale poner en riesgo el documento de un cobro real. Ahora:
+     *
+     *   imprimir  ->  se escribe el documento Y NADA MÁS
+     *   estado    ->  se sondea, sin escribir ningún documento
+     *
+     * La consulta sigue existiendo entera, donde no puede arruinar un ticket:
+     * detrás del botón "Estado", que el dueño toca a propósito cuando algo
+     * anda mal.
+     */
     private Sondeo trabajar(OutputStream salida, InputStream entrada, byte[] bytes, String lenguaje)
             throws Exception {
-        // El socket queda listo ANTES que la impresora. Preguntarle de
-        // inmediato se pierde igual que se perdía el ESC @ (ver escribir()).
+        // El socket queda listo ANTES que la impresora: escribir de inmediato
+        // pierde los primeros bytes (ver escribir()).
         Thread.sleep(PAUSA_TRAS_CONECTAR_MS);
 
-        Sondeo s = sondear(salida, entrada, lenguaje);
+        // Sin documento, esto es una CONSULTA y solo se sondea.
+        if (bytes == null) return sondear(salida, entrada, lenguaje);
 
-        // Sin nada que imprimir, esto es una CONSULTA: se devuelven los
-        // hechos tal como vinieron. Lanzar acá convertía "la impresora
-        // contestó que no tiene papel" en "no se pudo conectar" —  una causa
-        // distinta, que manda a revisar el Bluetooth en vez de poner papel.
-        if (bytes == null) return s;
-
-        // SOLO se aborta con un motivo CONCRETO ("sin papel", "cabezal
-        // abierto"). El silencio NO se trata como falla: muchas térmicas
-        // económicas no implementan la consulta de estado, y rechazar por
-        // no recibir respuesta dejaría sin imprimir a una impresora sana —
-        // un problema peor que el que esto viene a resolver.
-        if (s.motivo != null) throw new EstadoImpresoraException(s.motivo);
-
+        // Con documento, se imprime y no se pregunta nada.
         escribir(salida, bytes);
-        return s;
+        return new Sondeo();
     }
 
     /** Falla con un motivo que la impresora misma reportó. */

@@ -908,13 +908,11 @@
             // emitio, y eso no se puede deducir mirando la impresora.
             console.log('[Termica] imprimiendo en', cfg.lenguaje, 'ancho', cfg.ancho, 'destino', cfg.destino);
             const r = await enviar(cfg, convertir(html, COLUMNAS[cfg.ancho] || 48, cfg.lenguaje));
-            // Este renglon es el que faltaba para poder diagnosticar. Antes,
-            // "se enviaron todos los bytes" era lo unico que quedaba
-            // registrado, y salia IGUAL con la impresora sana y con la
-            // impresora trabada descartando todo en silencio.
-            console.log('[Termica] la impresora',
-                r && r.confirmado ? 'confirmo estado: ' + r.estado
-                                  : 'NO confirmo (no contesta consultas de estado)');
+            // Al imprimir YA NO se sondea el estado (ver trabajar() en el
+            // plugin: la sonda metia bytes ajenos delante del documento y en
+            // este firmware eso dejaba de imprimir). Queda el registro de que
+            // los bytes salieron; el estado se consulta aparte, con el boton.
+            console.log('[Termica] documento enviado a la impresora');
             return true;
         } catch (err) {
             console.error('[Térmica] Falló la impresión:', err);
@@ -973,6 +971,23 @@
         if (!sel) return;
         const previo = sel.value;
         sel.innerHTML = '';
+
+        // NADA PRESELECCIONADO. ESTA LÍNEA ES EL ARREGLO DE UN BUG REAL.
+        //
+        // Sin este placeholder, el <select> arranca con el PRIMER dispositivo
+        // que devuelve Android — que no tiene por qué ser una impresora. En el
+        // celular donde se encontró, la lista empezaba con unos auriculares
+        // ("KUZLER") y traía también un parlante ("SRS-XB100"): tocar
+        // "Imprimir prueba" mandaba los bytes al parlante, no salía papel, y
+        // no había ningún error. El síntoma era "la impresora no responde para
+        // nada", que manda a revisar la impresora en vez de la selección.
+        //
+        // Con el placeholder, si nadie eligió, leerFormulario() devuelve null
+        // y el usuario recibe "Elegí una impresora" — que es la verdad.
+        const oVacia = document.createElement('option');
+        oVacia.value = '';
+        oVacia.textContent = '— Elegí la impresora —';
+        sel.appendChild(oVacia);
 
         for (const d of lista) {
             const o = document.createElement('option');
