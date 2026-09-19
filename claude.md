@@ -1649,6 +1649,51 @@ ESC/POS no se manda, porque ahí `0x0D`/`0x0A` mueven el papel. La regla
 general: una sonda que comparte el canal con los datos tiene que devolver
 el parser al estado en que lo encontró.
 
+### La cola para romper el papel va DENTRO del `SIZE`, nunca en un `FEED`
+
+El síntoma era `err: no seam!` en la impresora, con el ticket truncado
+abajo. Se atribuyó mucho tiempo al tamaño del documento y al comando `BOX`;
+no era ninguno de los dos. **Un ticket suelto siempre salía perfecto,
+incluso de 123 mm y 1528 bytes. Se rompía el SEGUNDO de cualquier tanda**,
+así que el modo "en equipo" —que manda comanda + pre-cuenta— era el que lo
+mostraba siempre, y eso hizo parecer que el problema estaba en el formato.
+
+Medido en el celular con la impresora recién reiniciada, mismo contenido,
+única diferencia el esquema de la cola:
+
+| esquema | resultado |
+|---|---|
+| `SIZE` = contenido, + `FEED 112` después del `PRINT` | el 1 sale bien; el 2 se traba con `no seam` y sale truncado |
+| `SIZE` = contenido + cola, **sin** `FEED` | 3 seguidos completos, cero errores |
+
+El motivo: `FEED` mueve el papel **después** de que la etiqueta terminó, así
+que la impresora queda parada a 14 mm del borde — a mitad de etiqueta. El
+trabajo siguiente manda `SIZE`/`PRINT` y ella, que ya no sabe dónde empieza
+la etiqueta, sale a **buscar la separación**; con papel continuo no hay
+ninguna, alimenta hasta rendirse y se traba. Con la cola adentro del `SIZE`
+el papel avanza exactamente lo mismo (se rompe igual), pero termina parada
+**en** el borde de la etiqueta, una posición que sí conoce.
+
+Esto revierte una decisión anterior que estaba documentada al revés (el
+comentario viejo de `colaCorteMm` afirmaba que agrandar `SIZE` dejaba el
+papel dentro de la impresora). Lo que había fallado en ese intento fue
+agrandar `SIZE` **conservando** el `FEED`: el papel avanzaba de más y el
+desfase seguía existiendo igual.
+
+**`estado()` no sirve para detectar esta falla.** Trabada en `no seam`, la
+impresora contesta la sonda con código `0x0` = "lista" y acepta el trabajo
+entero (`enviados 565/565 bytes`) descartándolo en silencio. Por eso el
+diagnóstico necesitó a alguien mirando el papel: ni el log de bytes ni el
+sondeo de estado delatan este error.
+
+### Cuánto se espera entre un papel y el siguiente
+
+`PAUSA_ENTRE_PAPELES_MS = 5000` (`frontend/js/print.js`). El límite que
+manda **no** es la impresora: son los segundos que le toma a una persona
+agarrar la tira y romperla sin apurarse. Esta impresora no tiene cortador,
+así que sin esa pausa los dos tickets salen pegados en una sola tira y hay
+que separarlos a mano después, adivinando dónde termina uno.
+
 ---
 
 ## 🔌 EL SWITCH DE FACTURACIÓN SE HACE VALER EN EL SERVIDOR

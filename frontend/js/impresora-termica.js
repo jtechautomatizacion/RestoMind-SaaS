@@ -523,14 +523,32 @@
         // nombre del siguiente item.
         aireImporteAbajo: 8,
 
-        // Papel en blanco que se saca DESPUES de imprimir, para poder romper
-        // la hoja sin llevarse la ultima linea.
+        // Papel en blanco al final del ticket, para poder romper la hoja sin
+        // llevarse la ultima linea (la barra de corte esta ~12 mm MAS ALLA
+        // del cabezal, asi que sin esta cola la hoja se rompe sobre el texto).
         //
-        // Va como comando FEED y NO sumado al alto de la etiqueta, y esa
-        // diferencia es justamente lo que fallaba antes: agrandar SIZE hace
-        // la etiqueta mas larga, pero la barra de corte esta ~12 mm MAS ALLA
-        // del cabezal. El papel quedaba dentro de la impresora y la hoja se
-        // rompia igual sobre el texto. FEED si mueve el papel de verdad.
+        // VA SUMADO AL ALTO DE LA ETIQUETA, Y NO COMO UN "FEED" DESPUES DEL
+        // PRINT. Esto ya se hizo al reves y es la causa del "err: no seam!"
+        // que trababa la impresora. Medido en el celular, con la impresora
+        // recien reiniciada y dos tickets seguidos:
+        //
+        //   SIZE = contenido, + FEED despues  -> el 1 sale bien, el 2 se
+        //       traba con "no seam" y sale truncado
+        //   SIZE = contenido + cola, sin FEED -> 3 seguidos completos, sin
+        //       un solo error
+        //
+        // El motivo: FEED mueve el papel DESPUES de que la etiqueta termino,
+        // asi que la impresora queda parada a 14 mm del borde — a mitad de
+        // etiqueta. El trabajo siguiente manda SIZE/PRINT y ella, que ya no
+        // sabe donde empieza la etiqueta, sale a BUSCAR la separacion; con
+        // papel continuo no hay ninguna, alimenta hasta rendirse y se traba.
+        // Con la cola adentro del SIZE el papel avanza exactamente lo mismo
+        // (se rompe igual), pero termina parada EN el borde de la etiqueta,
+        // que es una posicion que si conoce, y no tiene nada que buscar.
+        //
+        // Por eso un ticket suelto siempre salio perfecto —incluso de 123 mm—
+        // y se rompia el segundo de cualquier tanda: el modo "en equipo", que
+        // manda comanda + pre-cuenta, era el que lo mostraba siempre.
         colaCorteMm: 14,
 
         // Los recuadros: el del TOTAL y el de "ENTREGUE ESTA HOJA EN CAJA".
@@ -740,11 +758,10 @@
             aireUltima = aireDe(f);
         }
 
-        // El alto de la ETIQUETA es exactamente el del contenido. El papel
-        // para romper la hoja NO se suma aca — ver PLANTILLA.colaCorteMm: se
-        // saca despues con FEED, que es lo unico que mueve el papel mas alla
-        // del cabezal hasta la barra de corte.
-        let altoMm = Math.ceil((y + MARGEN) / PUNTOS_POR_MM);
+        // El alto de la ETIQUETA es el del contenido MAS la cola para romper
+        // la hoja. Esos 14 mm van ADENTRO del SIZE, y no despues con un FEED
+        // — ver PLANTILLA.colaCorteMm, que explica por que medido en papel.
+        let altoMm = Math.ceil((y + MARGEN) / PUNTOS_POR_MM) + PLANTILLA.colaCorteMm;
         if (altoMm > PLANTILLA.altoMaximoMm) {
             console.warn('[Termica] ticket de', altoMm, 'mm recortado a',
                          PLANTILLA.altoMaximoMm, 'mm');
@@ -762,12 +779,9 @@
             'REFERENCE 0,0',
             'CLS',
         ].concat(cuerpo).concat([
+            // PRINT es lo ULTIMO que se manda. Despues no va ningun comando
+            // que mueva el papel — ver PLANTILLA.colaCorteMm.
             'PRINT 1,1',
-            // Saca la ultima linea de adentro de la impresora. FEED es una
-            // orden de MOTOR pura: no consulta ningun sensor, asi que no
-            // puede disparar el "err: no seam!" que si provoca cualquier
-            // comando de calibracion o de busqueda de separacion.
-            'FEED ' + (PLANTILLA.colaCorteMm * PUNTOS_POR_MM),
         ]);
 
         // En TSPL cada comando TERMINA en CRLF. Con LF suelto, varias

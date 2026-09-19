@@ -325,11 +325,18 @@ function _ticketPreventaHTML(comanda, negocio, atendidoPor) {
  * fallar callada.
  */
 // Cuánto se espera entre un papel y el siguiente cuando salen dos seguidos
-// (modo SUNAT: cocina y pre-cuenta). Es el tiempo que la impresora necesita
-// para terminar de sacar el papel del primero: si el segundo connect cae antes,
-// el ticket sale cortado. Generoso a propósito — tres segundos de más no los
-// nota nadie, medio ticket sí.
-const PAUSA_ENTRE_PAPELES_MS = 3000;
+// (modo "en equipo": comanda y pre-cuenta). Cubre DOS cosas distintas:
+//
+// 1. La impresora necesita terminar de sacar el papel del primero. Si el
+//    segundo connect cae antes, el ticket sale cortado.
+// 2. La PERSONA necesita alcanzar a romper el papel en el medio. Sin eso los
+//    dos tickets salen pegados en una sola tira y hay que cortarlos a mano
+//    después, adivinando dónde termina uno.
+//
+// El (2) es el que manda, y es más lento que el (1): cinco segundos son los
+// que toma agarrar la tira y romperla sin apurarse. Generoso a propósito —
+// unos segundos de más no los nota nadie, medio ticket sí.
+const PAUSA_ENTRE_PAPELES_MS = 5000;
 
 function _esperar(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
