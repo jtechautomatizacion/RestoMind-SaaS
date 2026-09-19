@@ -384,7 +384,7 @@ tests/
 
 ```bash
 cd "d:\Cartera de proyectos\RestoMind-SaaS"
-./venv/Scripts/activate            # Windows
+./.venv/Scripts/activate           # Windows — CON punto: es el que usa package.json
 pip install -r requirements.txt    # si falta algo
 uvicorn backend.app:app --reload --reload-dir backend --reload-dir frontend --host 0.0.0.0 --port 8000
 ```

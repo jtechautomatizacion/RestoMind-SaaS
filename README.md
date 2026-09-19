@@ -13,11 +13,16 @@ Sistema web inteligente de comandas y control de operaciones para restaurantes, 
 
 ### 1. Clonar y setup virtual environment
 
+La carpeta se llama `.venv`, **con punto**, y no es un detalle de estilo: los
+scripts de `package.json` invocan `.venv/Scripts/python.exe` por ruta directa.
+Este archivo decía `venv` sin punto, así que quien seguía las instrucciones
+terminaba con DOS entornos: uno que usaba a mano y otro que usaba `npm run`.
+
 ```bash
 cd "d:\Cartera de proyectos\RestoMind-SaaS"
-python -m venv venv
-venv\Scripts\activate  # Windows
-source venv/bin/activate  # macOS/Linux
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+source .venv/bin/activate  # macOS/Linux
 ```
 
 ### 2. Instalar dependencias
