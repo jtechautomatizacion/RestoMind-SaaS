@@ -131,7 +131,10 @@
                     <p style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:10px;">DATOS TRIBUTARIOS (para emitir boletas SUNAT)</p>
                     <div class="form-group">
                         <label>RUC — 11 dígitos (opcional, se puede cargar después)</label>
-                        <input type="text" id="nc-ruc" inputmode="numeric" maxlength="11" placeholder="10200812234" oninput="soloDigitos(event)">
+                        <input type="text" id="nc-ruc" inputmode="numeric" maxlength="11" placeholder="10200812234" oninput="rucTipeado(event, 'nc')">
+                        <!-- Resultado de la consulta al padron: si figura, la razon
+                             social de abajo se completa sola. Ver superadmin.js -->
+                        <span class="ruc-nota" id="nc-ruc-nota"></span>
                     </div>
                     <div class="form-group">
                         <label>Razón social (el titular del RUC, no el nombre comercial)</label>
@@ -210,7 +213,10 @@
                     <p style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:10px;">DATOS TRIBUTARIOS (para emitir boletas SUNAT)</p>
                     <div class="form-group">
                         <label>RUC — 11 dígitos</label>
-                        <input type="text" id="ec-ruc" inputmode="numeric" maxlength="11" placeholder="10200812234" oninput="soloDigitos(event)">
+                        <input type="text" id="ec-ruc" inputmode="numeric" maxlength="11" placeholder="10200812234" oninput="rucTipeado(event, 'ec')">
+                        <!-- Resultado de la consulta al padron: si figura, la razon
+                             social de abajo se completa sola. Ver superadmin.js -->
+                        <span class="ruc-nota" id="ec-ruc-nota"></span>
                     </div>
                     <div class="form-group">
                         <label>Razón social (el titular del RUC, no el nombre comercial)</label>

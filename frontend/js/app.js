@@ -609,6 +609,43 @@ function cerrarModalConEscape() {
  * arriba, pero sí de saber si un campo tiene el foco — que es la única razón
  * por la que Android lo levanta.
  */
+/**
+ * Muestra u oculta lo que se escribió en un campo de contraseña.
+ *
+ * En un celular, con teclado chico y alguien esperando del otro lado del
+ * mostrador, escribir a ciegas una clave que no se ve es la causa más común de
+ * quedar bloqueado por intentos fallidos — y ese bloqueo es por IP y del lado
+ * del servidor, así que no se arregla reinstalando la app.
+ *
+ * Vuelve SOLO a oculto al perder el foco: dejar la contraseña a la vista en una
+ * pantalla que queda apoyada en la caja es peor que el problema que resuelve.
+ */
+function alternarVerPassword(boton, idCampo) {
+    const campo = document.getElementById(idCampo);
+    if (!campo) return;
+
+    const mostrar = campo.type === 'password';
+    campo.type = mostrar ? 'text' : 'password';
+    boton.setAttribute('aria-pressed', String(mostrar));
+    boton.setAttribute('aria-label', mostrar ? 'Ocultar contraseña' : 'Mostrar contraseña');
+    boton.classList.toggle('viendo', mostrar);
+
+    // El foco vuelve al campo y el cursor al final: si no, tocar el ojo
+    // cierra el teclado y hay que volver a tocar el campo para seguir.
+    campo.focus();
+    try { campo.setSelectionRange(campo.value.length, campo.value.length); } catch (_) { }
+
+    if (mostrar && !campo.dataset.ojoAtado) {
+        campo.dataset.ojoAtado = '1';
+        campo.addEventListener('blur', function () {
+            campo.type = 'password';
+            boton.setAttribute('aria-pressed', 'false');
+            boton.setAttribute('aria-label', 'Mostrar contraseña');
+            boton.classList.remove('viendo');
+        });
+    }
+}
+
 function hayTecladoAbierto() {
     const a = document.activeElement;
     return Boolean(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'));

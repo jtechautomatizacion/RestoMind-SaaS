@@ -37,6 +37,79 @@ function soloDigitos(event) {
     event.target.value = event.target.value.replace(/\D/g, '');
 }
 
+// ============ AUTOCOMPLETADO DE RUC CONTRA EL PADRON ============
+//
+// POR QUE ESTO TIENE QUE ESTAR ACA
+// --------------------------------
+// La razon social que se guarda al dar de alta un restaurante es la que va
+// IMPRESA en cada comprobante que emita despues. Se tipeaba a mano, con el
+// padron reducido a un SELECT de distancia: un acento de mas o una letra
+// cambiada quedan en todas las boletas del negocio, y corregirlo despues no
+// arregla las ya emitidas.
+//
+// El panel no podia consultarlo aunque quisiera: GET /api/ruc/{ruc} exige un
+// token de tipo "usuario" y rechaza el del superadmin con 403. De ahi el
+// endpoint /api/superadmin/ruc/{ruc}, que hace la misma consulta con la
+// autenticacion que corresponde (ver backend/routes/ruc.py).
+
+const RUC_TEMPORIZADORES = {};
+
+/** Se dispara al tipear en un campo de RUC: limpia y, con 11 digitos, busca. */
+function rucTipeado(event, prefijo) {
+    soloDigitos(event);
+    const ruc = event.target.value;
+
+    clearTimeout(RUC_TEMPORIZADORES[prefijo]);
+    const nota = document.getElementById(prefijo + '-ruc-nota');
+
+    if (ruc.length < 11) {
+        // Con menos de 11 no hay nada que buscar. Se limpia el aviso para que
+        // no quede colgado el resultado del RUC anterior.
+        if (nota) { nota.textContent = ''; nota.className = 'ruc-nota'; }
+        return;
+    }
+
+    // Pequena espera: si pega el numero de un tiron, el ultimo caracter no
+    // dispara una consulta de mas.
+    RUC_TEMPORIZADORES[prefijo] = setTimeout(() => buscarRucEnPadron(prefijo, ruc), 250);
+}
+
+async function buscarRucEnPadron(prefijo, ruc) {
+    const nota = document.getElementById(prefijo + '-ruc-nota');
+    const campoRazon = document.getElementById(prefijo + '-razon-social');
+    const poner = (texto, clase) => {
+        if (nota) { nota.textContent = texto; nota.className = 'ruc-nota ' + (clase || ''); }
+    };
+
+    poner('Buscando en el padron de SUNAT...', '');
+
+    try {
+        const d = await saFetch('/superadmin/ruc/' + encodeURIComponent(ruc));
+
+        if (!d.encontrado) {
+            // No es un error: un RUC recien inscripto puede no estar en la
+            // copia del padron. Se escribe a mano y listo.
+            poner('No figura en el padron. Escribi la razon social a mano.', 'aviso');
+            return;
+        }
+
+        // Se COMPLETA aunque el campo ya tenga algo: el nombre del padron es
+        // el que SUNAT espera en el comprobante, asi que le gana a lo tipeado.
+        // Queda editable, por si hace falta corregir algo puntual.
+        if (campoRazon) campoRazon.value = d.nombre || '';
+
+        poner(
+            d.advertencia ? d.advertencia : 'Razon social tomada de SUNAT.',
+            d.advertencia ? 'aviso' : 'ok'
+        );
+    } catch (err) {
+        // Sin padron cargado el backend contesta 503. No se bloquea el alta
+        // por esto: se avisa y se sigue a mano.
+        poner('No se pudo consultar el padron. Escribi la razon social a mano.', 'aviso');
+        console.warn('[Superadmin] consulta de RUC fallo:', err);
+    }
+}
+
 // FastAPI manda el detalle de un error de validación (422) como una lista
 // de objetos, no como texto. Sin esto, el toast mostraría ese JSON crudo
 // en vez de un mensaje legible como "El celular debe tener 9 dígitos...".

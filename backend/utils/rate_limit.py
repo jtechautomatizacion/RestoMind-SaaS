@@ -12,6 +12,7 @@ corre en varios workers/servidores (ahí hace falta algo compartido como
 Redis), pero cubre el caso real de esta app hoy: un único proceso uvicorn.
 """
 
+import math
 import time
 from collections import defaultdict
 from typing import Dict, List
@@ -39,10 +40,28 @@ def verificar_intentos_login(request: Request) -> None:
     """Llamar ANTES de validar credenciales. 429 si ya hay demasiados
     fallos recientes desde esta IP."""
     ip = _ip_de(request)
-    if len(_limpiar(ip)) >= MAX_INTENTOS_FALLIDOS:
+    vigentes = _limpiar(ip)
+    if len(vigentes) >= MAX_INTENTOS_FALLIDOS:
+        # SE DICE CUÁNTO FALTA, EXACTO.
+        #
+        # Antes decía "espera unos minutos". Del otro lado hay alguien con el
+        # local abierto que no sabe si son dos minutos o una hora, y lo que
+        # hace es reintentar —lo que no acerca el desbloqueo— o llamar por
+        # teléfono. Además reinstalar la app NO sirve, y es lo primero que
+        # cualquiera prueba: el bloqueo es del servidor y va por IP, no por
+        # dispositivo. Un número concreto evita las tres cosas.
+        #
+        # La ventana es deslizante: se libera cuando el fallo MÁS VIEJO de la
+        # tanda cumple VENTANA_SEGUNDOS, no cuando cumple el último.
+        espera = VENTANA_SEGUNDOS - (time.time() - min(vigentes))
+        minutos = max(1, math.ceil(espera / 60))
+        plazo = "1 minuto" if minutos == 1 else f"{minutos} minutos"
         raise HTTPException(
             status_code=429,
-            detail="Demasiados intentos fallidos. Espera unos minutos e intenta de nuevo.",
+            detail=(
+                f"Demasiados intentos fallidos. Volvé a intentar en {plazo}. "
+                "Reinstalar la app no lo desbloquea: el límite es por red, no por equipo."
+            ),
         )
 
 

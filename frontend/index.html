@@ -301,7 +301,17 @@
                 </div>
                 <div class="form-group">
                     <label>Contraseña</label>
-                    <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password">
+                    <div class="campo-con-ojo">
+                        <input type="password" id="login-password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" required autocomplete="current-password">
+                        <!-- Ver lo que se escribe. En un celular, con teclado
+                             chico y bajo presion, escribir a ciegas una clave
+                             que no se ve es la causa mas comun de quedar
+                             bloqueado por intentos fallidos. -->
+                        <button type="button" class="btn-ojo" aria-label="Mostrar contrase&ntilde;a"
+                                aria-pressed="false" onclick="alternarVerPassword(this, 'login-password')">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </button>
+                    </div>
                 </div>
                 <p id="login-error-admin" class="login-error hidden"></p>
                 <button type="submit" class="btn btn-primary btn-block">Ingresar</button>
@@ -315,7 +325,17 @@
                 </div>
                 <div class="form-group">
                     <label>Contraseña</label>
-                    <input type="password" id="login-password-staff" placeholder="••••••••" required autocomplete="current-password">
+                    <div class="campo-con-ojo">
+                        <input type="password" id="login-password-staff" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" required autocomplete="current-password">
+                        <!-- Ver lo que se escribe. En un celular, con teclado
+                             chico y bajo presion, escribir a ciegas una clave
+                             que no se ve es la causa mas comun de quedar
+                             bloqueado por intentos fallidos. -->
+                        <button type="button" class="btn-ojo" aria-label="Mostrar contrase&ntilde;a"
+                                aria-pressed="false" onclick="alternarVerPassword(this, 'login-password-staff')">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </button>
+                    </div>
                 </div>
                 <p id="login-error-staff" class="login-error hidden"></p>
                 <button type="submit" class="btn btn-primary btn-block">Ingresar</button>

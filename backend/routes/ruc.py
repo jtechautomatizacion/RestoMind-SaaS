@@ -48,7 +48,7 @@ from sqlalchemy.orm import Session
 
 from backend.config import settings
 from backend.database import get_db
-from backend.dependencies import get_cliente_id, get_usuario_actual
+from backend.dependencies import get_cliente_id, get_superadmin_email, get_usuario_actual
 from backend.models import ClienteFrecuente
 from backend.schemas import (
     DocumentoConsultaResponse,
@@ -76,16 +76,15 @@ MAX_CONSULTAS = 120
 VENTANA_SEGUNDOS = 5 * 60
 
 
-@router.get("/ruc/{ruc}", response_model=RucConsultaResponse)
-def consultar_ruc(
-    ruc: str,
-    request: Request,
-    cliente_id: str = Depends(get_cliente_id),
-) -> RucConsultaResponse:
+def _consultar_en_padron(ruc: str, request: Request) -> RucConsultaResponse:
     """
-    Devuelve los datos de un RUC. Cualquier rol autenticado puede usarlo:
-    quien cobra es quien necesita la razón social, y eso puede ser el mozo,
-    el cajero o el dueño.
+    La consulta en sí, sin decidir QUIÉN puede hacerla.
+
+    Está separada porque hay dos puertas legítimas con autenticaciones
+    distintas —el restaurante y el superadmin— y las tres restricciones de
+    protección de datos de la cabecera de este archivo tienen que valer igual
+    para las dos. Duplicar el cuerpo era la forma segura de que un día una de
+    las copias se quedara sin la cuota por IP.
     """
     limitar_por_volumen(request, "ruc", MAX_CONSULTAS, VENTANA_SEGUNDOS)
 
@@ -129,6 +128,44 @@ def consultar_ruc(
             else f"Este RUC figura {contribuyente.estado} / {contribuyente.condicion} en SUNAT."
         ),
     )
+
+
+@router.get("/ruc/{ruc}", response_model=RucConsultaResponse)
+def consultar_ruc(
+    ruc: str,
+    request: Request,
+    cliente_id: str = Depends(get_cliente_id),
+) -> RucConsultaResponse:
+    """
+    Devuelve los datos de un RUC. Cualquier rol autenticado puede usarlo:
+    quien cobra es quien necesita la razón social, y eso puede ser el mozo,
+    el cajero o el dueño.
+    """
+    return _consultar_en_padron(ruc, request)
+
+
+@router.get("/superadmin/ruc/{ruc}", response_model=RucConsultaResponse)
+def consultar_ruc_superadmin(
+    ruc: str,
+    request: Request,
+    email: str = Depends(get_superadmin_email),
+) -> RucConsultaResponse:
+    """
+    La MISMA consulta, para el panel del superadmin.
+
+    Hace falta una ruta aparte porque `get_cliente_id` exige un token de
+    tipo "usuario" y rechaza el del superadmin con 403 — por diseño. Así que
+    al dar de alta un restaurante, el panel pedía el RUC y la razón social a
+    mano, teniendo el padrón a un SELECT de distancia: justo el tipeo que este
+    módulo existe para evitar, y encima en el dato que después va impreso en
+    cada comprobante.
+
+    No se relajó la autenticación del endpoint del restaurante para que
+    entrara también el superadmin: dejar que dos tipos de token pasen por la
+    misma puerta convierte cada cambio futuro en esa puerta en una decisión
+    sobre dos superficies a la vez.
+    """
+    return _consultar_en_padron(ruc, request)
 
 
 @router.get("/ruc-padron/estado", response_model=RucPadronEstadoResponse)
