@@ -382,12 +382,21 @@
                 </div>
                 <!-- Solo aparece para cuentas que ven Mesas Y Cocina (dueño solo,
                      o una cuenta mozo+cocina). Ver frontend/js/vista-unificada.js -->
+                <!-- Los nombres describen QUIÉN ESTÁ TRABAJANDO, no el layout.
+                     Antes decían "Solo mesas" / "Todo en uno": nombraban la
+                     forma de la pantalla, que es lo único que el dueño NO
+                     necesita decidir. La pregunta real que tiene delante es
+                     "¿hay alguien más en el turno o estoy solo?", y con esos
+                     nombres no había forma de saber cuál le servía. -->
                 <div id="vu-switch" class="vu-switch hidden">
                     <button type="button" class="vu-switch-btn active" data-vista="simple"
-                            aria-pressed="true" onclick="toggleVistaUnificada(false)">Solo mesas</button>
+                            aria-pressed="true" onclick="toggleVistaUnificada(false)"
+                            title="Cada uno en su pantalla: mozo toma pedidos, cocina cocina, caja cobra">En equipo</button>
                     <button type="button" class="vu-switch-btn" data-vista="unificada"
-                            aria-pressed="false" onclick="toggleVistaUnificada(true)">Todo en uno</button>
+                            aria-pressed="false" onclick="toggleVistaUnificada(true)"
+                            title="Mesas, cocina y cobro juntos en una sola pantalla">Atiendo solo</button>
                 </div>
+                <p id="vu-switch-hint" class="vu-switch-hint hidden"></p>
 
                 <button id="btn-gestionar-mesas" class="btn btn-secondary btn-fab hidden" onclick="abrirGestionMesas()">
                     <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>

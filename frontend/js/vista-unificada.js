@@ -111,6 +111,16 @@ function aplicarVistaUnificada(activa) {
         b.setAttribute('aria-pressed', String((b.dataset.vista === 'unificada') === vuActiva));
     });
 
+    // El nombre del botón entra en dos palabras; lo que HACE, no. Esta línea
+    // dice en qué queda la pantalla, para que elegir no sea probar las dos.
+    const hint = document.getElementById('vu-switch-hint');
+    if (hint) {
+        hint.textContent = vuActiva
+            ? 'Mesas, cocina y cobro juntos en una pantalla. Para cuando estás sin ayuda.'
+            : 'Cada uno en su pantalla: quien atiende toma pedidos, cocina cocina, caja cobra.';
+        hint.classList.toggle('hidden', !vistaUnificadaDisponible());
+    }
+
     if (vuIntervalo) {
         clearInterval(vuIntervalo);
         vuIntervalo = null;
@@ -443,7 +453,7 @@ function vuRenderCocina() {
         return `
             <article class="vu-card ${tarde ? 'tarde' : ''}" id="vu-cocina-${c.id}">
                 <header class="vu-card-top">
-                    <span class="vu-card-mesa">Mesa ${c.numero_mesa}</span>
+                    <span class="vu-card-mesa">${rotuloComanda(c)}</span>
                     <span class="vu-card-tiempo ${tarde ? 'tarde' : ''}">${c.minutos_transcurridos} min</span>
                 </header>
                 <ul class="vu-card-platos">${platos}</ul>

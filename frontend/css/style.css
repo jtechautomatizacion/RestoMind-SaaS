@@ -2771,6 +2771,16 @@ body {
     box-shadow: var(--shadow-sm);
 }
 
+/* Explica en una línea qué hace la opción elegida. El nombre del botón tiene
+   que ser corto para entrar en el switch, y por sí solo no alcanza para que
+   alguien que abre la app por primera vez sepa cuál le sirve. */
+.vu-switch-hint {
+    margin: -8px 0 14px;
+    font-size: 0.76rem;
+    line-height: 1.4;
+    color: var(--text-muted);
+}
+
 .vu-switch-btn {
     flex: 1;
     padding: 9px 12px;

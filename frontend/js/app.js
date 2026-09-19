@@ -702,6 +702,25 @@ function escapeHtml(str) {
     return div.innerHTML;
 }
 
+/**
+ * Cómo se nombra un pedido en PANTALLA (Cocina y "Todo en uno").
+ *
+ * `numero_mesa` vale 0 en un pedido para llevar, así que escribir
+ * `Mesa ${numero_mesa}` a secas saca "Mesa 0" — y en cocina eso manda a
+ * alguien a buscar una mesa que no existe. Para llevar se identifica por su
+ * número de pedido, que es lo que el comensal tiene en la mano.
+ *
+ * Vive acá y no en cada vista porque este mismo texto ya se había escrito
+ * suelto en dos lados y la Vista Unificada nació con la copia equivocada:
+ * exactamente el bug que una sola fuente evita. `print.js` tiene su propia
+ * version a proposito — el papel va en mayusculas y sin acentos.
+ */
+function rotuloComanda(comanda) {
+    if (comanda && comanda.numero_mesa) return `Mesa ${comanda.numero_mesa}`;
+    const n = comanda && comanda.id;
+    return n ? `Para llevar #${n}` : 'Para llevar';
+}
+
 let toastTimer = null;
 
 function showToast(message, type = 'info') {
