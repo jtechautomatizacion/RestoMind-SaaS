@@ -1088,6 +1088,41 @@
     window.initPantallaImpresora = pintarPantallaImpresora;
 
     /**
+     * El modal de impresora, que se abre desde el header con CUALQUIER rol.
+     *
+     * POR QUÉ NO ESTÁ EN UNA PESTAÑA
+     * ------------------------------
+     * Las pestañas se reparten por rol (ROLES_PERMITIDOS en app.js) y esta
+     * tarjeta vivía dentro de Admin, que solo ve el dueño. Pero la impresora
+     * es del DISPOSITIVO, no de la cuenta: se guarda en este celular. En modo
+     * "En equipo" el mozo trabaja desde su propio teléfono y mozo.js le manda
+     * la comanda a imprimir al enviar el pedido — así que necesitaba elegir
+     * impresora y no tenía ninguna pantalla donde hacerlo. Quedaba sin poder
+     * imprimir, y sin forma de arreglarlo desde su cuenta.
+     */
+    window.abrirModalImpresora = function () {
+        const modal = elemento('modal-impresora');
+        if (!modal) return;
+        modal.classList.remove('hidden');
+        // Se repinta CADA VEZ que se abre, no una sola al arrancar: la lista de
+        // impresoras emparejadas cambia desde los ajustes del sistema, fuera de
+        // esta app, y con una lista vieja el usuario elige algo que ya no está.
+        pintarPantallaImpresora();
+    };
+
+    window.cerrarModalImpresora = function () {
+        const modal = elemento('modal-impresora');
+        if (modal) modal.classList.add('hidden');
+    };
+
+    /** Muestra el botón del header solo en la app instalada. */
+    function mostrarBotonImpresora() {
+        const btn = elemento('btn-impresora');
+        if (btn) btn.classList.toggle('hidden', !disponible());
+    }
+    window.mostrarBotonImpresora = mostrarBotonImpresora;
+
+    /**
      * Busca impresoras que todavía NO estén emparejadas.
      *
      * Hace falta porque una impresora se desemparejar sola más seguido de lo
@@ -1273,6 +1308,7 @@
         // en el mismo tick que el DOM.
         setTimeout(async function () {
             await asegurarConfiguracion();
+            mostrarBotonImpresora();
             pintarPantallaImpresora();
         }, 800);
     });

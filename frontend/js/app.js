@@ -514,6 +514,14 @@ function aplicarPermisosRol() {
     if (estado.roles.includes('jefe_cocina') && typeof activarNotificacionesCocina === 'function') {
         activarNotificacionesCocina();
     }
+
+    // La impresora es del DISPOSITIVO, así que su botón NO se filtra por rol:
+    // va para todos. Se re-evalúa acá —y no solo en el arranque de
+    // impresora-termica.js— porque ese arranque corre con un temporizador
+    // fijo y el puente de Capacitor puede registrar el plugin después; si eso
+    // pasa, el botón queda escondido toda la sesión y nadie puede configurar
+    // la impresora. Acá se vuelve a mirar en cada login y cambio de rol.
+    if (typeof mostrarBotonImpresora === 'function') mostrarBotonImpresora();
 }
 
 function abrirSelectorRol() {
