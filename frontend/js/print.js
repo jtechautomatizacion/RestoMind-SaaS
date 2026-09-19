@@ -322,6 +322,34 @@ async function _imprimirHTML(html) {
     return _imprimirEnNavegador(html);
 }
 
+/**
+ * Varios tickets que salen JUNTOS, en una sola conexión con la impresora.
+ *
+ * POR QUÉ NO SE LLAMA DOS VECES A _imprimirHTML
+ * ---------------------------------------------
+ * En la térmica, cada llamada abre su propio socket Bluetooth, escribe y lo
+ * cierra. Con los dos papeles del modo SUNAT, el segundo connect caía mientras
+ * la impresora TODAVÍA estaba sacando el primer ticket —el papel tarda
+ * segundos y el buffer de estas térmicas es de ~256 bytes— y el resultado era
+ * medio ticket impreso y la impresora en error.
+ *
+ * En el navegador el problema no existe (no hay conexión que cuidar), así que
+ * ahí se sigue imprimiendo uno por uno.
+ */
+async function _imprimirVarios(htmls) {
+    const lista = (htmls || []).filter(Boolean);
+    if (!lista.length) return;
+
+    const T = window.ImpresoraTermica;
+    if (T && T.disponible() && typeof T.imprimirVariosHTML === 'function') {
+        const salio = await T.imprimirVariosHTML(lista);
+        if (salio) return;
+    }
+    for (const html of lista) {
+        await _imprimirEnNavegador(html);
+    }
+}
+
 function _imprimirEnNavegador(html) {
     return new Promise(resolve => {
         const iframe = document.createElement('iframe');
@@ -567,10 +595,17 @@ async function imprimirComandaNueva(comanda) {
         const ticketCocina = _ticketHTML('COCINA', comanda, { conPrecios: false });
         const ticketMozo = _ticketPrecuentaHTML(comanda, negocio, quien);
 
-        // Secuencial: dos print() al mismo tiempo se pisan entre sí, y en la
-        // práctica cada uno necesita que el mozo elija una impresora distinta.
-        await _imprimirHTML(ticketCocina);
-        await _imprimirHTML(ticketMozo);
+        // LOS DOS JUNTOS, EN UNA SOLA CONEXIÓN.
+        //
+        // Antes eran dos `await _imprimirHTML(...)` seguidos, y en la térmica
+        // eso son dos connect/write/close: el segundo caía mientras la
+        // impresora todavía estaba sacando el ticket de cocina, y salía medio
+        // ticket con la impresora en error. Ver _imprimirVarios.
+        //
+        // Si algún día se soportan DOS impresoras (una en cocina y otra en
+        // caja, que es el motivo por el que existen dos papeles), esto vuelve
+        // a separarse — pero una por destino, no una por papel.
+        await _imprimirVarios([ticketCocina, ticketMozo]);
     } catch (err) {
         // Un fallo de impresión (sin impresora configurada, navegador que
         // bloquea el diálogo, etc.) no debe deshacer la comanda: el pedido

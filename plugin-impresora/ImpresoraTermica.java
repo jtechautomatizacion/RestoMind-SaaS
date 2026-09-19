@@ -318,7 +318,22 @@ public class ImpresoraTermica extends Plugin {
         // preguntar "¿estás lista?" es transporte, no formato.
         final String lenguaje = call.getString("lenguaje", "escpos");
 
-        if (destino == null || destino.isEmpty() || datos == null || datos.isEmpty()) {
+        // VARIOS DOCUMENTOS EN UNA SOLA CONEXIÓN.
+        //
+        // En modo SUNAT cada pedido saca DOS papeles (cocina y pre-cuenta), y
+        // antes salían como dos llamadas a imprimir(): dos connect/write/close
+        // seguidos. El segundo connect caía mientras la impresora todavía
+        // estaba sacando el primer ticket —el papel tarda segundos— y estas
+        // térmicas tienen un buffer de ~256 bytes: el resultado era el que se
+        // vio, medio ticket y la impresora en error.
+        //
+        // Con `documentos` se abre UNA conexión, se sondea UNA vez y se
+        // escriben los dos con una pausa en el medio, sin soltar el socket.
+        final JSArray documentos = call.getArray("documentos", null);
+        final long pausaDoc = call.getInt("pausaEntreDocumentosMs", (int) PAUSA_ENTRE_DOCUMENTOS_MS).longValue();
+
+        final boolean hayLote = documentos != null && documentos.length() > 0;
+        if (destino == null || destino.isEmpty() || (!hayLote && (datos == null || datos.isEmpty()))) {
             call.reject("Faltan la impresora o el contenido");
             return;
         }
@@ -333,10 +348,22 @@ public class ImpresoraTermica extends Plugin {
             @Override
             public void run() {
                 try {
-                    byte[] bytes = Base64.decode(datos, Base64.DEFAULT);
+                    // Un solo documento se trata como un lote de uno: así hay
+                    // UN camino en el transporte y no dos que puedan quedar
+                    // distintos.
+                    byte[][] lote;
+                    if (hayLote) {
+                        lote = new byte[documentos.length()][];
+                        for (int i = 0; i < documentos.length(); i++) {
+                            lote[i] = Base64.decode(documentos.getString(i), Base64.DEFAULT);
+                        }
+                    } else {
+                        lote = new byte[][] { Base64.decode(datos, Base64.DEFAULT) };
+                    }
+
                     Sondeo s = "red".equals(tipo)
-                            ? enviarPorRed(destino, bytes, lenguaje)
-                            : enviarPorBluetooth(destino, bytes, lenguaje);
+                            ? enviarPorRed(destino, lote, lenguaje, pausaDoc)
+                            : enviarPorBluetooth(destino, lote, lenguaje, pausaDoc);
                     JSObject r = new JSObject();
                     // Se devuelve lo que contestó la impresora para que la app
                     // pueda distinguir "imprimió" de "se enviaron los bytes y
@@ -376,8 +403,8 @@ public class ImpresoraTermica extends Plugin {
                 JSObject r = new JSObject();
                 try {
                     Sondeo s = "red".equals(tipo)
-                            ? enviarPorRed(destino, null, lenguaje)
-                            : enviarPorBluetooth(destino, null, lenguaje);
+                            ? enviarPorRed(destino, null, lenguaje, 0L)
+                            : enviarPorBluetooth(destino, null, lenguaje, 0L);
                     r.put("conecto", true);
                     r.put("respondio", s.respondio);
                     r.put("codigo", s.codigo);
@@ -407,7 +434,7 @@ public class ImpresoraTermica extends Plugin {
     }
 
     /** `bytes == null` significa "solo sondear, no imprimir". */
-    private Sondeo enviarPorBluetooth(String mac, byte[] bytes, String lenguaje) throws Exception {
+    private Sondeo enviarPorBluetooth(String mac, byte[][] lote, String lenguaje, long pausaDoc) throws Exception {
         BluetoothSocket socket = null;
         try {
             BluetoothAdapter adapter = adaptador();
@@ -422,7 +449,7 @@ public class ImpresoraTermica extends Plugin {
             try { adapter.cancelDiscovery(); } catch (SecurityException ignored) { }
 
             socket = conectar(device);
-            return trabajar(socket.getOutputStream(), socket.getInputStream(), bytes, lenguaje);
+            return trabajar(socket.getOutputStream(), socket.getInputStream(), lote, lenguaje, pausaDoc);
         } finally {
             if (socket != null) {
                 try { socket.close(); } catch (IOException ignored) { }
@@ -437,7 +464,7 @@ public class ImpresoraTermica extends Plugin {
      * este método y cubre todo un tipo de impresora que por Bluetooth no
      * aparecería nunca.
      */
-    private Sondeo enviarPorRed(String destino, byte[] bytes, String lenguaje) throws Exception {
+    private Sondeo enviarPorRed(String destino, byte[][] lote, String lenguaje, long pausaDoc) throws Exception {
         String host = destino;
         int puerto = 9100;
         int sep = destino.lastIndexOf(':');
@@ -452,7 +479,7 @@ public class ImpresoraTermica extends Plugin {
             // cajero mirando la pantalla ~2 minutos antes de que el sistema
             // se dé por vencido.
             socket.connect(new InetSocketAddress(host, puerto), 6000);
-            return trabajar(socket.getOutputStream(), socket.getInputStream(), bytes, lenguaje);
+            return trabajar(socket.getOutputStream(), socket.getInputStream(), lote, lenguaje, pausaDoc);
         } finally {
             try { socket.close(); } catch (IOException ignored) { }
         }
@@ -472,8 +499,8 @@ public class ImpresoraTermica extends Plugin {
      * bien — con logs IDÉNTICOS. Preguntarle a la impresora antes de mandarle
      * el trabajo es la única forma de separar los dos casos.
      */
-    private Sondeo trabajar(OutputStream salida, InputStream entrada, byte[] bytes, String lenguaje)
-            throws Exception {
+    private Sondeo trabajar(OutputStream salida, InputStream entrada, byte[][] lote, String lenguaje,
+                            long pausaDoc) throws Exception {
         // El socket queda listo ANTES que la impresora. Preguntarle de
         // inmediato se pierde igual que se perdía el ESC @ (ver escribir()).
         Thread.sleep(PAUSA_TRAS_CONECTAR_MS);
@@ -484,7 +511,7 @@ public class ImpresoraTermica extends Plugin {
         // hechos tal como vinieron. Lanzar acá convertía "la impresora
         // contestó que no tiene papel" en "no se pudo conectar" —  una causa
         // distinta, que manda a revisar el Bluetooth en vez de poner papel.
-        if (bytes == null) return s;
+        if (lote == null || lote.length == 0) return s;
 
         // SOLO se aborta con un motivo CONCRETO ("sin papel", "cabezal
         // abierto"). El silencio NO se trata como falla: muchas térmicas
@@ -493,7 +520,15 @@ public class ImpresoraTermica extends Plugin {
         // un problema peor que el que esto viene a resolver.
         if (s.motivo != null) throw new EstadoImpresoraException(s.motivo);
 
-        escribir(salida, bytes);
+        // UN sondeo, UNA conexión, y los documentos uno tras otro. La pausa
+        // entre ellos le da tiempo al motor a terminar de sacar el papel del
+        // anterior: sin ella, los bytes del segundo entran mientras el primero
+        // todavía se está imprimiendo y el buffer (de ~256 bytes en estas
+        // térmicas) descarta el resto.
+        for (int i = 0; i < lote.length; i++) {
+            if (i > 0 && pausaDoc > 0) Thread.sleep(pausaDoc);
+            escribir(salida, lote[i]);
+        }
         return s;
     }
 
@@ -623,6 +658,10 @@ public class ImpresoraTermica extends Plugin {
     private static final long PAUSA_TRAS_CONECTAR_MS = 350;
     private static final long PAUSA_ENTRE_TROZOS_MS = 45;
     private static final long PAUSA_ANTES_DE_CERRAR_MS = 800;
+    // Entre un documento y el siguiente DE LA MISMA conexión. Es más larga que
+    // la de los trozos porque acá no se espera que se vacíe un buffer sino que
+    // el motor termine de sacar y cortar el papel del ticket anterior.
+    private static final long PAUSA_ENTRE_DOCUMENTOS_MS = 1200;
 
     private void escribir(OutputStream salida, byte[] bytes) throws Exception {
         // El socket queda listo ANTES que la impresora. Escribir de

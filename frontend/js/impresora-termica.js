@@ -819,6 +819,26 @@
     }
 
     async function enviar(cfg, bytes) {
+        return await enviarVarios(cfg, [bytes]);
+    }
+
+    /**
+     * Varios documentos en UNA sola conexión.
+     *
+     * POR QUÉ NO ALCANZA CON LLAMAR DOS VECES A enviar()
+     * -------------------------------------------------
+     * Cada llamada abre su propio socket Bluetooth, escribe y lo cierra. En
+     * modo SUNAT un pedido saca DOS papeles (cocina y pre-cuenta), así que
+     * salían como connect/write/close seguido de otro connect/write/close —
+     * y el segundo caía mientras la impresora todavía estaba sacando el primer
+     * ticket. El papel tarda segundos y el buffer de estas térmicas es de
+     * ~256 bytes: se imprimía medio ticket y la impresora quedaba en error.
+     *
+     * Mandándolos juntos hay una conexión, un sondeo de estado, y el nativo
+     * los escribe uno tras otro con una pausa en el medio sin soltar el
+     * socket.
+     */
+    async function enviarVarios(cfg, listaDeBytes) {
         const p = plugin();
         if (!p) throw new Error('La impresión nativa no está disponible');
         // `lenguaje` viaja al nativo para poder LEER el byte de estado: la
@@ -827,7 +847,7 @@
         return await p.imprimir({
             tipo: cfg.tipo || 'bluetooth',
             destino: cfg.destino,
-            datos: aBase64(bytes),
+            documentos: listaDeBytes.map(aBase64),
             lenguaje: cfg.lenguaje || 'escpos',
         });
     }
@@ -864,6 +884,20 @@
      * sin imprimir por culpa de esta ruta.
      */
     async function imprimirHTMLenTermica(html) {
+        return imprimirVariosHTMLenTermica([html]);
+    }
+
+    /**
+     * Imprime UNO O VARIOS tickets en una sola conexión.
+     *
+     * En modo SUNAT un pedido saca dos papeles (cocina y pre-cuenta). Salían
+     * como dos llamadas seguidas, y el segundo connect caía mientras la
+     * impresora todavía estaba sacando el primer ticket: medio ticket y la
+     * impresora en error. Acá se convierten los dos y se manda un solo trabajo.
+     */
+    async function imprimirVariosHTMLenTermica(htmls) {
+        const lista = (htmls || []).filter(Boolean);
+        if (!lista.length) return false;
         if (!plugin()) return false;
 
         // Sin esto hay una carrera que se ve como "la impresora imprime
@@ -906,8 +940,12 @@
             // Queda en logcat a proposito: cuando el papel sale con
             // garabatos, lo primero que hay que saber es en que lenguaje se
             // emitio, y eso no se puede deducir mirando la impresora.
-            console.log('[Termica] imprimiendo en', cfg.lenguaje, 'ancho', cfg.ancho, 'destino', cfg.destino);
-            const r = await enviar(cfg, convertir(html, COLUMNAS[cfg.ancho] || 48, cfg.lenguaje));
+            console.log('[Termica] imprimiendo', lista.length,
+                lista.length === 1 ? 'ticket en' : 'tickets en',
+                cfg.lenguaje, 'ancho', cfg.ancho, 'destino', cfg.destino);
+            const ancho = COLUMNAS[cfg.ancho] || 48;
+            const documentos = lista.map(h => convertir(h, ancho, cfg.lenguaje));
+            const r = await enviarVarios(cfg, documentos);
             // Este renglon es el que faltaba para poder diagnosticar. Antes,
             // "se enviaron todos los bytes" era lo unico que quedaba
             // registrado, y salia IGUAL con la impresora sana y con la
@@ -952,6 +990,7 @@
         guardar: guardarConfiguracion,
         anchosPosibles: Object.keys(COLUMNAS),
         imprimirHTML: imprimirHTMLenTermica,
+        imprimirVariosHTML: imprimirVariosHTMLenTermica,
         prueba: imprimirPrueba,
         estado: consultarEstado,
         // Se exporta para poder probar la conversión sin impresora.
