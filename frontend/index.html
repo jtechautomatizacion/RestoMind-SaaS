@@ -325,7 +325,11 @@
 
     <div id="app" class="app-container hidden">
         <header class="top-bar">
-            <div>
+            <!-- Necesita clase para poder CEDER espacio: ver .top-bar-titulo en
+                 style.css. Sin min-width:0 este bloque se niega a bajar del
+                 ancho del nombre del restaurante y empuja los botones de la
+                 derecha fuera de la pantalla. -->
+            <div class="top-bar-titulo">
                 <h1 id="page-title">Mesas</h1>
                 <p id="nombre-cliente-header" class="header-cliente-nombre"></p>
             </div>

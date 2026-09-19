@@ -363,10 +363,54 @@ body {
     display: none;
 }
 
+/* EL HEADER TIENE QUE ENTRAR EN 360 px.
+   Medido en un Redmi de 360 px con la barra completa (badge de rol + 5 iconos):
+   las acciones solas ocupan 269 px de los 328 utiles, asi que el titulo y los
+   botones no caben juntos. El documento terminaba midiendo 404 px, y eso NO
+   se veia como "falta un boton": corria la pagina entera a la derecha, cortaba
+   las pestañas de Admin y sacaba los modales de cuadro.
+
+   Quien cede es el TITULO, no los botones: un nombre de restaurante recortado
+   con puntos suspensivos se sigue entendiendo, y un boton de 34 px que se
+   encoge deja de ser un blanco tactil usable. */
+.top-bar-titulo {
+    /* Un flex item arranca en min-width:auto, o sea que se niega a bajar del
+       ancho de su contenido. Esta linea es la que permite que ceda. */
+    min-width: 0;
+    overflow: hidden;
+}
+
+.top-bar-titulo h1,
+.top-bar-titulo .header-cliente-nombre {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .top-bar-actions {
     display: flex;
     align-items: center;
     gap: 8px;
+    /* Los botones nunca se encogen: son blancos tactiles. */
+    flex-shrink: 0;
+}
+
+/* En pantallas angostas se recorta el aire, no los blancos tactiles: con
+   gap 4 e iconos de 30 px las acciones bajan de 269 a 229 px y le dejan
+   ~111 px al titulo, que alcanza para leerlo recortado. */
+@media (max-width: 400px) {
+    .top-bar {
+        padding: 8px 10px;
+    }
+
+    .top-bar-actions {
+        gap: 4px;
+    }
+
+    .top-bar-actions .icon-btn {
+        width: 30px;
+        height: 30px;
+    }
 }
 
 .rol-badge {
