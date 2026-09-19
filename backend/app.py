@@ -34,11 +34,28 @@ finally:
     _seed_db.close()
 
 # Create FastAPI app
+#
+# LA DOCUMENTACIÓN INTERACTIVA SE APAGA EN PRODUCCIÓN.
+#
+# FastAPI publica /docs, /redoc y /openapi.json sin autenticación, y ahí está
+# el mapa COMPLETO de la API: cada endpoint, cada parámetro, cada schema, los
+# campos exactos que espera /api/superadmin/login. Verificado contra el VPS:
+# los tres respondían 200 a cualquiera en internet.
+#
+# No es una brecha por sí sola —los endpoints siguen pidiendo su token— pero
+# le ahorra a un atacante todo el trabajo de reconocimiento: en vez de adivinar
+# rutas, las lee. Apagarlo no le quita nada a nadie: el que desarrolla corre en
+# local, donde ENVIRONMENT no es "production" y los tres siguen disponibles.
+_es_produccion = settings.environment == "production"
+
 app = FastAPI(
     title="RestoMind API",
     description="Sistema de comandas y control para restaurantes",
     version="0.1.0",
-    debug=settings.debug
+    debug=settings.debug,
+    docs_url=None if _es_produccion else "/docs",
+    redoc_url=None if _es_produccion else "/redoc",
+    openapi_url=None if _es_produccion else "/openapi.json",
 )
 
 # CORS middleware
