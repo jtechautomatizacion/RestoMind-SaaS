@@ -341,6 +341,12 @@
                 <button type="submit" class="btn btn-primary btn-block">Ingresar</button>
             </form>
         </div>
+        <!-- La versión, al pie y visible SIN iniciar sesión. Es el primer dato
+             que hace falta para dar soporte ("¿qué versión tenés?") y el único
+             que hoy no se podía averiguar desde el teléfono: si alguien no
+             puede entrar, no hay forma de que llegue a una pantalla interna a
+             mirarlo. Lo rellena mostrarVersionApp() en app.js. -->
+        <p id="app-version" class="app-version"></p>
     </div>
 
     <div id="app" class="app-container hidden">
@@ -1542,6 +1548,12 @@
                             <input type="password" id="cuenta-password-nueva" minlength="6" maxlength="200">
                         </div>
                         <button class="btn btn-primary btn-block" onclick="cambiarMiCuenta()">Cambiar Contraseña</button>
+
+                        <!-- La misma versión que el pie del login, acá adentro
+                             para quien YA está trabajando: es lo primero que se
+                             pregunta al dar soporte, y así no hay que cerrar
+                             sesión para leerla. -->
+                        <p id="app-version-cuenta" class="app-version"></p>
                     </div>
                 </div>
             </div>

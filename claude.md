@@ -2090,6 +2090,79 @@ de cada restaurante, y NO vienen de una fuente pública. Aislamiento por
 
 Ver `docs/PADRON_RUC.md`.
 
+## 🏷️ LA VERSIÓN, A LA VISTA ("ver. 1.2.3")
+
+Aparece al pie del login —**sin iniciar sesión**— y dentro de Admin → Mi
+Cuenta. Es el primer dato de cualquier soporte ("¿qué versión tenés?") y
+hasta ahora no se podía averiguar desde el teléfono; menos todavía si el
+problema era justamente no poder entrar, porque cualquier pantalla interna
+queda del otro lado del login.
+
+### De dónde sale el número, y por qué el orden no es intercambiable
+
+1. **`App.getInfo()`** vía `capacitor-init.js` (`publicarVersionInstalada()`)
+   → la versión que el teléfono tiene **PUESTA**.
+2. Solo si no hay nativo (la app abierta en un navegador), se le pregunta a
+   `GET /api/app/version`. Ahí es correcto: en la PWA el código que corre ES
+   el del servidor.
+
+**Preguntarle al servidor dentro del APK mostraría la versión PUBLICADA.** Un
+local que no actualizó vería el número nuevo y creería estar al día — lo
+contrario de para qué se muestra el dato. Por eso `getInfo()` va primero y el
+servidor es solo el respaldo del navegador.
+
+`capacitor-init.js` avisa por evento **y** deja el dato en
+`window.RESTOMIND_VERSION`: hacen falta los dos, porque corre en
+`DOMContentLoaded` igual que quien lo pinta y puede llegar antes o después.
+
+Quien pinta es `mostrarVersionApp()` en `app.js` — misma separación que el
+resto: `capacitor-init.js` es el puente con lo nativo y no sabe de interfaz;
+`app.js` no sabe de Capacitor.
+
+---
+
+## 🔒 AUDITORÍA DE LOS `.env` (2026-09-20)
+
+Resultado: **sin filtraciones**. Lo que se verificó, para poder repetirlo:
+
+| verificación | resultado |
+|---|---|
+| ¿Algún `.env` real versionado? | No. Barrido de los **154 commits**: el único `.env*` que existió en git fue siempre `.env.example`, con valores de relleno |
+| `.gitignore` | `.env` + `.env.*` ignorados, con `!.env.example` como excepción explícita |
+| ¿Dev y prod comparten `SECRET_KEY`? | **No** (comparado por hash, sin imprimir los valores). Si la compartieran, un token de desarrollo valdría en producción |
+| Permisos en el VPS | `/home/restomind/app/.env` en `0600`, `restomind:restomind` |
+| ¿Se puede bajar un `.env` por la web? | No: `404` en `/.env`, `/.env.example`, `/app/.env`, `/descargas/.env`, `/../.env`, `/static/.env` |
+| `/docs`, `/redoc`, `/openapi.json` | `404` en producción |
+| Flags de producción | `ENVIRONMENT=production`, `DEBUG=false`, `DATABASE_ECHO=false`, CORS cerrado al dominio real |
+| Secretos escritos a mano en el código | Ninguno |
+| Claves privadas / certificados versionados | Ninguno (`.pem`, `.key`, `.jks`, `.p12`, `keystore.properties`) |
+| ¿Se loguea algún secreto? | No |
+
+**Lo que sí se corrigió:** había **4 copias de respaldo** de `.env` (3 en el
+VPS de despliegues anteriores, 1 local del 30/08) que duplicaban secretos
+vivos —`SECRET_KEY` y `SMTP_PASSWORD`—. Ninguna era accesible por la web ni
+tenía permisos flojos, así que no eran una filtración, pero multiplicaban
+los lugares donde vive un secreto sin aportar ninguna variable que el `.env`
+actual no tuviera (se comparó llave por llave antes de borrar). Se
+eliminaron las 4, y se rotó la `SECRET_KEY` de **desarrollo**.
+
+> **Al desplegar, no dejar copias del `.env` al lado del `.env`.** Un
+> `.env.bak-*` en la misma carpeta es un secreto más para cuidar y nunca
+> resultó útil: en los 4 casos el archivo vivo ya tenía todo. Si hace falta
+> un respaldo, va fuera de la máquina.
+
+### Lo que NO se tocó, y por qué
+
+- **La contraseña mínima sigue en 6 caracteres**, como ya estaba decidido.
+- **`.env.example` en `0664`** en el VPS: es una plantilla con valores de
+  relleno, no hay nada que proteger.
+- **SSH con contraseña habilitada**: endurecerlo (`PasswordAuthentication
+  no`) queda pendiente hasta que la llave esté respaldada fuera de la PC.
+  Deshabilitarlo antes de eso es la forma más rápida de quedarse afuera del
+  propio servidor.
+
+---
+
 ## 🩹 TROUBLESHOOTING: Caída de entorno v4.0
 
 **Contexto:** con `sunat_cloud` (v4.0) el arranque local depende de más

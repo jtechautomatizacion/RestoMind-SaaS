@@ -137,6 +137,62 @@ async function avisarSiElServidorEstaDesactualizado() {
     }
 }
 
+/**
+ * "ver. 1.2.3" al pie del login y dentro de Mi Cuenta.
+ *
+ * POR QUÉ ESTÁ A LA VISTA, Y SIN INICIAR SESIÓN
+ * ---------------------------------------------
+ * Es el primer dato de cualquier soporte: "¿qué versión tenés?". Hasta ahora
+ * no había forma de responderlo desde el teléfono, y menos si el problema era
+ * justamente no poder entrar — cualquier pantalla interna queda del otro lado
+ * del login.
+ *
+ * DE DÓNDE SALE EL NÚMERO (importa el orden)
+ * ------------------------------------------
+ * 1. `App.getInfo()` vía capacitor-init.js: la versión que el teléfono tiene
+ *    PUESTA. Es la única que sirve para dar soporte.
+ * 2. Solo si no hay nativo (la app abierta en un navegador), se le pregunta al
+ *    servidor. Ahí es correcto: en la PWA el código que corre ES el del
+ *    servidor.
+ *
+ * El orden NO es intercambiable. Preguntarle al servidor dentro del APK
+ * mostraría la versión PUBLICADA: un local que no actualizó vería el número
+ * nuevo y creería estar al día, que es exactamente lo contrario de para qué
+ * se muestra.
+ */
+function _pintarVersion(texto) {
+    for (const id of ['app-version', 'app-version-cuenta']) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = texto;
+    }
+}
+
+async function mostrarVersionApp() {
+    if (window.RESTOMIND_VERSION) {
+        _pintarVersion('ver. ' + window.RESTOMIND_VERSION.nombre);
+        return;
+    }
+    // Dentro del APK el dato llega por evento y puede tardar unos ms más que
+    // este arranque: se escucha en vez de darlo por perdido.
+    if (window.RESTOMIND_ES_NATIVO) {
+        window.addEventListener('restomind:version', function (e) {
+            _pintarVersion('ver. ' + (e.detail && e.detail.nombre));
+        }, { once: true });
+        return;
+    }
+    try {
+        const resp = await fetch(`${window.RESTOMIND_API_BASE || ''}/api/app/version`, { cache: 'no-store' });
+        if (!resp.ok) return;
+        const v = await resp.json();
+        if (v && v.version_name) _pintarVersion('ver. ' + v.version_name);
+    } catch (_) {
+        // Sin versión a la vista la app funciona igual: el hueco se queda
+        // vacío en vez de mostrar un error por un dato informativo.
+    }
+}
+
+document.addEventListener('DOMContentLoaded', mostrarVersionApp);
+
 // Aviso de versión nueva del APK.
 //
 // El que detecta es capacitor-init.js —es quien puede preguntarle a lo nativo

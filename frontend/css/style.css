@@ -225,6 +225,10 @@ body {
 
 .login-screen {
     display: flex;
+    /* El pie de versión va DEBAJO de la tarjeta, así que esta pantalla apila
+       en columna. Con la dirección por defecto (fila) ese texto se sentaba al
+       costado de la tarjeta y le robaba ancho. */
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     min-height: 100vh;
@@ -281,6 +285,18 @@ body {
     color: var(--text-muted);
     text-align: center;
     margin: 6px 0 24px;
+}
+
+/* "ver. 1.2.3" — al pie del login y dentro de Mi Cuenta (ver
+   mostrarVersionApp en app.js). Deliberadamente discreto: es un dato de
+   soporte, no algo que el mozo tenga que leer cada vez que entra. Vacío
+   mientras no se sepa la versión, así que no deja ningún hueco visible. */
+.app-version {
+    margin: 16px 0 0 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: center;
+    letter-spacing: 0.04em;
 }
 
 .login-error {

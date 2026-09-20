@@ -55,6 +55,38 @@
         return (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins[nombre]) || null;
     }
 
+    // ---- ¿Qué versión tengo puesta? ----------------------------------
+    /**
+     * Publica qué versión del APK está instalada, para que la interfaz la
+     * pueda mostrar.
+     *
+     * Va por acá y no por `/api/app/version` a propósito: ese endpoint dice
+     * cuál es la versión PUBLICADA, no la que el teléfono tiene puesta. Un
+     * local que todavía no actualizó vería el número nuevo y creería que está
+     * al día — justo al revés de para qué sirve mostrar la versión.
+     * `App.getInfo()` es la única fuente que sabe la verdad.
+     *
+     * Se avisa por evento y además se deja en `window` porque las dos cosas
+     * hacen falta: el evento cubre a quien ya está escuchando, y la variable a
+     * quien pregunte después (este archivo corre en `DOMContentLoaded`, así
+     * que puede llegar antes o después de quien quiera pintarla).
+     */
+    async function publicarVersionInstalada() {
+        const App = plugin('App');
+        if (!App) return;
+        try {
+            const info = await App.getInfo();
+            window.RESTOMIND_VERSION = { nombre: info.version, codigo: info.build };
+            window.dispatchEvent(new CustomEvent('restomind:version', {
+                detail: window.RESTOMIND_VERSION,
+            }));
+        } catch (err) {
+            // No saber la versión no puede impedir trabajar. La interfaz cae
+            // sola a preguntarle al servidor (ver mostrarVersionApp).
+            console.warn('[RestoMind] no se pudo leer la version instalada:', err);
+        }
+    }
+
     // ---- ¿Hay una versión nueva? -------------------------------------
     //
     // RestoMind no se distribuye por una tienda, así que nada le avisa al
@@ -253,6 +285,7 @@
         iniciarRed();
         iniciarBotonAtras();
         iniciarPush();
+        publicarVersionInstalada();
         revisarActualizacion();
     });
 })();
