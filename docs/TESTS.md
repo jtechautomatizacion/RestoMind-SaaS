@@ -1,13 +1,13 @@
 # 🧪 Mapa de la suite de tests
 
-**378 tests · `npm test` · ~2,5 min**
+**382 tests · `npm test` · ~2,5 min**
 
 Son DOS suites y el comando corre las dos:
 
 | suite | qué cubre | comando solo |
 |---|---|---|
 | **362** backend (pytest) | API, permisos, dinero, SUNAT, caja | `npm run test:backend` |
-| **16** frontend (`node --test`) | lo que sale por la impresora térmica | `npm run test:frontend` |
+| **20** frontend (`node --test`) | lo que sale por la impresora térmica | `npm run test:frontend` |
 
 > `npm test` existe para que no haya forma de correr una y olvidarse de
 > la otra. La suite de frontend nació después de que un bug de impresión
@@ -76,6 +76,7 @@ Esta es la parte que hay que mirar antes de cada despliegue.
 | Dos turnos de caja abiertos | Las mismas ventas se cuentan dos veces; la caja no cuadra nunca | `test_caja_seguridad.py::test_la_bd_impide_dos_turnos_abiertos_aunque_se_salte_la_validacion` |
 | Un mozo fuerza el cierre de caja | Se pierde el conteo real del admin | `test_caja_seguridad.py::test_un_mozo_no_puede_forzar_el_cierre_de_la_caja_del_admin` |
 | Cobrar comida que no se entregó | | `test_endpoints.py` (cobro con comanda en cocina → 400) |
+| Con la impresión apagada igual se imprime | Un local sin impresora recibe un aviso de error en cada pedido, y aprende a ignorar los avisos | `impresion.test.mjs::apagado, _imprimirHTML no manda NADA a la impresora` |
 | El importe sale debajo de su etiqueta, no al lado | La boleta queda ilegible: el cliente no puede verificar lo que paga | `impresion.test.mjs::cada total va en UNA linea, con su importe a la derecha` |
 | Vuelve el `FEED` tras el `PRINT` | La impresora se traba con `err: no seam!` en el 2º ticket de la tanda y el local deja de imprimir | `impresion.test.mjs::no se manda ningun FEED despues del PRINT` |
 | Cocina deja de recibir su papel | El pedido no se prepara | `impresion.test.mjs::en equipo SIEMPRE sale el ticket de cocina` |

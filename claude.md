@@ -1,7 +1,7 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
 **Versión MVP:** 4.0 — Facturación SUNAT 100% en la nube
-**Implementado y probado:** ✅ 100% Autenticación + Seguridad + **Facturación SUNAT en la nube** (firma y envío desde el servidor) + Consulta de RUC contra el Padrón Reducido local + Dashboard Financiero + Validador de Caja + Notificaciones Push + Inventario + Vista Unificada (378/378 tests)
+**Implementado y probado:** ✅ 100% Autenticación + Seguridad + **Facturación SUNAT en la nube** (firma y envío desde el servidor) + Consulta de RUC contra el Padrón Reducido local + Dashboard Financiero + Validador de Caja + Notificaciones Push + Inventario + Vista Unificada (382/382 tests)
 **Última actualización:** 2026-09-18
 **[NUEVA] La impresora confirma antes de imprimir:** un `write()` sobre el socket Bluetooth tiene éxito aunque la impresora esté trabada y descarte los bytes — así que la app decía "imprimió" sin que saliera papel. Ahora se le pregunta el estado ANTES de mandar el trabajo y se corta con el motivo puesto (sin papel, cabezal abierto, trabada). Botón `Estado` en Admin > Impresora para verificar sin gastar papel. Ver sección "QUÉ SE IMPRIME, SEGÚN EL MODO" más abajo.
 **[NUEVA] Interruptor de facturación (`Cliente.usar_sunat`):** emitir boleta SUNAT ya no se deduce de "¿tiene RUC?" — es una decisión operativa aparte, con su propio switch en Admin > Boletas. Sin activarlo, el cobro ya no muestra el toast rojo de "boleta no emitida" ni pide DNI/RUC al cliente. Ver sección "Interruptor de Facturación" más abajo.
@@ -1813,6 +1813,39 @@ La fila del total lleva `negrita` pero **no** `destacado`: ese activa el
 doble ancho, que parte el ancho útil a la mitad y desalinea justo la columna
 que se quiere leer de un golpe.
 
+### Interruptor general de impresión (por aparato)
+
+`Admin → Impresora` (el ícono de la barra superior) arranca con un switch
+**"Imprimir tickets"**. Apagado, ese equipo **no imprime nada y no avisa
+nada**.
+
+Existe porque hay locales que trabajan solo con el celular y no tienen
+impresora ni la van a tener. Para ellos, cada pedido terminaba en un aviso
+de "no se pudo imprimir": ruido sobre algo que no está roto, y peor —
+**enseña a ignorar los avisos**, justo los que algún día sí importan.
+
+Tres decisiones que conviene no deshacer:
+
+- **El corte vive en `_imprimirHTML()`**, por donde pasan los cuatro
+  documentos (comanda, pre-cuenta, pre-venta, boleta). Un `if` repetido en
+  cuatro llamadores es un `if` que algún día falta en el quinto.
+- **Apagado tampoco cae al diálogo del navegador.** Dentro del APK eso abre
+  la pantalla de impresión de Android, más molesta todavía que el aviso que
+  el interruptor viene a evitar.
+- **Viene ENCENDIDO por defecto** (`CLAVE_IMPRESION`, `localStorage`). No es
+  preferencia estética: hoy todos los locales que usan la app imprimen, así
+  que arrancar apagado los dejaría sin tickets sin que nadie haya tocado
+  nada — el peor tipo de cambio, uno que rompe en silencio algo que
+  funcionaba. Quien no imprime lo apaga una vez por aparato.
+
+Es una clave **separada** de la configuración de la impresora: apagar no
+borra la impresora elegida, así que volver a prender no obliga a
+reconfigurar. Y es por aparato como la impresora misma — en modo "En equipo"
+el celular del mozo puede imprimir y el de caja no.
+
+Cubierto por `tests/frontend/impresion.test.mjs` (4 tests, incluido que
+apagado no llega NADA ni a la térmica ni al navegador).
+
 ### Cuánto se espera entre un papel y el siguiente
 
 `PAUSA_ENTRE_PAPELES_MS = 5000` (`frontend/js/print.js`). El límite que
@@ -2374,7 +2407,7 @@ sin ningún cambio en `backend/config.py`.
 **Versión:** 4.1 (rol `asistente` + switch de facturación blindado)  
 **Estado:** ✅ **COMPLETAMENTE FUNCIONAL Y AUDITADO** — Autenticación, Facturación, Caja, Notificaciones Push, Inventario probados y operativos  
 **Última Actualización:** 2026-09-13  
-**Tests:** 378/378 pasando (`npm test` — corre las DOS suites: 362 de backend con pytest y 16 de frontend con `node --test`, estos últimos sobre lo que sale por la impresora térmica). El mapa de qué cubre cada archivo, y qué NO cubre la suite, está en [`docs/TESTS.md`](docs/TESTS.md)  
+**Tests:** 382/382 pasando (`npm test` — corre las DOS suites: 362 de backend con pytest y 20 de frontend con `node --test`, estos últimos sobre lo que sale por la impresora térmica). El mapa de qué cubre cada archivo, y qué NO cubre la suite, está en [`docs/TESTS.md`](docs/TESTS.md)  
 **Cobertura:** Autenticación JWT dual + Rate limiting + Auditoría + Facturación SUNAT en la nube (boleta/factura según régimen, correlativos separados por serie) + Padrón Reducido local + Dashboard Financiero + Validador de Caja + Notificaciones Push + Inventario + Vista Unificada
 
 ### ✅ Stack Completo Implementado

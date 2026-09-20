@@ -62,6 +62,67 @@ function cargarConversor({ lenguaje = 'tspl' } = {}) {
     return ventana.ImpresoraTermica;
 }
 
+/**
+ * Carga print.js con una impresora FALSA, para poder ver qué le llega.
+ *
+ * Devuelve `llamadas` (lo que se mandó a la térmica) y `navegador` (las veces
+ * que cayó al diálogo del sistema). Con las dos en cero se puede afirmar que
+ * el interruptor apagado no imprime por NINGÚN camino, que es justo lo que
+ * hace falta demostrar.
+ */
+function cargarPrint({ impresionActiva = true } = {}) {
+    const llamadas = [];
+    const navegador = [];
+
+    const ventana = {};
+    ventana.window = ventana;
+    ventana.estado = { usuario: {} };
+    ventana.escapeHtml = (s) => String(s ?? '');
+    ventana.showToast = () => {};
+    ventana.api = { get: async () => ({}) };
+    ventana.ImpresoraTermica = {
+        impresionActiva: () => impresionActiva,
+        disponible: () => true,
+        imprimirHTML: async (html) => { llamadas.push(html); return true; },
+    };
+    // El camino del navegador se detecta por la creación del iframe. Se
+    // resuelve al toque en vez de imitar el diálogo: si algún test llegara
+    // acá sin querer, tiene que fallar por la assertion, no colgarse 15s.
+    ventana.document = {
+        addEventListener: () => {},
+        getElementById: () => null,
+        body: { appendChild: () => {}, contains: () => false, removeChild: () => {} },
+        createElement: (tag) => {
+            if (tag === 'iframe') navegador.push(tag);
+            const doc = { open() {}, write() {}, close() {} };
+            return {
+                style: {},
+                contentWindow: {
+                    document: doc,
+                    focus() {},
+                    print() { if (this.onafterprint) this.onafterprint(); },
+                },
+            };
+        },
+    };
+    ventana.setTimeout = setTimeout;
+    ventana.clearTimeout = clearTimeout;
+
+    const fn = new Function('entorno', `with (entorno) {
+        ${leer('frontend/js/print.js')}
+        entorno.__papeles = _papelesAlPedir;
+        entorno.__imprimir = _imprimirHTML;
+    }`);
+    fn(ventana);
+
+    return {
+        papelesAlPedir: ventana.__papeles,
+        imprimir: ventana.__imprimir,
+        llamadas,
+        navegador,
+    };
+}
+
 /** El ticket tal como sale, en texto: sirve para TSPL (que ya es texto) y,
  *  en ESC/POS, después de quitarle las secuencias de control. */
 function aTexto(bytes) {
@@ -227,6 +288,37 @@ describe('ESC/POS — los importes van alineados a la derecha', () => {
 });
 
 // ============================================================
+describe('El interruptor general de impresión', () => {
+
+    test('viene ENCENDIDO si nadie lo toco', () => {
+        const IT = cargarConversor();
+        // Arrancar apagado dejaria sin tickets, en silencio, a todos los
+        // locales que hoy imprimen sin haber configurado nada nuevo.
+        assert.equal(IT.impresionActiva(), true);
+    });
+
+    test('apagado, _imprimirHTML no manda NADA a la impresora', async () => {
+        const { papelesAlPedir: _, imprimir, llamadas } = cargarPrint({ impresionActiva: false });
+        await imprimir('<html><body><div>hola</div></body></html>');
+        assert.equal(llamadas.length, 0, 'se intento imprimir con el interruptor apagado');
+    });
+
+    test('apagado, tampoco cae al dialogo de impresion del navegador', async () => {
+        // Dentro del APK ese dialogo es la pantalla de impresion de Android:
+        // mas molesta todavia que el aviso que el interruptor viene a evitar.
+        const { imprimir, navegador } = cargarPrint({ impresionActiva: false });
+        await imprimir('<html><body><div>hola</div></body></html>');
+        assert.equal(navegador.length, 0, 'se abrio el dialogo del navegador');
+    });
+
+    test('encendido, el documento SI llega a la impresora', async () => {
+        const { imprimir, llamadas } = cargarPrint({ impresionActiva: true });
+        await imprimir('<html><body><div>hola</div></body></html>');
+        assert.equal(llamadas.length, 1);
+    });
+});
+
+// ============================================================
 describe('Qué papeles salen AL PEDIR', () => {
 
     /*
@@ -245,21 +337,7 @@ describe('Qué papeles salen AL PEDIR', () => {
     // _papelesAlPedir vive en print.js, que ademas define plantillas y toca
     // muchos globales. Se lo carga solo para leer esa funcion: es la tabla que
     // el dueño pidio explicitamente y la que no puede cambiar sin querer.
-    function cargarPapeles() {
-        const ventana = {};
-        ventana.window = ventana;
-        ventana.document = { addEventListener: () => {}, getElementById: () => null };
-        ventana.estado = { usuario: {} };
-        ventana.escapeHtml = (s) => String(s ?? '');
-        ventana.showToast = () => {};
-        ventana.api = { get: async () => ({}) };
-        const fn = new Function('entorno', `with (entorno) {
-            ${leer('frontend/js/print.js')}
-            entorno.__papeles = _papelesAlPedir;
-        }`);
-        fn(ventana);
-        return ventana.__papeles;
-    }
+    const cargarPapeles = () => cargarPrint().papelesAlPedir;
 
     const casos = [
         // [atiendeSolo, conSunat, papeles esperados]

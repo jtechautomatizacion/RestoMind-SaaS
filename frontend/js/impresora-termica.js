@@ -37,6 +37,43 @@
 
     const CLAVE_CONFIG = 'restomind_impresora';
 
+    /**
+     * Interruptor general de impresión, POR APARATO.
+     *
+     * Separado de `CLAVE_CONFIG` a propósito: son dos preguntas distintas.
+     * "¿Este local imprime?" viene ANTES de "¿con cuál impresora?", y apagar
+     * la impresión no tiene por qué borrar la impresora ya elegida — el día
+     * que se vuelva a prender tiene que seguir andando sin reconfigurar nada.
+     *
+     * Por aparato y no por cuenta, igual que la impresora: en modo "En
+     * equipo" el celular del mozo puede imprimir la comanda y el de caja no,
+     * o al revés.
+     */
+    const CLAVE_IMPRESION = 'restomind_impresion_activa';
+
+    /**
+     * Encendido salvo que alguien lo haya apagado a mano.
+     *
+     * El default NO es una preferencia estética: hoy todos los locales que
+     * usan la app imprimen, así que arrancar en apagado los dejaría sin
+     * tickets sin que nadie haya tocado nada — el peor tipo de cambio, uno
+     * que rompe en silencio algo que funcionaba. El local que no imprime lo
+     * apaga una vez y queda apagado para siempre en ese aparato.
+     */
+    function impresionActiva() {
+        try {
+            return localStorage.getItem(CLAVE_IMPRESION) !== '0';
+        } catch (_) {
+            // Sin localStorage (navegación privada, datos bloqueados) se
+            // asume que sí: no imprimir es la falla que se nota tarde.
+            return true;
+        }
+    }
+
+    function guardarImpresionActiva(activa) {
+        try { localStorage.setItem(CLAVE_IMPRESION, activa ? '1' : '0'); } catch (_) { }
+    }
+
     // Copia en memoria. Es la unica fuente que NO depende de que el WebView
     // haya conservado su almacenamiento: tras reinstalar la app, localStorage
     // arranca vacio y la restauracion desde el nativo es ASINCRONA. Sin esta
@@ -1032,6 +1069,7 @@
         imprimirHTML: imprimirHTMLenTermica,
         prueba: imprimirPrueba,
         estado: consultarEstado,
+        impresionActiva: impresionActiva,
         // Se exporta para poder probar la conversión sin impresora.
         _convertir: convertir,
     };
@@ -1221,8 +1259,51 @@
         // Se repinta CADA VEZ que se abre, no una sola al arrancar: la lista de
         // impresoras emparejadas cambia desde los ajustes del sistema, fuera de
         // esta app, y con una lista vieja el usuario elige algo que ya no está.
+        sincronizarSwitchImpresion();
         pintarPantallaImpresora();
     };
+
+    /**
+     * El interruptor general de impresión de ESTE aparato.
+     *
+     * No toca la impresora elegida: apagar y volver a prender tiene que dejar
+     * todo como estaba, sin reconfigurar nada (ver CLAVE_IMPRESION).
+     */
+    window.onToggleImprimir = function (evento) {
+        const activa = Boolean(evento && evento.target && evento.target.checked);
+        guardarImpresionActiva(activa);
+        sincronizarSwitchImpresion();
+        if (typeof showToast === 'function') {
+            showToast(
+                activa
+                    ? 'Este equipo va a imprimir los tickets'
+                    : 'Impresión apagada en este equipo',
+                activa ? 'success' : 'warning',
+            );
+        }
+    };
+
+    /** Deja el switch y su texto de ayuda acordes con lo guardado. Se llama al
+     *  abrir el modal y al togglear: el estado vive en el aparato, así que dos
+     *  pestañas abiertas no pueden desincronizarse, pero sí puede haberse
+     *  cambiado antes de abrir esta pantalla. */
+    function sincronizarSwitchImpresion() {
+        const activa = impresionActiva();
+        const sw = elemento('switch-imprimir');
+        if (sw) sw.checked = activa;
+
+        const hint = elemento('impresion-switch-hint');
+        if (hint) {
+            hint.textContent = activa
+                ? 'Encendido. Elegí abajo con qué impresora.'
+                : 'Apagado: este equipo no imprime nada y no avisa nada.';
+        }
+        // Con la impresión apagada, elegir impresora no hace nada. Se atenúa
+        // en vez de ocultarse: escondido, el usuario no entiende adónde se
+        // fue la configuración que acaba de dejar hecha.
+        const card = elemento('card-impresora');
+        if (card) card.classList.toggle('apagado', !activa);
+    }
 
     window.cerrarModalImpresora = function () {
         const modal = elemento('modal-impresora');
@@ -1423,6 +1504,7 @@
         setTimeout(async function () {
             await asegurarConfiguracion();
             mostrarBotonImpresora();
+            sincronizarSwitchImpresion();
             pintarPantallaImpresora();
         }, 800);
     });

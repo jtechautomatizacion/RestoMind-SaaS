@@ -1581,6 +1581,33 @@
                         Cada equipo del local tiene la suya: la del mozo saca
                         la comanda, la de caja saca la boleta.
                     </p>
+
+                    <!-- INTERRUPTOR GENERAL DE IMPRESIÓN.
+                         Va PRIMERO y por encima de elegir impresora, porque es
+                         una pregunta anterior: "¿este local imprime?". Hay
+                         clientes que trabajan solo con el celular y no tienen
+                         impresora ni la van a tener; para ellos cada pedido
+                         terminaba en un aviso de que no se pudo imprimir, que
+                         es ruido sobre algo que no está roto.
+                         Es un ajuste DEL APARATO, como la impresora misma: en
+                         modo "En equipo" el celular del mozo puede imprimir y
+                         el de caja no, o al revés. -->
+                    <div class="notif-settings-card">
+                        <div class="notif-settings-icon">
+                            <svg viewBox="0 0 24 24"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                        </div>
+                        <div class="notif-settings-text">
+                            <div class="notif-settings-title">Imprimir tickets</div>
+                            <div class="notif-settings-hint" id="impresion-switch-hint">
+                                Apagado, este equipo no imprime nada y no avisa nada.
+                            </div>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" id="switch-imprimir" onchange="onToggleImprimir(event)">
+                            <span class="switch-track"></span>
+                            <span class="switch-thumb"></span>
+                        </label>
+                    </div>
                     <!-- Impresora térmica. Solo se muestra en la app instalada:
                          en el navegador la impresión va por el diálogo del
                          sistema y no hay nada que elegir acá. -->

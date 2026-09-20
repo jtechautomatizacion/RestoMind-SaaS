@@ -342,7 +342,24 @@ function _esperar(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Todo lo que se imprime pasa por acá: comanda, pre-cuenta, pre-venta y
+ * boleta. Por eso el interruptor general vive en esta función y no en cada
+ * llamador — un `if` repetido en cuatro lugares es un `if` que algún día
+ * falta en el quinto.
+ *
+ * APAGADO NO IMPRIME Y NO AVISA. Las dos cosas, y la segunda es el motivo de
+ * que el interruptor exista: hay locales que trabajan solo con el celular y
+ * no tienen impresora ni la van a tener. Para ellos, el aviso de "no se pudo
+ * imprimir" en cada pedido es ruido sobre algo que no está roto, y peor que
+ * eso — enseña a ignorar los avisos, justo los que algún día sí importan.
+ *
+ * Tampoco cae al diálogo del navegador: dentro del APK eso abre la pantalla
+ * de impresión de Android, que es más molesto todavía que el aviso.
+ */
 async function _imprimirHTML(html) {
+    if (window.ImpresoraTermica && !window.ImpresoraTermica.impresionActiva()) return;
+
     if (window.ImpresoraTermica && window.ImpresoraTermica.disponible()) {
         const salio = await window.ImpresoraTermica.imprimirHTML(html);
         if (salio) return;

@@ -1789,30 +1789,95 @@ body {
     flex-shrink: 0;
 }
 
+/* Los botones de la barra superior, con relieve.
+ *
+ * Eran círculos planos de color sólido: se leían como manchas y no como algo
+ * que se pueda tocar. Ahora usan el mismo lenguaje 3D que las mesas y el botón
+ * primario (ver "REDISEÑO VISUAL" en CLAUDE.md) — gradiente para dar curvatura,
+ * sombra abajo para despegarlos del fondo, y un filo claro arriba que simula
+ * el borde iluminado de una tecla.
+ *
+ * Sin `filter`, sin `blur` y sin `backdrop-filter`: solo gradientes, sombras y
+ * transform, que son las tres primitivas que la GPU compone sin recalcular
+ * píxeles. Un botón con relieve cuesta lo mismo de pintar que uno plano, y esa
+ * es la restricción de rendimiento que este CSS respeta desde el inicio.
+ */
 .icon-btn {
-    width: 34px;
-    height: 34px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     border: none;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    background: var(--bg);
     color: var(--text-muted);
+
+    /* NADA DE color-mix(): es Chrome 111+, y esta app corre en WebViews
+       viejos de gama baja. Si el navegador no entiende una función de color,
+       descarta la declaración ENTERA — el botón se quedaría sin fondo, o sea
+       invisible sobre el header. Con un brillo en rgba() encima de un color
+       sólido se consigue el mismo relieve y funciona en todo.
+       El orden importa: la primera capa va ARRIBA. */
+    background:
+        linear-gradient(160deg,
+            rgba(255, 255, 255, 0.16) 0%,
+            rgba(255, 255, 255, 0) 52%,
+            rgba(0, 0, 0, 0.10) 100%),
+        var(--bg);
+    box-shadow:
+        /* filo iluminado arriba: el "canto" de la tecla */
+        inset 0 1px 0 rgba(255, 255, 255, 0.35),
+        /* sombra interna abajo: hunde el centro y redondea la superficie */
+        inset 0 -1px 2px rgba(0, 0, 0, 0.12),
+        /* sombra proyectada: lo levanta del header */
+        0 1px 2px rgba(0, 0, 0, 0.22);
+
+    /* Solo transform y box-shadow: las dos que el compositor anima sin
+       reflow. Nada de `all`, que arrastraría también color y tamaño. */
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.icon-btn:hover {
+    color: var(--text);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.45),
+        inset 0 -1px 2px rgba(0, 0, 0, 0.12),
+        0 2px 5px rgba(0, 0, 0, 0.26);
+}
+
+/* Al presionar se HUNDE, no solo se achica: el filo de arriba se apaga y la
+   sombra proyectada desaparece, que es lo que hace una tecla real. Es la
+   misma respuesta táctil que ya tienen las mesas. */
+.icon-btn:active {
+    transform: translateY(1px) scale(0.94);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.22);
 }
 
 .icon-btn svg {
-    width: 16px;
-    height: 16px;
+    width: 17px;
+    height: 17px;
     stroke: currentColor;
     fill: none;
     stroke-width: 2;
 }
 
 .icon-btn.danger {
-    background: var(--danger-bg);
     color: var(--danger);
+    background:
+        linear-gradient(160deg,
+            rgba(255, 255, 255, 0.18) 0%,
+            rgba(255, 255, 255, 0) 52%,
+            rgba(0, 0, 0, 0.10) 100%),
+        var(--danger-bg);
+}
+
+/* La tarjeta de elegir impresora, atenuada cuando la impresión está apagada.
+   Atenuada y NO oculta: escondida, el usuario no entiende adónde se fue la
+   configuración que acaba de dejar hecha. Sigue siendo usable a propósito —
+   se puede dejar la impresora lista y recién después prender el interruptor. */
+.notif-settings-card.apagado {
+    opacity: 0.55;
 }
 
 .day-group-title {
@@ -3831,6 +3896,12 @@ body {
    números, una palabra pasa desapercibida. */
 .mesa-btn-llevar {
     border-color: var(--accent, #FF5A3C);
+    /* Respaldo para WebViews sin color-mix (es Chrome 111+, y esta app corre
+       en gama baja). Sin esta primera linea, un navegador que no lo entienda
+       descarta el `background` ENTERO y la baldosa queda sin fondo. Un
+       degradado que no se ve es cosmetico; una baldosa que no se distingue
+       de las demas, no. */
+    background: rgba(255, 90, 60, 0.12);
     background: linear-gradient(160deg,
         color-mix(in srgb, var(--accent, #FF5A3C) 14%, transparent),
         transparent 70%);
@@ -3854,6 +3925,12 @@ body {
    de la grilla clásica, para que se reconozca al pasar de una vista a otra. */
 .vu-mesa-llevar {
     border-color: var(--accent, #FF5A3C);
+    /* Respaldo para WebViews sin color-mix (es Chrome 111+, y esta app corre
+       en gama baja). Sin esta primera linea, un navegador que no lo entienda
+       descarta el `background` ENTERO y la baldosa queda sin fondo. Un
+       degradado que no se ve es cosmetico; una baldosa que no se distingue
+       de las demas, no. */
+    background: rgba(255, 90, 60, 0.12);
     background: linear-gradient(160deg,
         color-mix(in srgb, var(--accent, #FF5A3C) 14%, transparent),
         transparent 70%);
