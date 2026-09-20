@@ -1,6 +1,17 @@
 # 🧪 Mapa de la suite de tests
 
-**340 tests · `python -m pytest -q` · ~2,5 min**
+**378 tests · `npm test` · ~2,5 min**
+
+Son DOS suites y el comando corre las dos:
+
+| suite | qué cubre | comando solo |
+|---|---|---|
+| **362** backend (pytest) | API, permisos, dinero, SUNAT, caja | `npm run test:backend` |
+| **16** frontend (`node --test`) | lo que sale por la impresora térmica | `npm run test:frontend` |
+
+> `npm test` existe para que no haya forma de correr una y olvidarse de
+> la otra. La suite de frontend nació después de que un bug de impresión
+> costara una sesión entera sin que ningún test lo dijera.
 
 Este archivo existe para responder una sola pregunta, la que importa antes
 de salir a producción: **si alguien rompe X, ¿algún test lo dice?**
@@ -20,6 +31,8 @@ tests/
 │   ├── test_models.py           invariantes del esquema
 │   ├── test_sunat_cloud.py      la matemática del IGV y el armado del comprobante
 │   └── test_nombre_archivo_sunat.py
+├── frontend/                    lógica del navegador, sin navegador
+│   └── impresion.test.mjs       qué bytes recibe la impresora térmica
 └── integration/                 el endpoint real, con la cadena de permisos
     ├── test_endpoints.py        CRUD, permisos por rol, aislamiento multi-tenant
     ├── test_facturas.py         qué comprobante corresponde, correlativos, el switch
@@ -63,6 +76,10 @@ Esta es la parte que hay que mirar antes de cada despliegue.
 | Dos turnos de caja abiertos | Las mismas ventas se cuentan dos veces; la caja no cuadra nunca | `test_caja_seguridad.py::test_la_bd_impide_dos_turnos_abiertos_aunque_se_salte_la_validacion` |
 | Un mozo fuerza el cierre de caja | Se pierde el conteo real del admin | `test_caja_seguridad.py::test_un_mozo_no_puede_forzar_el_cierre_de_la_caja_del_admin` |
 | Cobrar comida que no se entregó | | `test_endpoints.py` (cobro con comanda en cocina → 400) |
+| El importe sale debajo de su etiqueta, no al lado | La boleta queda ilegible: el cliente no puede verificar lo que paga | `impresion.test.mjs::cada total va en UNA linea, con su importe a la derecha` |
+| Vuelve el `FEED` tras el `PRINT` | La impresora se traba con `err: no seam!` en el 2º ticket de la tanda y el local deja de imprimir | `impresion.test.mjs::no se manda ningun FEED despues del PRINT` |
+| Cocina deja de recibir su papel | El pedido no se prepara | `impresion.test.mjs::en equipo SIEMPRE sale el ticket de cocina` |
+| La hoja se rompe sobre el texto | El total queda cortado justo donde se arranca el papel | `impresion.test.mjs::la cola para romper el papel va sumada al alto de la etiqueta` |
 
 ## Lo que protege datos
 

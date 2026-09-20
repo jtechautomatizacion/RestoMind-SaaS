@@ -4,6 +4,9 @@
   "private": true,
   "description": "RestoMind POS - envoltorio Capacitor de la PWA",
   "scripts": {
+    "test": "npm run test:frontend && npm run test:backend",
+    "test:frontend": "node --test \"tests/frontend/*.test.mjs\"",
+    "test:backend": "node tools/tests-backend.mjs",
     "sync": "node tools/preparar-apk.mjs && cap sync android",
     "abrir": "cap open android",
     "probar-termica": "node tools/probar-termica.mjs",

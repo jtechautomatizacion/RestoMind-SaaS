@@ -1,7 +1,7 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
 **Versión MVP:** 4.0 — Facturación SUNAT 100% en la nube
-**Implementado y probado:** ✅ 100% Autenticación + Seguridad + **Facturación SUNAT en la nube** (firma y envío desde el servidor) + Consulta de RUC contra el Padrón Reducido local + Dashboard Financiero + Validador de Caja + Notificaciones Push + Inventario + Vista Unificada (304/304 tests)
+**Implementado y probado:** ✅ 100% Autenticación + Seguridad + **Facturación SUNAT en la nube** (firma y envío desde el servidor) + Consulta de RUC contra el Padrón Reducido local + Dashboard Financiero + Validador de Caja + Notificaciones Push + Inventario + Vista Unificada (378/378 tests)
 **Última actualización:** 2026-09-18
 **[NUEVA] La impresora confirma antes de imprimir:** un `write()` sobre el socket Bluetooth tiene éxito aunque la impresora esté trabada y descarte los bytes — así que la app decía "imprimió" sin que saliera papel. Ahora se le pregunta el estado ANTES de mandar el trabajo y se corta con el motivo puesto (sin papel, cabezal abierto, trabada). Botón `Estado` en Admin > Impresora para verificar sin gastar papel. Ver sección "QUÉ SE IMPRIME, SEGÚN EL MODO" más abajo.
 **[NUEVA] Interruptor de facturación (`Cliente.usar_sunat`):** emitir boleta SUNAT ya no se deduce de "¿tiene RUC?" — es una decisión operativa aparte, con su propio switch en Admin > Boletas. Sin activarlo, el cobro ya no muestra el toast rojo de "boleta no emitida" ni pide DNI/RUC al cliente. Ver sección "Interruptor de Facturación" más abajo.
@@ -2332,8 +2332,8 @@ variables de `sunat_cloud` (arrastraba configuración del emisor viejo
 generado localmente (`secrets.token_urlsafe(32)`) — el mismo valor que
 `docker-compose.yml` exige para el contenedor, porque ambos leen el mismo
 `.env` de la raíz. `SUNAT_MODE`/`SUNAT_SOAP_TIMEOUT` se dejaron FUERA de
-ese archivo por la razón (c) de arriba. Con eso, `python -m pytest -q`
-corre 304/304 en verde sin ningún cambio en `backend/config.py`.
+ese archivo por la razón (c) de arriba. Con eso, `npm test` corre en verde
+sin ningún cambio en `backend/config.py`.
 
 ### Qué NO hacer (ya se evaluó y se descartó)
 
@@ -2374,7 +2374,7 @@ corre 304/304 en verde sin ningún cambio en `backend/config.py`.
 **Versión:** 4.1 (rol `asistente` + switch de facturación blindado)  
 **Estado:** ✅ **COMPLETAMENTE FUNCIONAL Y AUDITADO** — Autenticación, Facturación, Caja, Notificaciones Push, Inventario probados y operativos  
 **Última Actualización:** 2026-09-13  
-**Tests:** 340/340 pasando (`python -m pytest -q`) — el mapa de qué cubre cada archivo, y qué NO cubre la suite, está en [`docs/TESTS.md`](docs/TESTS.md)  
+**Tests:** 378/378 pasando (`npm test` — corre las DOS suites: 362 de backend con pytest y 16 de frontend con `node --test`, estos últimos sobre lo que sale por la impresora térmica). El mapa de qué cubre cada archivo, y qué NO cubre la suite, está en [`docs/TESTS.md`](docs/TESTS.md)  
 **Cobertura:** Autenticación JWT dual + Rate limiting + Auditoría + Facturación SUNAT en la nube (boleta/factura según régimen, correlativos separados por serie) + Padrón Reducido local + Dashboard Financiero + Validador de Caja + Notificaciones Push + Inventario + Vista Unificada
 
 ### ✅ Stack Completo Implementado
