@@ -265,8 +265,32 @@ function vuMesasPorCobrar() {
 
 // ============ RENDER ============
 
+/**
+ * CON UN MODAL ABIERTO NO SE REPINTA.
+ *
+ * Los modales de esta app son overlays SEMITRANSPARENTES: las tres columnas
+ * se siguen viendo detrás. Y acá entran dos relojes distintos — el intervalo
+ * propio de esta vista (5s) y el hook que dispara cocina.js cada vez que
+ * refresca su monitor (4s) — así que mientras alguien arma un pedido, el
+ * fondo se reescribía cada pocos segundos.
+ *
+ * Eso se ve como que la pantalla "tiembla", y no es solo estético: dos de las
+ * columnas se reescriben con innerHTML, así que la altura de la página cambia
+ * y el fondo se reacomoda justo en el momento de más precisión — el dedo
+ * eligiendo platos de una grilla. Un salto ahí es un plato equivocado.
+ *
+ * El guardia va ACÁ y no en los llamadores porque este es el único lugar
+ * donde se pinta: cubre los dos relojes y cualquiera que se agregue después.
+ * Los datos SÍ se siguen refrescando (vuRefrescarDatos y vuSincronizar corren
+ * igual), así que nada queda viejo: solo se posterga el dibujo, y la vuelta
+ * siguiente de cualquiera de los dos relojes lo pinta al cerrar el modal.
+ *
+ * Mismo criterio que los atajos de teclado, que también se apagan con un
+ * modal abierto (ver vuTecla): con un modal en pantalla, la tarea es el modal.
+ */
 function renderUnificado() {
     if (!vuActiva) return;
+    if (document.querySelector('.modal:not(.hidden)')) return;
     const enCocina = vuMesasEnCocina();
     const porCobrar = vuMesasPorCobrar();
 

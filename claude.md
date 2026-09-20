@@ -1649,12 +1649,42 @@ ESC/POS no se manda, porque ahí `0x0D`/`0x0A` mueven el papel. La regla
 general: una sonda que comparte el canal con los datos tiene que devolver
 el parser al estado en que lo encontró.
 
-### `err: no seam!` — LA CAUSA ERA EL MODO DE LA IMPRESORA, NO EL CÓDIGO
+### EL MODO DE LA IMPRESORA DECIDE EL LENGUAJE — no la marca
 
-**Empezar por acá si la impresora se traba: `Label Mode` → `Receipt Mode`,
-en el menú de la propia impresora.** Eso resolvió el problema por completo
-(8 de 8 tickets seguidos, sin un solo error). Todo lo demás de esta sección
-son mitigaciones que valen la pena pero que NO alcanzaban solas.
+Esta es la tabla que hay que mirar primero ante cualquier problema de
+impresión. El modo se cambia en el menú de la propia impresora.
+
+| Modo del aparato | TSPL | ESC/POS | Qué elegir en Admin → Impresora |
+|---|---|---|---|
+| **Label Mode** | se ejecuta, pero **se traba** con `err: no seam!` en papel continuo | no imprime nada | — (no sirve para tickets) |
+| **Receipt Mode** | **sale IMPRESO COMO TEXTO** (`SIZE 72 mm,103 mm`, `BOX 24,254,...`) | se ejecuta bien | **De tickets (ESC/POS)** |
+
+**La configuración correcta para un restaurante es: impresora en Receipt
+Mode + app en ESC/POS.**
+
+Los dos síntomas que costaron horas eran las dos mitades de lo mismo — el
+modo y el lenguaje cruzados:
+
+- en Label Mode se mandaba TSPL: se ejecutaba, pero buscaba la separación
+  entre etiquetas en un rollo continuo y se trababa
+- al pasar a Receipt Mode se siguió mandando TSPL: dejó de trabarse (ya no
+  hay etiquetas que posicionar) pero empezó a escupir el código en crudo
+
+**Si el papel sale con comandos impresos, el arreglo es el desplegable "Tipo
+de impresora", no el código.** La app SUGIERE TSPL cuando el nombre parece
+de una etiquetadora (`MARCAS_ETIQUETA` incluye `hilabel`), lo cual es
+correcto solo en Label Mode; es una sugerencia y se corrige a mano.
+
+### `err: no seam!` en Label Mode
+
+Lo de abajo aplica a una impresora en **Label Mode**, y quedó como
+referencia de lo que ya se descartó. Con Receipt Mode + ESC/POS el problema
+no existe.
+
+**Si igual hay que usar Label Mode: `Label Mode` → `Receipt Mode` resolvió
+el trabado por completo** (8 de 8 tickets seguidos, sin un solo error). Todo
+lo demás de esta sección son mitigaciones que valen la pena pero que NO
+alcanzaban solas.
 
 El síntoma era `err: no seam!` con el ticket truncado abajo, de forma
 INTERMITENTE: a veces aguantaba 2 tickets, a veces 3, a veces 4. Esa
@@ -1757,6 +1787,31 @@ copia, nombrando los archivos.
 Mismo principio que `codigo_desactualizado` en `/health` y que la copia
 generada de `ImpresoraTermica.java`: donde hay una copia que se puede quedar
 atrás, lo que falla en silencio hay que volverlo ruidoso.
+
+### Los totales en ESC/POS van en UNA línea, etiqueta y importe
+
+Las plantillas de pre-cuenta y boleta arman los totales con
+`display:flex; justify-content: space-between` — etiqueta a la izquierda,
+importe a la derecha, misma línea. El extractor de `impresora-termica.js` no
+tenía regla para la clase `totales`, así que el bloque caía al caso genérico
+de "tiene hijos, bajá a los hijos" y cada `<span>` terminaba en su propio
+renglón:
+
+```
+Sub-Total:
+S/ 10.17
+IGV (18%):
+S/ 1.83
+```
+
+En TSPL no se veía, porque ahí los importes van posicionados por coordenadas
+dentro de un recuadro. **Apareció recién al pasar a ESC/POS, que escribe
+corrido** — y se reportó como "los formatos cambiaron solos", cuando las
+plantillas nunca se habían tocado.
+
+La fila del total lleva `negrita` pero **no** `destacado`: ese activa el
+doble ancho, que parte el ancho útil a la mitad y desalinea justo la columna
+que se quiere leer de un golpe.
 
 ### Cuánto se espera entre un papel y el siguiente
 
@@ -1877,6 +1932,27 @@ cobrar, y — solo para quien tiene rol `admin` — el vendido del turno
 (`GET /caja/estado`, mismo dato que el validador de caja) y si la caja está
 abierta o cerrada. Una cuenta `mozo,jefe_cocina` no ve ese monto: pedirlo
 igual sería un 403 en cada vuelta del intervalo de 5s.
+
+### Con un modal abierto, la vista unificada NO se repinta
+
+Los modales son overlays semitransparentes, así que las tres columnas se
+siguen viendo detrás. Y hay **dos relojes** pintándolas: el intervalo propio
+de la vista (5s) y el hook `onCocinaActualizada()` que dispara `cocina.js`
+cada vez que refresca su monitor (4s). Mientras alguien armaba un pedido, el
+fondo se reescribía cada pocos segundos y la pantalla "temblaba".
+
+No es solo estético: dos de las columnas se pintan con `innerHTML`, así que
+la altura de la página cambia y el fondo se reacomoda justo en el momento de
+más precisión — el dedo eligiendo platos de una grilla. Un salto ahí es un
+plato equivocado.
+
+El guardia está en `renderUnificado()` y no en los llamadores, porque ese es
+el **único** lugar donde se pinta: cubre los dos relojes y cualquiera que se
+agregue después. Los datos SÍ se siguen refrescando (`vuRefrescarDatos` y
+`vuSincronizar` corren igual), así que nada queda viejo: solo se posterga el
+dibujo, y la vuelta siguiente de cualquiera de los dos relojes lo pinta al
+cerrar el modal. Mismo criterio que los atajos de teclado, que también se
+apagan con un modal abierto.
 
 ### Atajos de teclado — solo navegan, nunca cobran
 

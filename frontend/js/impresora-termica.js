@@ -308,6 +308,50 @@
                     continue;
                 }
 
+                // Bloque de totales (Sub-Total / IGV / Total Venta).
+                //
+                // En pantalla cada fila es un flex con space-between: la
+                // etiqueta a la izquierda y el importe a la DERECHA, en la
+                // MISMA linea. Sin esta regla el bloque caia al caso genarico
+                // de "tiene hijos, baja a los hijos" y cada <span> terminaba
+                // en su propio renglon, asi:
+                //
+                //     Sub-Total:
+                //     S/ 10.17
+                //
+                // que es exactamente como salio impreso. En TSPL no se notaba
+                // porque ahi los importes van posicionados por coordenadas;
+                // aparecio recien al pasar esta impresora a ESC/POS, que
+                // escribe corrido.
+                if (tiene('totales')) {
+                    // Regla que despega el detalle de los importes. Va
+                    // `soloTexto` porque en TSPL el recuadro del total ya
+                    // cumple esa funcion y la regla quedaria pegada al borde
+                    // de la caja — mismo criterio que la barra gruesa de
+                    // `ticket-total` mas abajo.
+                    agregar('-'.repeat(ancho), { soloTexto: true });
+                    for (const fila of Array.from(hijo.children)) {
+                        const clasesFila = ' ' + (fila.className || '') + ' ';
+                        // La fila del total lleva negrita, pero NO `destacado`:
+                        // ese activa el doble ancho, que parte el ancho util a
+                        // la mitad y desalinea justo la columna que se quiere
+                        // leer de un golpe.
+                        const esTotal = clasesFila.indexOf(' total ') >= 0;
+                        const partes = Array.from(fila.children).map(textoDe).filter(Boolean);
+                        if (partes.length >= 2) {
+                            agregar(null, {
+                                izq: partes[0],
+                                der: partes[partes.length - 1],
+                                negrita: esTotal,
+                            });
+                        } else {
+                            const t = textoDe(fila);
+                            if (t) agregar(t, { negrita: esTotal });
+                        }
+                    }
+                    continue;
+                }
+
                 // TOTAL: el numero que dos personas van a comparar en el
                 // mostrador. Va separado y destacado.
                 if (tiene('total-caja') || tiene('ticket-total') || tiene('total-grande')) {
@@ -1099,9 +1143,28 @@
      * propio: la impresora quedó guardada como ESC/POS y no imprimía nada, sin
      * ninguna pista de por qué.
      *
+     * OJO — EL NOMBRE NO ALCANZA PARA DECIDIR, Y ACÁ ESTÁ EL POR QUÉ
+     * -------------------------------------------------------------
+     * Varias de estas tienen un MODO en su propio menú, y el modo —no la
+     * marca— es lo que define el lenguaje:
+     *
+     *   Label Mode   -> ejecuta TSPL; en ESC/POS no imprime nada
+     *   Receipt Mode -> ejecuta ESC/POS; el TSPL lo saca IMPRESO COMO TEXTO
+     *                   ("SIZE 72 mm,103 mm", "BOX 24,254,...", renglón por
+     *                   renglón), que es su síntoma característico
+     *
+     * Una HiLabel en Receipt Mode necesita ESC/POS, justo lo contrario de lo
+     * que sugiere su nombre. Esto se descubrió peleando un "err: no seam!"
+     * (ver CLAUDE.md): en Label Mode el TSPL funcionaba pero la impresora se
+     * trababa buscando la separación entre etiquetas en un rollo continuo, y
+     * al pasarla a Receipt Mode dejó de trabarse pero empezó a imprimir el
+     * código en crudo. Estuvimos horas con el modo y el lenguaje cruzados.
+     *
      * Es una SUGERENCIA, no una imposición: solo actúa cuando el usuario
-     * todavía no eligió nada, y el desplegable queda disponible para corregirla.
-     * Acertar el 90% de las veces sin quitarle la decisión a nadie.
+     * todavía no eligió nada, y el desplegable queda disponible para
+     * corregirla. Acertar la mayoría de las veces sin quitarle la decisión a
+     * nadie — y si el papel sale con comandos impresos, el arreglo es cambiar
+     * ese desplegable, no tocar código.
      */
     function sugerirLenguaje(selDestino, yaHayConfiguracion) {
         // Si ya guardó una configuración, su elección manda: no se le cambia
