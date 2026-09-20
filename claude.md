@@ -1649,14 +1649,49 @@ ESC/POS no se manda, porque ahí `0x0D`/`0x0A` mueven el papel. La regla
 general: una sonda que comparte el canal con los datos tiene que devolver
 el parser al estado en que lo encontró.
 
+### `err: no seam!` — LA CAUSA ERA EL MODO DE LA IMPRESORA, NO EL CÓDIGO
+
+**Empezar por acá si la impresora se traba: `Label Mode` → `Receipt Mode`,
+en el menú de la propia impresora.** Eso resolvió el problema por completo
+(8 de 8 tickets seguidos, sin un solo error). Todo lo demás de esta sección
+son mitigaciones que valen la pena pero que NO alcanzaban solas.
+
+El síntoma era `err: no seam!` con el ticket truncado abajo, de forma
+INTERMITENTE: a veces aguantaba 2 tickets, a veces 3, a veces 4. Esa
+variabilidad fue la pista que se tardó en leer — la app mandaba exactamente
+los mismos bytes (el log lo confirma al 100%, uno por ticket, sin
+duplicados) y el resultado cambiaba. **Entrada idéntica y salida distinta
+significa que lo no determinista está en el hardware, no en el código.**
+
+El mecanismo: la impresora estaba configurada como impresora de ETIQUETAS,
+así que buscaba la separación entre etiquetas antes de posicionar. Con un
+rollo CONTINUO esa separación no existe: alimentaba papel hasta rendirse y
+se trababa. `GAP 0,0` se lo dice por trabajo, pero su configuración
+persistente pesaba más. En `Receipt Mode` deja de buscar nada.
+
+**Qué se descartó por el camino, para no volver a probarlo:**
+
+| hipótesis | cómo se descartó |
+|---|---|
+| El tamaño del documento | imprimió 123 mm y 1528 bytes de una sin problema |
+| El comando `BOX` | payloads con y sin `BOX` fallaban igual |
+| La app mandaba dos veces | el log nativo da UNA línea por trabajo; un espía sobre el plugin confirmó 1 llamada por papel |
+| Reintento en el plugin nativo | no existe: una llamada, un envío |
+| Reset por software `<ESC>!R` | se mandó antes de cada trabajo; se trabó igual en el 4º |
+| Pasar todo a ESC/POS | la HiLabel **no imprime** en ESC/POS: 9 trabajos (incluido texto plano sin un solo comando) y cero papel, mientras un TSPL salía al primer intento. Responde la consulta de estado de ESC/POS pero no imprime — tiene el intérprete a medias |
+
+**`estado()` no sirve para detectar esta falla.** Trabada en `no seam`, la
+impresora contesta la sonda con código `0x0` = "lista" y acepta el trabajo
+entero (`enviados 565/565 bytes`) descartándolo en silencio. Eso hizo perder
+tiempo dos veces: se corrieron tandas enteras sobre una impresora ya trabada
+y se sacaron conclusiones de un experimento inválido. **Antes de cualquier
+prueba de impresión hay que confirmar con un ticket de control que el
+aparato está sano — no alcanza con preguntarle.**
+
 ### La cola para romper el papel va DENTRO del `SIZE`, nunca en un `FEED`
 
-El síntoma era `err: no seam!` en la impresora, con el ticket truncado
-abajo. Se atribuyó mucho tiempo al tamaño del documento y al comando `BOX`;
-no era ninguno de los dos. **Un ticket suelto siempre salía perfecto,
-incluso de 123 mm y 1528 bytes. Se rompía el SEGUNDO de cualquier tanda**,
-así que el modo "en equipo" —que manda comanda + pre-cuenta— era el que lo
-mostraba siempre, y eso hizo parecer que el problema estaba en el formato.
+Mitigación que se mantiene (reduce el reposicionamiento entre trabajos),
+aunque por sí sola no resolvía la falla de arriba.
 
 Medido en el celular con la impresora recién reiniciada, mismo contenido,
 única diferencia el esquema de la cola:
@@ -1665,6 +1700,12 @@ Medido en el celular con la impresora recién reiniciada, mismo contenido,
 |---|---|
 | `SIZE` = contenido, + `FEED 112` después del `PRINT` | el 1 sale bien; el 2 se traba con `no seam` y sale truncado |
 | `SIZE` = contenido + cola, **sin** `FEED` | 3 seguidos completos, cero errores |
+
+> **Ojo con esa segunda fila:** parecía la solución y no lo era. Con más
+> tickets volvía a trabarse (en el 3º, en el 4º). Sirve como mitigación —
+> menos reposicionamiento entre trabajos es mejor— pero la falla recién
+> desapareció con `Receipt Mode`. Es un buen recordatorio de que 3 casos no
+> son evidencia suficiente para un fallo INTERMITENTE.
 
 El motivo: `FEED` mueve el papel **después** de que la etiqueta terminó, así
 que la impresora queda parada a 14 mm del borde — a mitad de etiqueta. El
@@ -1685,6 +1726,37 @@ impresora contesta la sonda con código `0x0` = "lista" y acepta el trabajo
 entero (`enviados 565/565 bytes`) descartándolo en silencio. Por eso el
 diagnóstico necesitó a alguien mirando el papel: ni el log de bytes ni el
 sondeo de estado delatan este error.
+
+### EL APK SE COMPILA CON `npm run apk`, NUNCA con `compilar.mjs` solo
+
+`tools/compilar.mjs` es el ÚLTIMO de cuatro pasos. La cadena completa es:
+
+```
+preparar-apk.mjs  ->  cap sync android  ->  integrar-android.mjs  ->  compilar.mjs
+       (npm run apk    |    npm run apk:testing)
+```
+
+Gradle empaqueta `android/app/src/main/assets/public/`, que es una COPIA que
+deja `cap sync`. Llamar a `compilar.mjs` directo compila **contra la copia
+anterior** y dice `BUILD SUCCESSFUL` igual.
+
+Esto costó una sesión entera: se arregló un bug de impresión, se compiló
+así, se instaló, y el teléfono siguió fallando exactamente igual porque
+adentro tenía el código de antes. Desde afuera es indistinguible de "el
+arreglo no sirvió" — y lleva a seguir cambiando código que ya estaba bien.
+También explicó un reporte de "los formatos cambiaron solos": no habían
+cambiado, el APK traía una versión anterior de `print.js` y `style.css`.
+Cuando se detectó, había **5 archivos** desincronizados.
+
+Ahora `compilar.mjs` compara **archivo contra archivo** (no contra una fecha
+de corte: `preparar-apk.mjs` copia preservando la fecha de modificación, así
+que una copia al día EMPATA con su fuente y cualquier corte único da falsos
+positivos) y **se niega a compilar** si alguna fuente es más nueva que su
+copia, nombrando los archivos.
+
+Mismo principio que `codigo_desactualizado` en `/health` y que la copia
+generada de `ImpresoraTermica.java`: donde hay una copia que se puede quedar
+atrás, lo que falla en silencio hay que volverlo ruidoso.
 
 ### Cuánto se espera entre un papel y el siguiente
 

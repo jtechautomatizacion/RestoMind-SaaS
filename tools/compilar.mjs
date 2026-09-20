@@ -34,6 +34,67 @@ if (!cfg) {
     process.exit(1);
 }
 
+/**
+ * NO COMPILAR CON EL FRONTEND VIEJO ADENTRO.
+ *
+ * Gradle empaqueta `android/app/src/main/assets/public/`, que es una COPIA que
+ * deja `cap sync`. Este script es el ÚLTIMO de cuatro pasos (ver `npm run
+ * apk`); llamado solo, compila contra la copia anterior y dice BUILD
+ * SUCCESSFUL igual.
+ *
+ * Eso ya costó una sesión entera de depuración: se arregló un bug de
+ * impresión, se compiló así, se instaló, y el teléfono siguió fallando
+ * exactamente igual porque adentro tenía el código de antes. Desde afuera es
+ * indistinguible de "el arreglo no sirvió", y lleva a seguir cambiando código
+ * que ya estaba bien.
+ *
+ * Mismo principio que `codigo_desactualizado` en /health y que la copia
+ * generada de ImpresoraTermica.java: cuando hay una copia que se puede
+ * quedar atrás, lo que falla en silencio hay que volverlo ruidoso.
+ */
+// Se compara CADA archivo contra su copia, y no todo contra una fecha de
+// corte: `preparar-apk.mjs` copia preservando la fecha de modificación, así
+// que un archivo recién sincronizado tiene la MISMA fecha que su fuente y
+// cualquier corte único da falsos positivos. Archivo contra archivo, una
+// copia al día empata y una copia vieja pierde.
+function desincronizados(origen, copia, aca = []) {
+    if (!fs.existsSync(origen)) return aca;
+    for (const e of fs.readdirSync(origen, { withFileTypes: true })) {
+        const o = path.join(origen, e.name);
+        const c = path.join(copia, e.name);
+        if (e.isDirectory()) {
+            desincronizados(o, c, aca);
+        } else if (fs.existsSync(c)) {
+            // Solo lo que SÍ viaja en el APK. Lo que `preparar-apk.mjs`
+            // excluye a propósito (fotos de los platos, el service worker)
+            // no existe en la copia y no es motivo para frenar nada.
+            if (fs.statSync(o).mtimeMs > fs.statSync(c).mtimeMs + 1000) {
+                aca.push(path.relative(raiz, o));
+            }
+        }
+    }
+    return aca;
+}
+
+const empaquetado = path.join(raiz, 'android', 'app', 'src', 'main', 'assets', 'public');
+if (!fs.existsSync(empaquetado)) {
+    console.error('\nNo hay nada sincronizado todavía en android/app/src/main/assets/public/.');
+    console.error(`Compilá con la cadena completa:  npm run ${entorno === 'produccion' ? 'apk' : 'apk:testing'}`);
+    process.exit(1);
+}
+
+const pendientes = desincronizados(path.join(raiz, 'frontend'), empaquetado);
+if (pendientes.length) {
+    console.error('\n  [!] EL FRONTEND ESTÁ SIN SINCRONIZAR — no se compila.\n');
+    console.error(`      ${pendientes.length} archivo(s) cambiaron después de la última copia:`);
+    for (const f of pendientes.slice(0, 10)) console.error(`        ${f}`);
+    if (pendientes.length > 10) console.error(`        ... y ${pendientes.length - 10} más`);
+    console.error('\n      Si se compilara así, el APK saldría con el código ANTERIOR y');
+    console.error('      Gradle diría BUILD SUCCESSFUL igual.\n');
+    console.error(`      Compilá con la cadena completa:  npm run ${entorno === 'produccion' ? 'apk' : 'apk:testing'}\n`);
+    process.exit(1);
+}
+
 // Gradle no arranca sin JAVA_HOME, y el mensaje que da ("JAVA_HOME is not
 // set") no menciona que Android Studio ya trae un Java adentro. Se busca ahí
 // antes de rendirse.

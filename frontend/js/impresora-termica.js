@@ -549,7 +549,12 @@
         // Por eso un ticket suelto siempre salio perfecto —incluso de 123 mm—
         // y se rompia el segundo de cualquier tanda: el modo "en equipo", que
         // manda comanda + pre-cuenta, era el que lo mostraba siempre.
-        colaCorteMm: 14,
+        //
+        // 16 y no 14: la barra de corte esta ~12 mm mas alla del cabezal, asi
+        // que con 14 quedaban 2 mm de papel asomando — no alcanza para
+        // agarrarlo. Se nota sobre todo en la comanda de cocina, que es el
+        // ticket mas corto: la tira entera queda del tamano de un dedo.
+        colaCorteMm: 16,
 
         // Los recuadros: el del TOTAL y el de "ENTREGUE ESTA HOJA EN CAJA".
         // El `padding` es lo que evita que el texto toque el borde, que es
@@ -771,6 +776,23 @@
         const comandos = [
             'SIZE ' + anchoMm + ' mm,' + altoMm + ' mm',
             'GAP 0,0',
+            // El modo "tear" viene ENCENDIDO de fabrica, y es para etiquetas:
+            // al terminar de imprimir adelanta el papel hasta la barra de
+            // corte, y antes de la etiqueta siguiente RETROCEDE para alinear
+            // el cabezal. Ese retroceso la obliga a verificar donde esta, y
+            // verificar —en papel continuo— es buscar una separacion que no
+            // existe: alimenta hasta rendirse y queda trabada con
+            // "err: no seam!".
+            //
+            // Encaja con el sintoma que no explicaba nada mas: no falla por
+            // el contenido (un ticket suelto siempre sale perfecto, incluso
+            // de 123 mm) sino por ACUMULACION de reposicionamientos, y por
+            // eso el numero de tickets que aguanta varia entre 2 y 4.
+            //
+            // Apagarlo es seguro: un firmware que no conozca este SET ignora
+            // la linea, y va CRLF-terminada como todas, asi que no puede
+            // desincronizar el parser (ver la leccion de la sonda TSPL).
+            'SET TEAR OFF',
             // DIRECTION 0 = de ARRIBA hacia abajo, en el sentido en que sale
             // el papel. Con DIRECTION 1 el contenido va rotado 180 grados: el
             // ticket sale invertido y la impresora avanza toda la etiqueta
