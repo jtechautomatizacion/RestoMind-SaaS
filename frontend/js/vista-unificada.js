@@ -49,6 +49,17 @@ let vuTecladoTimer = null;
 let vuListenersPuestos = false;
 
 /**
+ * ¿Está esta vista gobernando la pantalla ahora mismo?
+ *
+ * La consulta mozo.js para no duplicar el pulso de `/mesas`: cuando esta vista
+ * está prendida, su reloj de 5s ya las trae y repinta, así que el refresco
+ * automático de la grilla clásica se queda quieto en vez de pedir lo mismo.
+ */
+function vuEstaActiva() {
+    return vuActiva;
+}
+
+/**
  * Quién opera en modo "Todo en uno".
  *
  * Antes era una regla DERIVADA ("¿ve Mesas y ve Cocina?"), y eso metía
@@ -297,7 +308,7 @@ function renderUnificado() {
     vuRenderMesas(enCocina);
     vuRenderCocina();
     vuRenderPorCobrar(porCobrar);
-    vuRenderPie(enCocina, porCobrar);
+    vuRenderPie(porCobrar);
 }
 
 /**
@@ -529,15 +540,28 @@ function vuRenderPorCobrar(porCobrar) {
     `).join('');
 }
 
-function vuRenderPie(enCocina, porCobrar) {
+function vuRenderPie(porCobrar) {
     const pie = document.getElementById('vu-pie');
     if (!pie) return;
+
+    // PEDIDOS, no mesas distintas.
+    //
+    // Antes esto contaba `enCocina.size`, y `enCocina` es un Set de
+    // `numero_mesa`. TODO pedido para llevar vale numero_mesa = 0 (ver
+    // models.py), así que el Set los fundía a todos en una sola entrada: cinco
+    // pedidos para llevar en cocina se anunciaban como "1 en cocina" y el
+    // número dejaba de moverse por más pedidos que entraran.
+    //
+    // Además contradecía al badge de la columna de Cocina, que siempre contó
+    // `comandas.length` bien: la misma pantalla mostraba 5 arriba y 1 abajo.
+    // Se usa la misma fuente que el badge para que no puedan volver a diferir.
+    const pedidosEnCocina = (estado.comandasCocina || []).length;
 
     const totalPorCobrar = porCobrar.reduce((s, g) => s + g.total, 0);
     const hora = new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
 
     const partes = [
-        `<span class="vu-pie-item"><b>${enCocina.size}</b> en cocina</span>`,
+        `<span class="vu-pie-item"><b>${pedidosEnCocina}</b> en cocina</span>`,
         `<span class="vu-pie-item"><b>${formatCurrency(totalPorCobrar)}</b> por cobrar</span>`,
     ];
     if (vuVentasHoy !== null) {

@@ -81,6 +81,13 @@ async function refreshDashboard() {
         renderTopPlatos(document.getElementById('top-platos-list'), data.top_platos);
         renderTopGastos(document.getElementById('top-gastos-list'), data.top_gastos);
         renderVentasPorTipo(document.getElementById('ventas-por-tipo'), data.por_tipo_pedido);
+        // Mismo componente de barras: son dos listas ordenadas con una
+        // magnitud, y el dueño ya sabe leer ese formato.
+        renderVentasPorTipo(
+            document.getElementById('ventas-por-metodo'),
+            data.por_metodo_pago,
+            ETIQUETAS_METODO_PAGO
+        );
     } catch (err) {
         console.error('Error cargando dashboard:', err);
         showToast('Error al cargar el dashboard', 'error');
@@ -453,7 +460,10 @@ function renderTopGastos(container, topGastos) {
  * de que la función existe. Ocultarla haría que la pantalla dependiera de si
  * ya se usó, que es justo al revés de lo que hace falta.
  */
-function renderVentasPorTipo(container, porTipo) {
+const ETIQUETAS_TIPO_PEDIDO = { mesa: 'En salón', llevar: 'Para llevar' };
+const ETIQUETAS_METODO_PAGO = { efectivo: '💵 Efectivo', yape: '📱 Yape/Plin' };
+
+function renderVentasPorTipo(container, porTipo, ETIQUETAS = ETIQUETAS_TIPO_PEDIDO) {
     if (!container) return;
     container.innerHTML = '';
 
@@ -465,7 +475,6 @@ function renderVentasPorTipo(container, porTipo) {
         return;
     }
 
-    const ETIQUETAS = { mesa: 'En salón', llevar: 'Para llevar' };
     const mayor = Math.max(...filas.map(f => f.total)) || 1;
 
     filas.forEach((fila, idx) => {

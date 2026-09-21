@@ -7,13 +7,20 @@ nunca se reflejaba en ningún lado. Se agrega aquí como cierre natural
 del ciclo: Mozo abre mesa -> Cocina entrega -> Mozo cobra -> Mesa libre.
 """
 
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.dependencies import get_cliente_id, get_usuario_actual
 from backend.models import Mesa
-from backend.schemas import MesaCreate, MesaUpdate, MesaResponse, EstadoUpdate, CobroResponse
+from backend.schemas import (
+    MesaCreate,
+    MesaUpdate,
+    MesaResponse,
+    EstadoUpdate,
+    CobroResponse,
+    CobrarRequest,
+)
 from backend.services import get_comandas_activas_mesa, cobrar_mesa
 from backend.utils.security import validar_admin
 
@@ -151,6 +158,12 @@ def cambiar_estado_mesa(
 @router.post("/mesas/{mesa_id}/cobrar", response_model=CobroResponse)
 def cobrar(
     mesa_id: int,
+    # El cuerpo es OPCIONAL: un APK que todavía no se actualizó cobra sin
+    # mandar nada y sigue funcionando, quedando como 'efectivo' (lo que la
+    # caja asumía de todas las ventas antes de que existiera el desglose).
+    # Que la app del restaurante deje de poder cobrar porque el servidor se
+    # actualizó primero sería un costo desproporcionado para ganar un dato.
+    payload: Optional[CobrarRequest] = None,
     db: Session = Depends(get_db),
     cliente_id: str = Depends(get_cliente_id),
 ):
@@ -158,8 +171,10 @@ def cobrar(
     if not mesa:
         raise HTTPException(status_code=404, detail="Mesa no encontrada")
 
+    metodo_pago = payload.metodo_pago if payload else "efectivo"
+
     try:
-        resultado = cobrar_mesa(db, cliente_id, mesa)
+        resultado = cobrar_mesa(db, cliente_id, mesa, metodo_pago)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

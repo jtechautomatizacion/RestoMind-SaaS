@@ -33,6 +33,10 @@ def comanda_to_response(comanda: Comanda) -> dict:
         # saldría rotulado "MESA 0".
         "tipo_pedido": comanda.tipo_pedido or "mesa",
         "estado": comanda.estado,
+        # Misma trampa que tipo_pedido justo arriba: omitirlo no da error, el
+        # schema cae a su default (None) y la respuesta dice "todavía no se
+        # pagó" sobre un pedido para llevar que acaba de cobrarse.
+        "metodo_pago": comanda.metodo_pago,
         "total_cuenta": comanda.total_cuenta,
         "creado_en": comanda.creado_en,
         "platos": [
@@ -95,15 +99,31 @@ def actualizar_estado_comanda(db: Session, comanda: Comanda, nuevo_estado: str) 
 
     comanda.estado = nuevo_estado
 
+    # Esta ruta (PATCH /comandas/{id}/estado) cobra una comanda suelta sin
+    # pasar por la pantalla de cobro, así que nadie eligió cómo se pagó. Queda
+    # 'efectivo', que es la suposición que la caja venía haciendo para TODO
+    # antes de que existiera esta columna: así una comanda cobrada por acá
+    # sigue apareciendo en el efectivo esperado y el arqueo no cambia de
+    # significado según por qué camino se la cobró.
+    if nuevo_estado == "cobrado" and comanda.metodo_pago is None:
+        comanda.metodo_pago = "efectivo"
+
     if nuevo_estado in ("cobrado", "cancelado"):
         _liberar_mesa_si_corresponde(db, comanda.cliente_id, comanda.numero_mesa)
 
 
-def cobrar_mesa(db: Session, cliente_id: str, mesa: Mesa) -> dict:
+def cobrar_mesa(db: Session, cliente_id: str, mesa: Mesa, metodo_pago: str = "efectivo") -> dict:
     """Cierra la cuenta de una mesa: cobra todas sus comandas activas y la libera.
 
     Regla de negocio: no se puede cobrar si todavía hay platos en cocina
     (evita cobrar algo que el cliente aún no recibió).
+
+    `metodo_pago` se estampa en TODAS las comandas de la mesa, porque la mesa
+    se cobra de una sola vez y con un solo pago. Dividir la cuenta entre
+    efectivo y Yape no está soportado a propósito: obligaría a preguntar cuánto
+    con cada uno, y ese monto no se puede validar contra nada (el sistema no
+    sabe cuánta plata recibió la persona). Un total que no cierra contra la
+    suma de sus partes es peor que no tener el desglose.
     """
     activas = get_comandas_activas_mesa(db, cliente_id, mesa.numero)
     if not activas:
@@ -116,6 +136,7 @@ def cobrar_mesa(db: Session, cliente_id: str, mesa: Mesa) -> dict:
     total = 0.0
     for comanda in activas:
         comanda.estado = "cobrado"
+        comanda.metodo_pago = metodo_pago
         total += comanda.total_cuenta
 
     mesa.estado = "disponible"
@@ -128,4 +149,5 @@ def cobrar_mesa(db: Session, cliente_id: str, mesa: Mesa) -> dict:
         # para pedir la boleta SUNAT de exactamente lo que se cobró acá
         # (ver POST /api/facturas/generar), sin tener que re-declarar platos.
         "comanda_ids": [c.id for c in activas],
+        "metodo_pago": metodo_pago,
     }

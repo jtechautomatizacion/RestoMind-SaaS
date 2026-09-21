@@ -19,6 +19,7 @@ function generarReporteCierreCaja(cierre, negocio) {
         saldo_inicial,
         nombre_turno,
         ventas_cobradas,
+        ventas_yape,
         gastos_efectivo,
         retiros_personales,
         saldo_esperado,
@@ -391,8 +392,12 @@ function generarReporteCierreCaja(cierre, negocio) {
                 <span class="detalles-valor">${formatCurrency(saldo_inicial)}</span>
             </div>
             <div class="detalles-row">
-                <span class="detalles-label">Ventas del día</span>
+                <span class="detalles-label">Ventas en efectivo</span>
                 <span class="detalles-valor">${formatCurrency(ventas_cobradas)}</span>
+            </div>
+            <div class="detalles-row">
+                <span class="detalles-label">Ventas por Yape/Plin <em>(fuera del conteo)</em></span>
+                <span class="detalles-valor">${formatCurrency(ventas_yape || 0)}</span>
             </div>
             <div class="detalles-row">
                 <span class="detalles-label">Gastos en efectivo</span>

@@ -70,6 +70,19 @@ def _calcular_ventas_gastos_periodo(db: Session, cliente_id: str, desde_dt: date
     Ventas y gastos DENTRO de la ventana exacta en que el turno estuvo
     abierto — no del día calendario completo (ver docstring del módulo).
 
+    Devuelve (ventas_efectivo, ventas_yape, gastos). El efectivo va SEPARADO
+    porque es lo único que tiene que aparecer al contar el cajón: un cobro por
+    Yape es una venta real, pero esa plata nunca entró a la caja física. Antes
+    se sumaba todo junto y el arqueo quedaba con un faltante del tamaño exacto
+    de lo cobrado por Yape — una discrepancia que el sistema reportaba como
+    sospechosa siendo que era, simplemente, la respuesta correcta a la pregunta
+    equivocada.
+
+    Una comanda cobrada SIN metodo_pago cuenta como efectivo: son las de antes
+    de que existiera la columna (la migración las marcó) y las que se cobran
+    por caminos que no preguntan (PATCH de estado). Es la misma suposición que
+    hacía el sistema entero hasta ahora, así que ningún turno viejo cambia.
+
     Gastos usa Compra.creado_en (el timestamp real de cuándo se registró en
     el sistema), NO Compra.fecha (una fecha de calendario sin hora, elegida
     a mano por el admin al crear el gasto) — fecha no tiene resolución
@@ -85,7 +98,8 @@ def _calcular_ventas_gastos_periodo(db: Session, cliente_id: str, desde_dt: date
         )
         .all()
     )
-    total_ventas = round(sum(c.total_cuenta for c in ventas), 2)
+    total_yape = round(sum(c.total_cuenta for c in ventas if c.metodo_pago == "yape"), 2)
+    total_efectivo = round(sum(c.total_cuenta for c in ventas if c.metodo_pago != "yape"), 2)
 
     gastos = (
         db.query(Compra)
@@ -99,7 +113,7 @@ def _calcular_ventas_gastos_periodo(db: Session, cliente_id: str, desde_dt: date
     )
     total_gastos = round(sum(c.monto for c in gastos), 2)
 
-    return total_ventas, total_gastos
+    return total_efectivo, total_yape, total_gastos
 
 
 def _clasificar_estado(diferencia: float) -> str:
@@ -137,10 +151,12 @@ def _auto_cerrar_si_vencida(db: Session, cliente_id: str) -> None:
         return  # sigue siendo un turno de hoy — nada que auto-cerrar
 
     ahora = datetime.utcnow()
-    ventas, gastos = _calcular_ventas_gastos_periodo(db, cliente_id, caja.abierto_en, ahora)
+    ventas, yape, gastos = _calcular_ventas_gastos_periodo(db, cliente_id, caja.abierto_en, ahora)
+    # Solo el efectivo: el Yape no está en el cajón, así que no se espera contarlo.
     saldo_esperado = round(caja.saldo_inicial + ventas - gastos, 2)
 
     caja.ventas_cobradas = ventas
+    caja.ventas_yape = yape
     caja.gastos_efectivo = gastos
     caja.retiros_personales = 0.0
     caja.saldo_esperado = saldo_esperado
@@ -231,13 +247,14 @@ def obtener_estado_caja(
             .first()
         )
 
-    ventas_hasta_ahora = 0.0
+    ventas_efectivo = 0.0
+    ventas_yape = 0.0
     gastos_hasta_ahora = 0.0
     es_atrasada = False
     if caja_abierta:
         fecha_caja = date.fromisoformat(caja_abierta.fecha)
         es_atrasada = fecha_caja != hoy
-        ventas_hasta_ahora, gastos_hasta_ahora = _calcular_ventas_gastos_periodo(
+        ventas_efectivo, ventas_yape, gastos_hasta_ahora = _calcular_ventas_gastos_periodo(
             db, cliente_id, caja_abierta.abierto_en, datetime.utcnow()
         )
 
@@ -245,7 +262,12 @@ def obtener_estado_caja(
         hay_caja_abierta=bool(caja_abierta),
         caja_abierta=caja_abierta,
         es_atrasada=es_atrasada,
-        ventas_hasta_ahora=ventas_hasta_ahora,
+        # El total sigue siendo total (lo que se vendió, sin importar cómo se
+        # pagó): es lo que el pie de la vista unificada rotula "vendido", y un
+        # dueño que mira ese número espera ver TODO lo que entró en el turno.
+        ventas_hasta_ahora=round(ventas_efectivo + ventas_yape, 2),
+        ventas_efectivo_hasta_ahora=ventas_efectivo,
+        ventas_yape_hasta_ahora=ventas_yape,
         gastos_hasta_ahora=gastos_hasta_ahora,
         ultimo_cierre_hoy=ultimo_cierre_hoy,
         turnos_hoy=turnos_hoy,
@@ -331,13 +353,18 @@ def cerrar_caja(
         raise HTTPException(status_code=400, detail="No hay ningún turno de caja abierto. Ábrelo primero.")
 
     ahora = datetime.utcnow()
-    ventas, gastos = _calcular_ventas_gastos_periodo(db, cliente_id, caja.abierto_en, ahora)
+    ventas, yape, gastos = _calcular_ventas_gastos_periodo(db, cliente_id, caja.abierto_en, ahora)
 
+    # `ventas` es SOLO el efectivo. El Yape queda fuera de esta cuenta a
+    # propósito: el admin va a contar billetes, y lo cobrado por Yape no está
+    # entre ellos. Si entrara acá, el sistema le pediría contar plata que está
+    # en un celular y le marcaría discrepancia grave por no encontrarla.
     saldo_esperado = round(caja.saldo_inicial + ventas - gastos - payload.retiros_personales, 2)
     diferencia = round(payload.saldo_contado - saldo_esperado, 2)
     variacion_pct = round((diferencia / saldo_esperado * 100), 2) if saldo_esperado else 0.0
 
     caja.ventas_cobradas = ventas
+    caja.ventas_yape = yape
     caja.gastos_efectivo = gastos
     caja.retiros_personales = payload.retiros_personales
     caja.saldo_esperado = saldo_esperado

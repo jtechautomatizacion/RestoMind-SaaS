@@ -165,12 +165,29 @@ def resumen_financiero(
         fila["pedidos"] += 1
         fila["total"] += c.total_cuenta
 
+    # Efectivo contra Yape/Plin: a dónde fue a parar la plata del período.
+    # Sale de las mismas comandas que todo lo de arriba, por el mismo motivo.
+    #
+    # metodo_pago NULL cuenta como efectivo — son las cobradas antes de que
+    # existiera la columna, y es lo que el sistema asumía de ellas. Así la
+    # suma de las dos filas siempre da el total vendido, sin un tercer bucket
+    # de "desconocido" que nadie sabría qué hacer con él.
+    por_metodo = {"efectivo": {"pedidos": 0, "total": 0.0}, "yape": {"pedidos": 0, "total": 0.0}}
+    for c in comandas_cobradas:
+        fila = por_metodo["yape"] if c.metodo_pago == "yape" else por_metodo["efectivo"]
+        fila["pedidos"] += 1
+        fila["total"] += c.total_cuenta
+
     periodo_dias = num_dias if (desde and hasta) else dias
     return DashboardResumen(
         periodo_dias=periodo_dias, serie=serie, totales=totales, top_platos=top_platos, top_gastos=top_gastos,
         por_tipo_pedido=[
             VentaPorTipoItem(tipo=t, pedidos=v["pedidos"], total=round(v["total"], 2))
             for t, v in por_tipo.items()
+        ],
+        por_metodo_pago=[
+            VentaPorTipoItem(tipo=m, pedidos=v["pedidos"], total=round(v["total"], 2))
+            for m, v in por_metodo.items()
         ],
     )
 

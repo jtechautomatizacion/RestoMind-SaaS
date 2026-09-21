@@ -72,6 +72,12 @@ function renderCaja(estadoCaja) {
         }
         nodo.querySelector('[data-slot="ventas-ahora"]').textContent = formatCurrency(estadoCaja.ventas_hasta_ahora);
         nodo.querySelector('[data-slot="gastos-ahora"]').textContent = formatCurrency(estadoCaja.gastos_hasta_ahora);
+        // Desglose por método. Solo el efectivo se espera encontrar al contar;
+        // el Yape se informa para que el total de arriba no parezca un error.
+        nodo.querySelector('[data-slot="ventas-efectivo"]').textContent =
+            formatCurrency(estadoCaja.ventas_efectivo_hasta_ahora || 0);
+        nodo.querySelector('[data-slot="ventas-yape"]').textContent =
+            formatCurrency(estadoCaja.ventas_yape_hasta_ahora || 0);
 
         if (estadoCaja.es_atrasada) {
             nodo.querySelector('[data-slot="aviso-atrasada"]').classList.remove('hidden');

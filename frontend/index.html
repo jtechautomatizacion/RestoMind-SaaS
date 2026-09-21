@@ -518,7 +518,30 @@
                                 <span>Total</span>
                                 <strong id="mozo-total">S/ 0.00</strong>
                             </div>
-                            <button class="btn btn-primary btn-large" onclick="enviarComanda()">
+
+                            <!-- Solo para PARA LLEVAR, que se cobra al pedirlo. Un
+                                 pedido de mesa se paga al final, así que acá todavía
+                                 no hay nada que decidir y el bloque queda oculto.
+                                 Lo muestra/esconde abrirNuevoPedido/abrirPedidoParaLlevar. -->
+                            <div id="metodo-pago-llevar" class="metodo-pago-wrap hidden">
+                                <span class="metodo-pago-titulo">Paga con</span>
+                                <div class="metodo-pago" role="radiogroup" aria-label="Con qué paga">
+                                    <button type="button" class="metodo-pago-btn active" data-metodo="efectivo"
+                                            role="radio" aria-checked="true"
+                                            onclick="elegirMetodoPago('efectivo')">
+                                        <span class="metodo-pago-icono" aria-hidden="true">💵</span>
+                                        <span>Efectivo</span>
+                                    </button>
+                                    <button type="button" class="metodo-pago-btn" data-metodo="yape"
+                                            role="radio" aria-checked="false"
+                                            onclick="elegirMetodoPago('yape')">
+                                        <span class="metodo-pago-icono" aria-hidden="true">📱</span>
+                                        <span>Yape/Plin</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <button class="btn btn-primary btn-large" id="btn-enviar-comanda" onclick="enviarComanda()">
                                 Enviar a cocina
                             </button>
                         </div>
@@ -548,6 +571,31 @@
                                  de revisar. Una sola pantalla, un solo camino. -->
                             <div id="cobro-espera-cocina" class="cobro-aviso hidden">
                                 Espera a que cocina entregue todo antes de cobrar.
+                            </div>
+
+                            <!-- CON QUÉ PAGA. Va ARRIBA de las pestañas de documento y
+                                 SIEMPRE visible (con o sin SUNAT): saber cuánto entró en
+                                 efectivo y cuánto por Yape es lo que hace que la caja
+                                 cuadre al cerrar, y eso no depende de si el restaurante
+                                 emite comprobantes.
+
+                                 Son dos botones y no un <select>: el cajero elige con el
+                                 cliente esperando, y un desplegable son dos toques y una
+                                 lista que tapa la pantalla. Arranca en Efectivo porque es
+                                 lo más frecuente, así que el caso común es cero toques. -->
+                            <div class="metodo-pago" role="radiogroup" aria-label="Con qué paga">
+                                <button type="button" class="metodo-pago-btn active" data-metodo="efectivo"
+                                        role="radio" aria-checked="true"
+                                        onclick="elegirMetodoPago('efectivo')">
+                                    <span class="metodo-pago-icono" aria-hidden="true">💵</span>
+                                    <span>Efectivo</span>
+                                </button>
+                                <button type="button" class="metodo-pago-btn" data-metodo="yape"
+                                        role="radio" aria-checked="false"
+                                        onclick="elegirMetodoPago('yape')">
+                                    <span class="metodo-pago-icono" aria-hidden="true">📱</span>
+                                    <span>Yape/Plin</span>
+                                </button>
                             </div>
                             <!-- Las tres pestañas se OCULTAN enteras cuando el
                                  restaurante no emite comprobantes: sin SUNAT activo,
@@ -806,6 +854,14 @@
                         <span class="card-title-hint">dónde se vende</span>
                     </div>
                     <div id="ventas-por-tipo"></div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">
+                        <span>Efectivo y Yape</span>
+                        <span class="card-title-hint">dónde está la plata</span>
+                    </div>
+                    <div id="ventas-por-metodo"></div>
                 </div>
 
                 <button id="btn-descargar-reporte" class="btn btn-secondary btn-fab" onclick="descargarReporteExcel()">
@@ -1271,6 +1327,25 @@
                                 <div class="caja-live-stat">
                                     <span class="caja-live-label">Gastos hasta ahora</span>
                                     <span class="caja-live-valor expense" data-slot="gastos-ahora"></span>
+                                </div>
+                            </div>
+
+                            <!-- A dónde fue la plata. Va debajo del total y no en su
+                                 lugar: el dueño quiere las dos cosas —cuánto vendió, y
+                                 cuánto de eso puede contar en el cajón.
+
+                                 El renglón de Yape dice explícitamente que NO entra al
+                                 arqueo. Sin esa línea, ver "Yape S/ 310" arriba de un
+                                 esperado que no lo incluye parece un error del sistema,
+                                 y el dueño termina sumándolo a mano para "corregirlo". -->
+                            <div class="caja-metodos">
+                                <div class="caja-metodo">
+                                    <span class="caja-metodo-label">💵 Efectivo <em>(esto se cuenta en la caja)</em></span>
+                                    <span class="caja-metodo-valor money" data-slot="ventas-efectivo"></span>
+                                </div>
+                                <div class="caja-metodo">
+                                    <span class="caja-metodo-label">📱 Yape/Plin <em>(no entra al conteo)</em></span>
+                                    <span class="caja-metodo-valor" data-slot="ventas-yape"></span>
                                 </div>
                             </div>
                             <div class="caja-atrasada-aviso hidden" data-slot="aviso-atrasada">

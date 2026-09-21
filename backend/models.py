@@ -231,6 +231,20 @@ class Comanda(Base):
     total_cuenta = Column(Float, nullable=False)
     estado = Column(String, default="cocina")  # cocina, entregado, cobrado, cancelado
 
+    # Con qué se pagó: 'efectivo' o 'yape' (Yape/Plin, el bucket digital).
+    #
+    # NULL mientras la comanda no esté cobrada — no es "desconocido", es "todavía
+    # no se pagó". Se llena en el mismo momento en que `estado` pasa a 'cobrado'
+    # (al cobrar la mesa, o al crear el pedido si es para llevar, que nace
+    # cobrado), así que un 'cobrado' con metodo_pago NULL solo puede venir de
+    # antes de esta columna — y la migración ya los dejó en 'efectivo'.
+    #
+    # PARA QUÉ EXISTE: la caja cuenta dinero FÍSICO. Un cobro por Yape no entra
+    # al cajón, así que sumarlo al saldo esperado garantizaba una diferencia
+    # que no era ni error ni fraude (ver CierreCaja). Con esta columna, el
+    # arqueo espera solo el efectivo y Yape se informa aparte.
+    metodo_pago = Column(String, nullable=True)
+
     # Cuándo se le pasó el pedido al cliente. Solo lo usa "para llevar": como
     # nace ya cobrado (se paga al pedirlo), `estado` no alcanza para saber si
     # cocina todavía lo tiene pendiente.
@@ -511,12 +525,18 @@ class CierreCaja(Base):
     `fecha` (varios turnos del mismo día): por eso `fecha` no es única y el
     índice filtra por estado='abierto'.
 
-    Simplificación deliberada del MVP: ventas_cobradas y gastos_efectivo
-    asumen que TODO el dinero registrado en Comanda/Compra es efectivo — la
-    app todavía no distingue método de pago (efectivo/tarjeta/Yape). El día
-    que eso se implemente, este cálculo debe filtrar por método de pago;
-    hasta entonces, un restaurante que cobra con tarjeta verá diferencias
-    en su cierre que NO son fraude, son ventas con tarjeta.
+    Método de pago (resuelto): `ventas_cobradas` cuenta SOLO lo cobrado en
+    efectivo, porque es lo único que tiene que aparecer físicamente en el
+    cajón al contarlo. Lo cobrado por Yape/Plin va en `ventas_yape`, que NO
+    entra al saldo esperado: se informa aparte para que el dueño vea a dónde
+    fue su plata. Antes todo se sumaba junto y un restaurante que cobraba por
+    Yape arrastraba una diferencia permanente que no era ni error ni fraude
+    — era, literalmente, dinero que nunca pasó por la caja.
+
+    Los gastos siguen asumiéndose en efectivo (`gastos_efectivo`): la app no
+    pregunta con qué se pagó una compra, y en la práctica la caja chica de un
+    restaurante se paga en efectivo. Si algún día se registran gastos por
+    transferencia, este cálculo necesita el mismo tratamiento.
     """
     __tablename__ = "cierres_caja"
 
@@ -547,7 +567,10 @@ class CierreCaja(Base):
     # recalculan después), para que el reporte impreso nunca cambie con el
     # tiempo. Usar el día completo rompería con turnos múltiples: el
     # segundo turno del día recontaría ventas que ya cerró el primero.
+    # SOLO efectivo — es lo que se espera contar en el cajón.
     ventas_cobradas = Column(Float, nullable=True)
+    # Yape/Plin del turno. Informativo: NO entra en saldo_esperado.
+    ventas_yape = Column(Float, nullable=True)
     gastos_efectivo = Column(Float, nullable=True)
     retiros_personales = Column(Float, nullable=True)
 

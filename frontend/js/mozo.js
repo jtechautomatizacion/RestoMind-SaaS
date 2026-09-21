@@ -7,16 +7,112 @@
 let carrito = [];
 let mesaActual = null;
 
-function initMozo() {
-    renderMesas();
+// Con qué se está por cobrar. Se reinicia a 'efectivo' cada vez que se abre
+// una cuenta o un pedido para llevar: si se quedara con lo último elegido, un
+// Yape suelto haría que las siguientes mesas se cobraran por Yape sin que
+// nadie lo pidiera, y eso recién se nota al cerrar la caja.
+let metodoPagoElegido = 'efectivo';
+
+const METODOS_PAGO_LABEL = { efectivo: 'efectivo', yape: 'Yape/Plin' };
+
+function etiquetaMetodoPago(metodo) {
+    return METODOS_PAGO_LABEL[metodo] || 'efectivo';
 }
 
-async function refreshMozo() {
+function elegirMetodoPago(metodo) {
+    metodoPagoElegido = metodo;
+    document.querySelectorAll('.metodo-pago-btn').forEach(btn => {
+        const activo = btn.dataset.metodo === metodo;
+        btn.classList.toggle('active', activo);
+        btn.setAttribute('aria-checked', String(activo));
+    });
+}
+
+// Cada cuánto se vuelve a preguntar por las mesas, y cada cuántas de esas
+// vueltas se refresca además la carta. La carta cambia muchísimo menos que el
+// estado de las mesas (un plato nuevo es cosa de una vez al día; una mesa se
+// ocupa y se libera todo el tiempo), así que pedirla al mismo ritmo sería
+// tráfico tirado sobre el wifi del local.
+const MOZO_INTERVALO_MS = 5000;
+const MOZO_VUELTAS_POR_CATALOGO = 6;  // 6 x 5s = carta cada 30s
+
+let mozoIntervalo = null;
+let mozoVueltas = 0;
+let mesasFirmaPintada = null;
+
+function initMozo() {
+    renderMesas();
+
+    // SIN ESTO, LA PANTALLA DEL MOZO SE QUEDA CONGELADA.
+    //
+    // initMozo() solo pintaba una vez y no dejaba ningún reloj andando, así
+    // que las mesas se actualizaban únicamente cuando el propio mozo hacía
+    // algo (cambiar de pestaña, mandar un pedido, cobrar). Todo lo que pasaba
+    // en OTRO dispositivo —el admin agregando una mesa, otro mozo ocupando la
+    // 7, la cocina marcando un plato listo— no llegaba nunca: la pantalla
+    // mostraba el mundo tal como estaba la última vez que este mozo tocó algo.
+    //
+    // Cocina (4s) y la vista unificada (5s) ya tenían su reloj; Mesas era la
+    // única pantalla sin uno, y es justo la que más gente mira a la vez.
+    if (mozoIntervalo) clearInterval(mozoIntervalo);
+    mozoIntervalo = setInterval(refrescoAutomaticoMozo, MOZO_INTERVALO_MS);
+}
+
+/**
+ * El pulso de fondo de la pantalla de Mesas. Tres razones para NO pedir nada
+ * en una vuelta dada, y ninguna es optimización prematura:
+ *
+ * 1. La vista unificada activa ya trae `/mesas` en su propio reloj de 5s. Con
+ *    los dos corriendo, el mismo dato viaja dos veces por la misma conexión.
+ * 2. Si el mozo está en otra pestaña, estas mesas no se ven; al volver,
+ *    cambiarTab() ya llama a refreshMozo() con datos frescos.
+ * 3. Con un modal abierto NO se repinta, porque renderMesas() reconstruye la
+ *    grilla entera con innerHTML: la página cambiaría de alto justo mientras
+ *    el dedo elige un plato. Mismo criterio que renderUnificado().
+ */
+async function refrescoAutomaticoMozo() {
+    if (typeof vuEstaActiva === 'function' && vuEstaActiva()) return;
+    if (estado.currentTab !== 'mozo') return;
+    if (document.querySelector('.modal:not(.hidden)')) return;
+
+    mozoVueltas += 1;
+    if (mozoVueltas % MOZO_VUELTAS_POR_CATALOGO === 0) {
+        // Un plato nuevo (o uno que el admin desactivó) también tiene que
+        // llegarle al mozo sin recargar la app.
+        try {
+            estado.platos = await api.get('/platos');
+        } catch (_) { /* sin señal: se sigue con la carta que ya se tenía */ }
+    }
+
+    await refreshMozo({ soloSiCambio: true });
+}
+
+// Firma del estado visible de las mesas. Sirve para no reconstruir la grilla
+// en cada vuelta cuando no cambió nada: un innerHTML cada 5s reinicia las
+// transiciones de CSS y hace parpadear la pantalla sin que haya novedad.
+function firmaMesas() {
+    return (estado.mesas || [])
+        .map(m => `${m.numero}|${m.estado}|${m.cuenta_actual ?? ''}|${m.capacidad}|${m.ubicacion ?? ''}`)
+        .join('~');
+}
+
+async function refreshMozo({ soloSiCambio = false } = {}) {
     try {
         estado.mesas = await api.get('/mesas');
     } catch (err) {
         console.error('Error cargando mesas:', err);
     }
+
+    // El refresco automático se saltea el repintado si nada cambió. Una
+    // llamada explícita (después de cobrar, de mandar un pedido) siempre
+    // repinta: ahí el usuario acaba de hacer algo y espera verlo reflejado.
+    const firma = firmaMesas();
+    if (soloSiCambio && firma === mesasFirmaPintada) {
+        if (typeof vuSincronizar === 'function') vuSincronizar();
+        return;
+    }
+    mesasFirmaPintada = firma;
+
     renderMesas();
     // Las mesas que se acaban de traer son las mismas que pinta la vista
     // unificada, así que solo le falta refrescar lo suyo (lo cobrable y los
@@ -142,10 +238,33 @@ function abrirNuevoPedido(mesa) {
     mesaActual = mesa;
     carrito = [];
     document.getElementById('modal-title').textContent = `Mesa ${mesa.numero} · Nuevo pedido`;
+    prepararMetodoPago({ paraLlevar: false });
     renderCategorias();
     renderPlatos();
     renderCarrito();
     abrirModal('modal-comanda');
+}
+
+/**
+ * Deja el selector de método de pago en su estado inicial.
+ *
+ * SIEMPRE vuelve a 'efectivo'. Conservar lo último elegido parece una
+ * comodidad y es un error de plata: un Yape suelto dejaría a las siguientes
+ * mesas cobrándose por Yape sin que nadie lo tocara, y eso no se descubre
+ * hasta el cierre de caja, cuando ya no hay forma de saber cuál era cuál.
+ *
+ * El bloque del pedido solo se muestra para llevar, que es lo único que se
+ * cobra en el momento de pedirlo.
+ */
+function prepararMetodoPago({ paraLlevar }) {
+    elegirMetodoPago('efectivo');
+    const bloque = document.getElementById('metodo-pago-llevar');
+    if (bloque) bloque.classList.toggle('hidden', !paraLlevar);
+
+    const btn = document.getElementById('btn-enviar-comanda');
+    // Para llevar el botón cobra, no solo manda a cocina. Decirlo evita que el
+    // cajero mande el pedido creyendo que todavía le falta cobrar.
+    if (btn) btn.textContent = paraLlevar ? 'Cobrar y enviar a cocina' : 'Enviar a cocina';
 }
 
 /**
@@ -163,6 +282,7 @@ function abrirPedidoParaLlevar() {
     mesaActual = { numero: 0, paraLlevar: true };
     carrito = [];
     document.getElementById('modal-title').textContent = 'Para llevar · Nuevo pedido';
+    prepararMetodoPago({ paraLlevar: true });
     renderCategorias();
     renderPlatos();
     renderCarrito();
@@ -308,6 +428,9 @@ async function enviarComanda() {
         tipo_pedido: paraLlevar ? 'llevar' : 'mesa',
         platos: carrito.map(item => ({ plato_id: item.platoId, cantidad: item.cantidad })),
     };
+    // Solo para llevar: el backend RECHAZA (422) un pedido de mesa que declare
+    // método de pago, porque ahí todavía no se cobró nada.
+    if (paraLlevar) data.metodo_pago = metodoPagoElegido;
 
     try {
         const comanda = await api.post('/comandas', data);
@@ -315,7 +438,12 @@ async function enviarComanda() {
         // Para llevar se paga en el mostrador al pedirlo, así que el aviso
         // dice que ya se cobró: si dijera solo "enviada a cocina", el cajero
         // podría quedarse esperando cobrarlo después.
-        showToast(paraLlevar ? 'Pedido cobrado y enviado a cocina' : 'Comanda enviada a cocina', 'success');
+        showToast(
+            paraLlevar
+                ? `Cobrado en ${etiquetaMetodoPago(metodoPagoElegido)} y enviado a cocina`
+                : 'Comanda enviada a cocina',
+            'success'
+        );
         cerrarModal();
 
         // IMPRIMIR VA PRIMERO, Y APARTE.
@@ -422,6 +550,9 @@ async function abrirCuentaMesa(mesa) {
         // Las pestañas de cobro viven dentro de este modal: se dejan en
         // limpio acá, al abrir la mesa, y no en un paso aparte.
         prepararCobro();
+        // Y el método de pago vuelve a Efectivo, para que lo elegido en la
+        // mesa anterior no se arrastre a esta (ver prepararMetodoPago).
+        elegirMetodoPago('efectivo');
         abrirModal('modal-cuenta');
     } catch (err) {
         showToast('No se pudo cargar la cuenta de la mesa', 'error');
@@ -587,7 +718,7 @@ async function ejecutarCobro(documento, nombreManual) {
 
     let resultado;
     try {
-        resultado = await api.post(`/mesas/${mesaActual.id}/cobrar`);
+        resultado = await api.post(`/mesas/${mesaActual.id}/cobrar`, { metodo_pago: metodoPagoElegido });
     } catch (err) {
         showToast(err.message || 'No se pudo cobrar la mesa', 'error');
         return;
@@ -595,7 +726,14 @@ async function ejecutarCobro(documento, nombreManual) {
 
     // A partir de acá el dinero YA se cobró y la mesa YA se liberó — nada
     // de lo que pase con la boleta debe deshacer eso ni bloquear al mozo.
-    showToast(`Cobrado ${formatCurrency(resultado.total_cobrado)} · Mesa ${resultado.mesa_numero} libre`, 'success');
+    // El aviso dice CON QUÉ se cobró: es la única confirmación de que el
+    // dinero quedó atribuido al bolsillo correcto, y equivocarse ahí se
+    // descubre recién al cerrar la caja, cuando ya no se sabe cuál fue.
+    showToast(
+        `Cobrado ${formatCurrency(resultado.total_cobrado)} en ${etiquetaMetodoPago(resultado.metodo_pago)}`
+        + ` · Mesa ${resultado.mesa_numero} libre`,
+        'success'
+    );
     cerrarModalCuenta();
     await refreshMozo();
     // Solo si este rol ve el Dashboard: un mozo/cajero cobrando dispararía

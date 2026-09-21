@@ -532,6 +532,7 @@ class CobroResponse(BaseModel):
     total_cobrado: float
     comandas_cerradas: int
     comanda_ids: List[int] = Field(default_factory=list)
+    metodo_pago: str = "efectivo"
 
 
 # ============ COMANDAS ============
@@ -541,12 +542,25 @@ class ComandaPlatoCreate(BaseModel):
     cantidad: int = Field(default=1, gt=0, le=99)
 
 
+# Con qué se puede pagar. Dos buckets a propósito: 'efectivo' es el que tiene
+# que aparecer físicamente en el cajón al arquear, y 'yape' agrupa todo el
+# dinero digital (Yape y Plin, que en la práctica son el mismo bolsillo para
+# quien cuenta la caja). Agregar un tercero —tarjeta— es sumar un valor acá y
+# un botón en el cobro; nada más del cálculo cambia.
+MetodoPago = Literal["efectivo", "yape"]
+
+
 class ComandaCreate(BaseModel):
     # 0 = pedido para llevar (las mesas se numeran desde 1). No hace falta
     # mandarlo: con tipo_pedido='llevar' el servidor lo pone solo.
     numero_mesa: int = 0
     tipo_pedido: Literal["mesa", "llevar"] = "mesa"
     platos: List[ComandaPlatoCreate] = Field(..., min_length=1)
+
+    # Solo para llevar, donde se cobra en el mismo acto de pedir. Un pedido de
+    # mesa se paga al final (POST /mesas/{id}/cobrar), así que acá todavía no
+    # hay nada que declarar.
+    metodo_pago: Optional[MetodoPago] = None
 
     @model_validator(mode="after")
     def _coherencia(self) -> "ComandaCreate":
@@ -560,7 +574,27 @@ class ComandaCreate(BaseModel):
             raise ValueError("Un pedido de mesa necesita un numero de mesa")
         if self.tipo_pedido == "llevar":
             self.numero_mesa = 0
+            # Para llevar nace cobrado, así que el método de pago no es
+            # opcional: sin él la venta entra a los totales sin poder decir si
+            # esa plata está en el cajón o en el celular, que es justo la
+            # pregunta que esta columna existe para responder. Se toma
+            # 'efectivo' por defecto en vez de rechazar el pedido, porque es
+            # de lejos el caso más común en un mostrador y porque un cliente
+            # viejo (un APK sin actualizar) tiene que poder seguir vendiendo.
+            if self.metodo_pago is None:
+                self.metodo_pago = "efectivo"
+        elif self.metodo_pago is not None:
+            raise ValueError(
+                "Un pedido de mesa no se cobra al crearlo; el metodo de pago se elige al cobrar la mesa"
+            )
         return self
+
+
+class CobrarRequest(BaseModel):
+    """Con qué paga la mesa. El cuerpo es opcional en la ruta (ver
+    routes/mesas.py): un cliente viejo que cobra sin mandar nada sigue
+    funcionando y queda como 'efectivo'."""
+    metodo_pago: MetodoPago = "efectivo"
 
 
 class ComandaPlatoResponse(BaseModel):
@@ -580,6 +614,7 @@ class ComandaResponse(BaseModel):
     numero_mesa: int
     tipo_pedido: str = "mesa"
     estado: str
+    metodo_pago: Optional[str] = None
     total_cuenta: float
     platos: List[ComandaPlatoResponse]
     creado_en: UtcDatetime
@@ -799,6 +834,9 @@ class DashboardResumen(BaseModel):
     # todavía no vendió nada para llevar tiene que ver el renglón igual, para
     # saber que la función existe.
     por_tipo_pedido: List[VentaPorTipoItem] = []
+    # Efectivo y Yape/Plin, siempre las dos filas por el mismo motivo que
+    # arriba. La suma de las dos es igual a totales.ventas.
+    por_metodo_pago: List[VentaPorTipoItem] = []
 
 
 # ============ CAJA (Apertura/Cierre) ============
@@ -838,7 +876,8 @@ class CierreCajaResponse(BaseModel):
     abierto_por: str
     nombre_turno: Optional[str] = None
 
-    ventas_cobradas: Optional[float] = None
+    ventas_cobradas: Optional[float] = None   # solo efectivo
+    ventas_yape: Optional[float] = None       # informativo, fuera del arqueo
     gastos_efectivo: Optional[float] = None
     retiros_personales: Optional[float] = None
 
@@ -899,7 +938,13 @@ class CajaEstadoResponse(BaseModel):
     hay_caja_abierta: bool
     caja_abierta: Optional[CierreCajaResponse] = None
     es_atrasada: bool = False
+    # ventas_hasta_ahora es el TOTAL vendido (efectivo + yape) — se mantiene
+    # con ese significado porque ya lo consume el pie de la vista unificada
+    # como "vendido". El desglose va en los dos campos de abajo; el que manda
+    # para el arqueo es ventas_efectivo_hasta_ahora.
     ventas_hasta_ahora: float = 0
+    ventas_efectivo_hasta_ahora: float = 0
+    ventas_yape_hasta_ahora: float = 0
     gastos_hasta_ahora: float = 0
     ultimo_cierre_hoy: Optional[CierreCajaResponse] = None
     turnos_hoy: int = 0

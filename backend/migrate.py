@@ -442,6 +442,41 @@ def migrate():
             else:
                 print("[OK] Columna 'entregado_en' ya existe")
 
+        # --- Método de pago: efectivo vs Yape/Plin --------------------------
+        # El backfill NO es cosmético: marca en 'efectivo' todo lo que ya
+        # estaba cobrado porque eso es exactamente lo que la caja venía
+        # asumiendo de esas ventas al calcular el saldo esperado. Dejarlas en
+        # NULL las sacaría del efectivo esperado y todo turno viejo pasaría a
+        # figurar con un faltante enorme que nunca existió: el historial
+        # cambiaría de significado hacia atrás.
+        if cols_comandas:
+            if "metodo_pago" not in cols_comandas:
+                print("Agregando columna 'metodo_pago' a comandas...")
+                cursor.execute("ALTER TABLE comandas ADD COLUMN metodo_pago VARCHAR DEFAULT NULL")
+                cursor.execute(
+                    "UPDATE comandas SET metodo_pago = 'efectivo' WHERE estado = 'cobrado'"
+                )
+                conn.commit()
+                print(f"[OK] Columna 'metodo_pago' agregada ({cursor.rowcount} cobradas marcadas 'efectivo')")
+            else:
+                print("[OK] Columna 'metodo_pago' ya existe")
+
+        # Yape del turno, congelado al cerrar. Los turnos ya cerrados quedan en
+        # 0.0 y no en NULL: en su momento no se cobró nada por Yape (la app no
+        # lo permitía), así que 0 es el dato correcto, no un dato faltante.
+        cols_cierres_yape = [row[1] for row in cursor.execute("PRAGMA table_info(cierres_caja)").fetchall()]
+        if cols_cierres_yape:
+            if "ventas_yape" not in cols_cierres_yape:
+                print("Agregando columna 'ventas_yape' a cierres_caja...")
+                cursor.execute("ALTER TABLE cierres_caja ADD COLUMN ventas_yape FLOAT DEFAULT NULL")
+                cursor.execute(
+                    "UPDATE cierres_caja SET ventas_yape = 0.0 WHERE estado != 'abierto'"
+                )
+                conn.commit()
+                print("[OK] Columna 'ventas_yape' agregada (turnos ya cerrados en 0.0)")
+            else:
+                print("[OK] Columna 'ventas_yape' ya existe")
+
         print("[OK] Migración completada")
     except Exception as e:
         print(f"[ERROR] Error en migración: {e}")

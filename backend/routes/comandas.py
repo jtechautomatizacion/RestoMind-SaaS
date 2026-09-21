@@ -157,6 +157,9 @@ def crear_comanda(
         # Cocina igual lo ve: el monitor mira `entregado_en`, no `estado`
         # (ver monitor_cocina más arriba).
         estado="cobrado" if para_llevar else "cocina",
+        # Solo para llevar: nace cobrado, así que el método de pago se conoce
+        # ya mismo. Una comanda de mesa lo recibe recién al cobrarla.
+        metodo_pago=payload.metodo_pago if para_llevar else None,
         creado_por=usuario,
     )
     db.add(comanda)
