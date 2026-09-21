@@ -55,6 +55,19 @@ function aplicarFiltroFechas() {
         return;
     }
 
+    // Mismo tope que el backend (MAX_DIAS_RANGO en routes/dashboard.py). Se
+    // repite acá a propósito: el servidor es el que MANDA —sigue rechazando
+    // igual si le llega de otro lado— pero avisar desde el teléfono evita
+    // esperar un viaje de ida y vuelta para enterarse. Un rango de años
+    // tampoco es un capricho de validación: son megabytes de respuesta y
+    // segundos de un servidor que atiende a todo el restaurante.
+    const MAX_DIAS = 366;
+    const dias = Math.round((new Date(hasta) - new Date(desde)) / 86400000) + 1;
+    if (dias > MAX_DIAS) {
+        showToast(`El rango no puede superar ${MAX_DIAS} días (elegiste ${dias})`, 'warning');
+        return;
+    }
+
     dashboardDesde = desde;
     dashboardHasta = hasta;
     dashboardPeriodo = null;

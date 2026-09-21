@@ -361,7 +361,14 @@ def cerrar_caja(
     # en un celular y le marcaría discrepancia grave por no encontrarla.
     saldo_esperado = round(caja.saldo_inicial + ventas - gastos - payload.retiros_personales, 2)
     diferencia = round(payload.saldo_contado - saldo_esperado, 2)
-    variacion_pct = round((diferencia / saldo_esperado * 100), 2) if saldo_esperado else 0.0
+    # El divisor va en VALOR ABSOLUTO. Un saldo esperado negativo es posible y
+    # no es raro (se abre con poco y los gastos del turno superan a las
+    # ventas), y dividir por un número negativo invierte el signo: con
+    # esperado -100 y contado -50 SOBRAN 50 soles, pero la fórmula anterior
+    # informaba "-50%". El reporte impreso terminaba diciendo "sobra" arriba y
+    # un porcentaje negativo abajo — dos afirmaciones opuestas sobre el mismo
+    # hecho, justo en el papel que se firma.
+    variacion_pct = round((diferencia / abs(saldo_esperado) * 100), 2) if saldo_esperado else 0.0
 
     caja.ventas_cobradas = ventas
     caja.ventas_yape = yape

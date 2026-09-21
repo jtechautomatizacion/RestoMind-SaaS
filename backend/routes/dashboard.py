@@ -10,7 +10,7 @@ Las ventas se cuentan cuando la comanda pasa a estado 'cobrado'
 from datetime import datetime, timedelta, date
 from io import BytesIO
 from typing import Optional, Tuple
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -27,6 +27,17 @@ router = APIRouter()
 DIAS_SEMANA_ES = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 
 
+# Tope de días para un rango a medida. Un año entra de sobra en cualquier
+# consulta real (el caso extremo es "todo el año pasado para el contador"), y
+# es lo que separa una consulta legítima de una que tumba el servicio: sin
+# tope, ?desde=1900-01-01&hasta=2100-01-01 construye una serie de 73.050 días
+# —5,6 MB de JSON, y 13,7 segundos para el Excel—. Esta app corre con UN solo
+# worker de uvicorn, así que esos 13,7s son 13,7 segundos en los que NADIE del
+# restaurante puede tomar un pedido ni cobrar. No hace falta mala intención:
+# alcanza con un dedo torpe en el selector de fechas.
+MAX_DIAS_RANGO = 366
+
+
 def _calcular_rango(desde: Optional[str], hasta: Optional[str], dias: int, tz_offset: int) -> Tuple[date, date, datetime, datetime, timedelta]:
     """
     Las fechas que manda el usuario (y las que ve en el gráfico) son días del
@@ -36,12 +47,45 @@ def _calcular_rango(desde: Optional[str], hasta: Optional[str], dias: int, tz_of
     Devuelve (inicio, fin, inicio_dt_utc, fin_dt_utc, desfase) — usado tanto por
     el resumen del dashboard como por el export a Excel, para no calcular el
     mismo rango dos veces de formas ligeramente distintas.
+
+    Las tres validaciones de abajo lanzan 400 (no 422) porque los parámetros ya
+    pasaron la validación de tipo de FastAPI: son strings bien formados cuyo
+    CONTENIDO no sirve. Y viven acá, en la función compartida, y no en cada
+    ruta: `/dashboard/resumen` y `/dashboard/reporte-excel` las dos reciben
+    estas fechas, y una validación duplicada en dos lugares es una que algún
+    día queda distinta en uno de los dos.
     """
     desfase = timedelta(minutes=tz_offset)
 
     if desde and hasta:
-        inicio = datetime.fromisoformat(desde).date()
-        fin = datetime.fromisoformat(hasta).date()
+        # `datetime.fromisoformat` lanza ValueError con cualquier cosa que no
+        # sea una fecha ISO, y ese ValueError salía sin atrapar: ?desde=basura
+        # devolvía 500. Un 500 se ve como "el sistema se rompió" —y se reporta
+        # como tal— cuando en realidad el pedido estaba mal escrito.
+        try:
+            inicio = datetime.fromisoformat(desde).date()
+            fin = datetime.fromisoformat(hasta).date()
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Las fechas deben tener el formato AAAA-MM-DD (por ejemplo 2026-09-21)",
+            )
+
+        # Sin esto, un rango al revés no daba error: devolvía 200 con una serie
+        # vacía y los totales en cero. El dueño lo lee como "no vendí nada en
+        # ese período", que es una respuesta MUY distinta de "pediste mal el
+        # período" — y no tiene forma de notar la diferencia.
+        if inicio > fin:
+            raise HTTPException(
+                status_code=400,
+                detail="La fecha de inicio no puede ser posterior a la de fin",
+            )
+
+        if (fin - inicio).days + 1 > MAX_DIAS_RANGO:
+            raise HTTPException(
+                status_code=400,
+                detail=f"El rango no puede superar {MAX_DIAS_RANGO} días; elegí un período más corto",
+            )
     else:
         hoy_local = (datetime.utcnow() - desfase).date()
         inicio = hoy_local - timedelta(days=dias - 1)
