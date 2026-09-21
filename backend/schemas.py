@@ -562,6 +562,20 @@ class ComandaCreate(BaseModel):
     # hay nada que declarar.
     metodo_pago: Optional[MetodoPago] = None
 
+    # "Este pedido ya salió por la impresora de este aparato".
+    #
+    # Lo manda ÚNICAMENTE la cola offline al sincronizar: sin señal, el mozo
+    # imprime en el momento desde el pedido guardado en el teléfono (el
+    # comensal está esperando su papel y la cocina necesita saber qué
+    # preparar). Cuando vuelve la señal y ese pedido por fin se crea en el
+    # servidor, encolar los papeles otra vez los haría salir DOS veces.
+    #
+    # Es una afirmación del cliente y no se verifica, a propósito: no es una
+    # frontera de seguridad —es el propio aparato del restaurante diciendo qué
+    # ya hizo— y el peor caso de una mentira es un papel que no sale, que se
+    # resuelve con el botón de reimprimir.
+    impreso_localmente: bool = False
+
     @model_validator(mode="after")
     def _coherencia(self) -> "ComandaCreate":
         """Un pedido de mesa necesita mesa; uno para llevar no puede tenerla.
@@ -1215,3 +1229,45 @@ class DocumentoGuardarRequest(BaseModel):
     """El nombre que el cajero escribió a mano, para no tener que volver a
     tipearlo la próxima vez que venga esa persona."""
     nombre: str = Field(..., min_length=1, max_length=200)
+
+
+# ============ COLA DE IMPRESIÓN ============
+
+class ReclamarImpresionRequest(BaseModel):
+    """Un aparato pide trabajo: dice qué estaciones atiende y quién es.
+
+    `device_id` lo genera el propio teléfono y vive en su localStorage. NO
+    identifica a una persona — solo sirve para saber a qué impresora se mandó
+    cada papel y para devolver a la cola lo que quedó colgado cuando un
+    aparato no vuelve.
+    """
+    device_id: str = Field(..., min_length=4, max_length=64)
+    estaciones: List[Literal["cocina", "mostrador"]] = Field(..., min_length=1)
+    # Tope de papeles por vuelta. Bajo a propósito: cada uno abre su propia
+    # conexión Bluetooth y tarda segundos, así que pedir muchos de una solo
+    # aumenta la chance de que el reclamo venza antes de terminar.
+    limite: int = Field(default=5, ge=1, le=20)
+
+
+class TrabajoImpresionResponse(BaseModel):
+    id: int
+    estacion: str
+    tipo_documento: str
+    comanda_id: int
+    intentos: int
+    reimpresion_de: Optional[int] = None
+    creado_en: UtcDatetime
+
+    class Config:
+        from_attributes = True
+
+
+class ResultadoImpresionRequest(BaseModel):
+    device_id: str = Field(..., min_length=4, max_length=64)
+    salio: bool
+    error: Optional[str] = Field(default=None, max_length=300)
+
+
+class ReimprimirRequest(BaseModel):
+    comanda_id: int
+    tipo_documento: Literal["cocina", "precuenta", "preventa"]

@@ -446,29 +446,20 @@ async function enviarComanda() {
         );
         cerrarModal();
 
-        // IMPRIMIR VA PRIMERO, Y APARTE.
+        // ACÁ NO SE IMPRIME NADA, Y ESO ES EL CAMBIO.
         //
-        // Antes salía después de refrescar la pantalla y dentro del mismo try
-        // que todo lo demás: cualquier error al redibujar —la grilla de
-        // mesas, la vista unificada, el monitor de cocina— se llevaba puesta
-        // la impresión, y el ticket no salía nunca. El pedido quedaba bien
-        // guardado, así que el síntoma era "no imprime" sin ningún error a la
-        // vista.
+        // Antes este aparato sacaba los dos papeles: el del comensal y el de
+        // COCINA. El de cocina salía entonces donde estaba el mozo, no donde
+        // está quien tiene que leerlo — y no se podía arreglar del lado del
+        // mozo, porque la impresora es Bluetooth y está emparejada a un solo
+        // teléfono: ninguno puede escribirle a la impresora de otro.
         //
-        // Se invierte el orden porque también es el correcto: el cliente está
-        // esperando el papel, no que se redibuje una grilla. Y va en su
-        // propio try para que la relación siga valiendo al revés — un fallo
-        // de impresión tampoco puede dejar la pantalla sin actualizar.
-        //
-        // Qué se imprime depende del modo del restaurante (con SUNAT: dos
-        // papeles; sin SUNAT: una sola hoja) — ver print.js.
-        try {
-            if (typeof imprimirComandaNueva === 'function') {
-                await imprimirComandaNueva(comanda);
-            }
-        } catch (errImpresion) {
-            console.error('[RestoMind] no se pudo imprimir la comanda:', errImpresion);
-        }
+        // Ahora el servidor encola los papeles al crear el pedido y cada
+        // aparato va a buscar los de SU estación (ver cola-impresion.js). El
+        // de la cocina saca el ticket de cocina; este saca el del comensal, si
+        // es que atiende el mostrador. Pasan segundos, no minutos: la cola se
+        // consulta cada 3s y se dispara una vuelta apenas se manda el pedido.
+        if (typeof _vueltaDeCola === 'function') _vueltaDeCola();
 
         await refreshMozo();
         // Solo si este rol ve Cocina — mismo criterio que la línea de
@@ -493,6 +484,17 @@ async function enviarComanda() {
             showToast('Sin conexión: pedido guardado, se enviará solo al volver la señal', 'warning');
             cerrarModal();
 
+            // SIN SEÑAL SÍ SE IMPRIME ACÁ, Y LOS DOS PAPELES.
+            //
+            // La cola vive en el servidor, así que sin señal no hay cola: ni
+            // este aparato ni el de la cocina pueden ir a buscar nada. Si este
+            // no imprimiera, no saldría ningún papel hasta que vuelva el wifi
+            // — y con el wifi caído la cocina tampoco ve el pedido en su
+            // pantalla, así que el papel que lleva el mozo es lo único que
+            // queda. Es exactamente lo que hacía la app antes de la cola.
+            //
+            // Para que al sincronizar no salgan DE NUEVO, el pedido se manda
+            // marcado como ya impreso (ver impreso_localmente en schemas.py).
             if (typeof imprimirComandaNueva === 'function') {
                 imprimirComandaNueva(comandaLocal);
             }

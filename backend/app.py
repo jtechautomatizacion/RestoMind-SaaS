@@ -9,7 +9,7 @@ from backend.config import settings
 from backend.database import init_db, SessionLocal
 from backend.middleware import SecurityHeadersMiddleware
 from backend.seed import seed_if_empty, backfill_clientes_existentes
-from backend.routes import platos, mesas, comandas, compras, dashboard, categorias, auth, superadmin, usuarios, facturas, caja, push, insumos, movimientos, configuracion, ruc, app_version
+from backend.routes import platos, mesas, comandas, compras, dashboard, categorias, auth, superadmin, usuarios, facturas, caja, push, insumos, movimientos, configuracion, ruc, app_version, impresion
 from backend.migrate import migrate
 
 # Ejecutar migración antes de init_db
@@ -193,6 +193,7 @@ app.include_router(push.router, prefix="/api", tags=["Notificaciones Push"])
 app.include_router(configuracion.router, prefix="/api", tags=["Configuración"])
 app.include_router(ruc.router, prefix="/api", tags=["Consulta RUC"])
 app.include_router(app_version.router, prefix="/api", tags=["Version de la app"])
+app.include_router(impresion.router, prefix="/api", tags=["Cola de impresion"])
 
 
 if __name__ == "__main__":

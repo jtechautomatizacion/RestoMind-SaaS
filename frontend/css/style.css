@@ -1289,6 +1289,131 @@ body {
     transform: scale(0.98);
 }
 
+/* Reimprimir al lado de Listo, pero con MUCHO menos peso.
+ *
+ * "Listo" se toca cientos de veces por turno y saca el pedido de la pantalla
+ * de cocina; "Reimprimir" es la excepción. Si se parecieran, tocar una
+ * creyendo tocar la otra sería cuestión de tiempo — y marcar listo por error
+ * es bastante más caro que un papel de más: el pedido desaparece de la vista
+ * del cocinero. Por eso una es sólida y ancha, y la otra apenas un contorno.
+ *
+ * `flex` 0 contra 1: Reimprimir ocupa lo que necesita su texto y Listo se
+ * queda con el resto, así el botón que más se usa sigue siendo el más grande
+ * incluso en una pantalla angosta. */
+.cocina-acciones {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.cocina-acciones .btn-listo {
+    flex: 1;
+    width: auto;
+}
+
+.btn-reimprimir {
+    flex: 0 0 auto;
+    padding: 14px 12px;
+    background: transparent;
+    color: var(--text-muted);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.btn-reimprimir:active {
+    transform: scale(0.98);
+    background: var(--surface-alt);
+}
+
+/* ===== Qué papeles saca esta impresora (Admin > Impresora) ===== */
+.estaciones-card {
+    padding: 14px;
+    margin-bottom: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+}
+
+.estaciones-titulo {
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--text);
+    margin-bottom: 10px;
+}
+
+.estacion-opcion {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 8px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+.estacion-opcion:active {
+    background: var(--surface-alt);
+}
+
+/* 20px y no el tamaño por defecto: esto se toca con el pulgar en una cocina,
+   a veces con las manos ocupadas. */
+.estacion-opcion input {
+    width: 20px;
+    height: 20px;
+    margin-top: 2px;
+    flex-shrink: 0;
+    accent-color: var(--accent);
+}
+
+.estacion-texto {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.estacion-texto strong {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.estacion-texto small {
+    font-size: 11.5px;
+    line-height: 1.35;
+    color: var(--text-muted);
+}
+
+/* Dice qué SIGNIFICA lo elegido, no lo repite. En ámbar solo cuando lo
+   elegido deja al local sin ese papel — el caso que hay que notar. */
+.estaciones-aviso {
+    margin-top: 8px;
+    padding: 9px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--text-muted);
+}
+
+.estaciones-aviso.atencion {
+    background: rgba(245, 158, 11, 0.12);
+    color: #92400E;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .estaciones-aviso.atencion {
+        color: #FCD34D;
+    }
+}
+
+:root[data-theme="dark"] .estaciones-aviso.atencion {
+    color: #FCD34D;
+}
+
 .empty-state {
     text-align: center;
     padding: 60px 20px;

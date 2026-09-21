@@ -51,7 +51,10 @@ async function sincronizarPendientes() {
     while (lista.length > 0) {
         const item = lista[0];
         try {
-            await api.post('/comandas', item.payload);
+            // Ya salió por la impresora de este aparato cuando se tomó el
+            // pedido sin señal (ver enviarComanda). Sin esta marca, el
+            // servidor encolaría los papeles ahora y saldrían por segunda vez.
+            await api.post('/comandas', { ...item.payload, impreso_localmente: true });
             algunaSincronizada = true;
         } catch (err) {
             if (err instanceof NetworkError) {

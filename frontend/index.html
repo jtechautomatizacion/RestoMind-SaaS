@@ -1683,6 +1683,35 @@
                             <span class="switch-thumb"></span>
                         </label>
                     </div>
+
+                    <!-- QUÉ PAPELES SACA ESTA IMPRESORA.
+                         Es lo que permite que el ticket de cocina salga EN LA
+                         COCINA. La impresora es Bluetooth y está emparejada a
+                         un solo teléfono, así que ninguno puede escribirle a la
+                         del otro: el aparato de la cocina tiene que ser el que
+                         imprime, y acá se declara que este lo es.
+                         Por defecto vienen las dos marcadas, que es lo que
+                         hacía la app antes de la cola — el que toma el pedido
+                         saca los dos papeles. Un local que estrena impresora en
+                         cocina destilda "cocina" acá y la tilda allá. -->
+                    <div class="estaciones-card">
+                        <div class="estaciones-titulo">¿Qué imprime este aparato?</div>
+                        <label class="estacion-opcion">
+                            <input type="checkbox" id="estacion-cocina" onchange="onCambiarEstaciones()">
+                            <span class="estacion-texto">
+                                <strong>Tickets de cocina</strong>
+                                <small>Qué preparar, sin precios. Marcalo solo en el aparato que está en la cocina.</small>
+                            </span>
+                        </label>
+                        <label class="estacion-opcion">
+                            <input type="checkbox" id="estacion-mostrador" onchange="onCambiarEstaciones()">
+                            <span class="estacion-texto">
+                                <strong>Papel del comensal</strong>
+                                <small>La pre-cuenta o la pre-venta, al tomar el pedido.</small>
+                            </span>
+                        </label>
+                        <div class="estaciones-aviso" id="estaciones-aviso"></div>
+                    </div>
                     <!-- Impresora térmica. Solo se muestra en la app instalada:
                          en el navegador la impresión va por el diálogo del
                          sistema y no hay nada que elegir acá. -->
@@ -1841,6 +1870,9 @@
     <script src="js/charts.js"></script>
     <script src="js/impresora-termica.js"></script>
     <script src="js/print.js"></script>
+    <!-- Después de print.js: usa sus plantillas (_ticketHTML y compañía) para
+         armar el papel de cada trabajo que reclama. -->
+    <script src="js/cola-impresion.js"></script>
     <script src="js/mozo.js"></script>
     <script src="js/cocina.js"></script>
     <script src="js/vista-unificada.js"></script>

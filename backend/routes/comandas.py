@@ -22,6 +22,7 @@ from backend.schemas import (
 )
 from backend.services import comanda_to_response, actualizar_estado_comanda
 from backend.utils.push_notifications import notificar_nueva_comanda
+from backend.utils.impresion import encolar_papeles_de_comanda
 
 router = APIRouter()
 
@@ -176,6 +177,16 @@ def crear_comanda(
 
     if mesa is not None:
         mesa.estado = "ocupada"
+
+    # Los papeles se encolan DENTRO de la misma transacción que crea el pedido.
+    # Así no puede existir un pedido sin sus papeles (cocina no se entera) ni
+    # papeles de un pedido que después falló al guardarse (sale un ticket de
+    # algo que no existe). O pasan las dos cosas, o no pasa ninguna.
+    #
+    # Salvo que el aparato ya los haya impreso sin señal: encolarlos ahí los
+    # haría salir dos veces (ver ComandaCreate.impreso_localmente).
+    if not payload.impreso_localmente:
+        encolar_papeles_de_comanda(db, comanda)
 
     db.commit()
     db.refresh(comanda)

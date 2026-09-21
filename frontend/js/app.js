@@ -426,6 +426,21 @@ async function init() {
         refreshCajaGate();
         setInterval(refreshCajaGate, 20000);
     }
+
+    // La cola de impresión corre en TODOS los roles, no solo en los que ven
+    // Mesas o Cocina. Lo que decide si este aparato imprime algo es qué
+    // estaciones atiende (Admin > Impresora), no qué pestañas ve la cuenta: el
+    // tablet de la cocina se loguea con una cuenta de cocina y el del
+    // mostrador con una de mozo, y los dos tienen que poder sacar su papel.
+    if (typeof iniciarColaImpresion === 'function') {
+        try {
+            iniciarColaImpresion();
+        } catch (err) {
+            // Quedarse sin cola no puede impedir trabajar: el local tiene que
+            // poder tomar pedidos y cobrar igual, aunque no salga papel.
+            console.error('Error iniciando la cola de impresión:', err);
+        }
+    }
 }
 
 const CACHE_PLATOS_KEY = 'restomind_cache_platos';

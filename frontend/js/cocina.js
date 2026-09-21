@@ -163,7 +163,17 @@ async function refreshCocina() {
                         <div class="cocina-tiempo ${alerta ? 'alerta' : ''}">${comanda.minutos_transcurridos} min</div>
                     </div>
                     <div class="cocina-platos">${platosHtml}</div>
-                    <button class="btn-listo" onclick="marcarListo(${comanda.id})">✓ Listo</button>
+                    <div class="cocina-acciones">
+                        <!-- Reimprimir va A LA IZQUIERDA y en secundario: "Listo"
+                             es la acción del turno y se toca cientos de veces;
+                             esta es la excepción. Separadas y con peso distinto
+                             para que no se toque una creyendo tocar la otra —
+                             marcar listo por error saca el pedido de la pantalla
+                             de cocina, que es mucho más caro que un papel de más. -->
+                        <button class="btn-reimprimir" onclick="pedirReimpresion(${comanda.id}, 'cocina')"
+                                aria-label="Volver a imprimir este ticket">⎙ Reimprimir</button>
+                        <button class="btn-listo" onclick="marcarListo(${comanda.id})">✓ Listo</button>
+                    </div>
                 </div>
             `;
         }).join('');

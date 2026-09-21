@@ -1260,6 +1260,10 @@
         // impresoras emparejadas cambia desde los ajustes del sistema, fuera de
         // esta app, y con una lista vieja el usuario elige algo que ya no está.
         sincronizarSwitchImpresion();
+        // Qué estaciones atiende este aparato (cola-impresion.js). Mismo
+        // motivo que el switch: la configuración vive en el aparato y pudo
+        // cambiarse antes de abrir esta pantalla.
+        if (typeof sincronizarEstaciones === 'function') sincronizarEstaciones();
         pintarPantallaImpresora();
     };
 

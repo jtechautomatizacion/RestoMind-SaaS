@@ -764,3 +764,100 @@ class ClienteFrecuente(Base):
         # registros independientes, cada uno del negocio que lo atendió.
         UniqueConstraint("cliente_id", "numero_documento", name="uq_cliente_documento"),
     )
+
+
+# Estaciones de impresión. Una estación NO es un aparato: es un PUESTO de
+# trabajo del local. Varios aparatos pueden atender la misma estación (dos
+# mozos con impresora), y un solo aparato puede atenderlas todas (el dueño
+# que trabaja solo, que es el caso por defecto).
+#
+# SON DOS Y NO TRES: LA BOLETA NO PASA POR LA COLA.
+#
+# Encolar algo solo tiene sentido cuando quien DISPARA el papel y quien tiene
+# la IMPRESORA pueden ser dos personas distintas. Eso pasa con el ticket de
+# cocina (lo dispara el mozo, sale en la cocina) y puede pasar con el papel
+# del comensal (lo dispara el mozo, pero a veces la única impresora está en
+# caja). Con la boleta no pasa nunca: la emite quien cobra, y quien cobra ES
+# el de la caja, con la impresora al lado y el cliente esperando el papel en
+# la mano. Meterla en la cola solo le agregaría la demora del sondeo a lo
+# único que de verdad se mira mientras se espera.
+ESTACIONES_IMPRESION = ("cocina", "mostrador")
+
+# Qué papel es. Cada uno sale de una plantilla distinta en frontend/js/print.js.
+TIPOS_DOCUMENTO_IMPRESION = ("cocina", "precuenta", "preventa")
+
+
+class TrabajoImpresion(Base):
+    """
+    Un papel que HAY que imprimir, y dónde.
+
+    POR QUÉ EXISTE
+    --------------
+    Hasta ahora imprimía el aparato que hacía la acción: el mozo mandaba la
+    comanda y su propio teléfono sacaba el ticket de cocina. Eso no se puede
+    arreglar del lado del mozo, porque la impresora es Bluetooth y está
+    emparejada a UN teléfono: ningún aparato puede escribirle a la impresora
+    de otro. Para que el papel salga en la cocina, el aparato de la cocina
+    tiene que ser el que imprime — y para eso necesita enterarse.
+
+    Esta tabla es ese aviso, con memoria: queda escrito qué papel hacía falta,
+    quién lo tomó y si salió. Un aviso sin memoria (un push, un websocket) se
+    pierde si el teléfono estaba apagado, sin señal o con la impresora trabada,
+    y nadie se entera de que un pedido nunca salió.
+
+    EL TRABAJO ES UN PUNTERO, NO EL PAPEL
+    -------------------------------------
+    Se guarda "ticket de cocina de la comanda 412", no el HTML. Las plantillas
+    viven en frontend/js/print.js, ya están probadas (tests/frontend/) y usan
+    datos del negocio que el frontend ya tiene en sesión. Duplicarlas acá
+    crearía DOS versiones del mismo papel, y tarde o temprano dos versiones se
+    vuelven distintas — con la agravante de que la diferencia recién se ve en
+    el papel impreso, que es donde menos se mira.
+    """
+    __tablename__ = "trabajos_impresion"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cliente_id = Column(String, ForeignKey("clientes.id"), nullable=False, index=True)
+
+    estacion = Column(String, nullable=False)        # ver ESTACIONES_IMPRESION
+    tipo_documento = Column(String, nullable=False)  # ver TIPOS_DOCUMENTO_IMPRESION
+
+    # Qué imprimir. El frontend usa este id para traerse los datos y armar el
+    # papel con la plantilla que corresponde.
+    comanda_id = Column(Integer, ForeignKey("comandas.id"), nullable=False, index=True)
+
+    # pendiente -> reclamado -> impreso | fallido
+    #                        \-> pendiente (si vence el reclamo)
+    # vencido: nadie lo reclamó en todo el plazo (el local no tiene impresora
+    # en esa estación). No es un error: es la respuesta correcta a un papel
+    # que nadie pidió.
+    estado = Column(String, nullable=False, default="pendiente", index=True)
+
+    # Cuántas veces se intentó. Un trabajo que fracasa una y otra vez deja de
+    # reintentarse: sin tope, una impresora sin papel bloquea la cola entera
+    # para todos los papeles que vienen atrás.
+    intentos = Column(Integer, nullable=False, default=0)
+
+    # Qué aparato lo tomó. Es el id que genera el propio teléfono y guarda en
+    # localStorage — no identifica a una persona, solo sirve para saber a qué
+    # impresora se mandó y para devolver a la cola lo que quedó colgado.
+    reclamado_por = Column(String, nullable=True)
+    reclamado_en = Column(DateTime, nullable=True)
+
+    impreso_en = Column(DateTime, nullable=True)
+    error = Column(String, nullable=True)
+
+    # Distingue el papel original de una reimpresión pedida a mano, para que
+    # el historial no mienta sobre cuántas veces salió algo.
+    reimpresion_de = Column(Integer, ForeignKey("trabajos_impresion.id"), nullable=True)
+
+    creado_en = Column(DateTime, default=datetime.utcnow, index=True)
+
+    cliente = relationship("Cliente")
+
+    __table_args__ = (
+        # La consulta caliente: "dame lo pendiente de estas estaciones, de este
+        # restaurante, lo más viejo primero". Corre cada pocos segundos en cada
+        # aparato del local, así que conviene que no recorra la tabla entera.
+        Index("ix_trabajos_pendientes", "cliente_id", "estado", "estacion", "creado_en"),
+    )
