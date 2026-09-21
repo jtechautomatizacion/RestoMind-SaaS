@@ -149,6 +149,15 @@ def test_el_asistente_SI_atiende_mesas_y_cocina(test_client_real_auth, test_clie
     assert test_client_real_auth.get("/api/platos", headers=headers).status_code == 200
     assert test_client_real_auth.get("/api/monitor/cocina", headers=headers).status_code == 200
 
+    # Las comandas entregadas son la tercera fuente de "Todo en uno": con ellas
+    # se arma la columna "Esperando la cuenta". Sin este acceso, el asistente
+    # vería las mesas y la cocina pero NUNCA a quién cobrarle — y el síntoma
+    # sería una columna vacía, que se lee como "no hay nadie esperando" en vez
+    # de como una falta de permisos.
+    assert test_client_real_auth.get(
+        "/api/comandas?estado=entregado", headers=headers
+    ).status_code == 200
+
     # El gate de caja es para CUALQUIER rol (mozo y cocina necesitan saber
     # si pueden operar) y nunca devuelve montos — ver CLAUDE.md.
     gate = test_client_real_auth.get("/api/caja/gate", headers=headers)
