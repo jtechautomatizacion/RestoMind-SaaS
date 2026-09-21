@@ -95,6 +95,56 @@ if (pendientes.length) {
     process.exit(1);
 }
 
+// --- ¿Este versionCode ya se entregó? -------------------------------------
+//
+// Mismo principio que el bloque de arriba: donde hay algo que puede quedar
+// desincronizado en silencio, hay que volverlo ruidoso.
+//
+// Compilar un APK de producción REUTILIZANDO un versionCode ya publicado
+// produce dos archivos DISTINTOS con el mismo número, y eso rompe tres cosas
+// a la vez, ninguna con un error que se entienda:
+//
+//   1. `revisarActualizacion()` (capacitor-init.js) compara
+//      `version_code <= instalada` y se calla. Los teléfonos con la versión
+//      vieja NUNCA se enteran de que hay una nueva.
+//   2. Android rechaza instalar encima con "app no instalada", sin decir
+//      que el motivo es el versionCode repetido.
+//   3. Soporte deja de poder diagnosticar: dos locales dicen "tengo la
+//      1.3.1" y tienen código distinto.
+//
+// Ya pasó: se entregó un APK con correcciones reales reutilizando el código
+// 15. El teléfono del mozo se quedó con la versión anterior, el arreglo
+// parecía no funcionar, y la búsqueda se fue al código —que estaba bien—
+// en vez de al número de versión.
+//
+// Se consulta al servidor de producción, que es quien sabe qué está
+// publicado de verdad. Si no contesta (sin internet, VPS caído) NO se frena
+// la compilación: quedarse sin poder compilar por no poder preguntar sería
+// peor que el problema que esto evita.
+if (entorno === 'produccion') {
+    const v = JSON.parse(fs.readFileSync(path.join(raiz, 'version.json'), 'utf8'));
+    let publicada = null;
+    try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 8000);
+        const resp = await fetch('https://app.jtechsolutiones.com/api/app/version', { signal: ctrl.signal });
+        clearTimeout(t);
+        if (resp.ok) publicada = await resp.json();
+    } catch {
+        console.log('  (no se pudo consultar la versión publicada — se compila igual)');
+    }
+
+    if (publicada && publicada.hay_publicada && v.versionCode <= publicada.version_code) {
+        console.error('\n  [!] ESTE versionCode YA SE ENTREGÓ — no se compila.\n');
+        console.error(`      En version.json : ${v.versionCode} (v${v.versionName})`);
+        console.error(`      Ya publicado    : ${publicada.version_code} (v${publicada.version_name})`);
+        console.error('\n      Un APK nuevo con un número ya entregado es invisible para el');
+        console.error('      aviso de actualización, y Android se niega a instalarlo encima.\n');
+        console.error(`      Subí el número en version.json (a ${publicada.version_code + 1}) y volvé a compilar.\n`);
+        process.exit(1);
+    }
+}
+
 // Gradle no arranca sin JAVA_HOME, y el mensaje que da ("JAVA_HOME is not
 // set") no menciona que Android Studio ya trae un Java adentro. Se busca ahí
 // antes de rendirse.
