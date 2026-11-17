@@ -7,7 +7,7 @@ Son DOS suites y el comando corre las dos:
 | suite | qué cubre | comando solo |
 |---|---|---|
 | **362** backend (pytest) | API, permisos, dinero, SUNAT, caja | `npm run test:backend` |
-| **20** frontend (`node --test`) | lo que sale por la impresora térmica | `npm run test:frontend` |
+| **20** frontend (`node --test`) | lo que sale por la impresora térmica | `npm run test:apk` |
 
 > `npm test` existe para que no haya forma de correr una y olvidarse de
 > la otra. La suite de frontend nació después de que un bug de impresión

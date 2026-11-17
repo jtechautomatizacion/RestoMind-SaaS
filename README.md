@@ -6,61 +6,30 @@ Sistema web inteligente de comandas y control de operaciones para restaurantes, 
 
 - **Backend:** Python 3.11+ con FastAPI
 - **Base de Datos:** SQLite (multi-tenant via cliente_id)
-- **Frontend:** HTML5 + CSS3 + JavaScript Vanilla (PWA)
-- **Deployment:** Uvicorn (desarrollo), Gunicorn (producción)
+- **App web (PWA):** Flutter 3.47 (`flutter_app/`, compilada en `web/`)
+- **APK de Android:** el frontend HTML/JS de `frontend/` empaquetado con Capacitor (pasa a Flutter en la próxima etapa, con la impresora Bluetooth)
+- **Facturación SUNAT:** contenedor Docker `sunat-service`
+- **Deployment:** nginx + uvicorn con systemd en el VPS
 
 ## 🚀 Quick Start
 
-### 1. Clonar y setup virtual environment
-
-La carpeta se llama `.venv`, **con punto**, y no es un detalle de estilo: los
-scripts de `package.json` invocan `.venv/Scripts/python.exe` por ruta directa.
-Este archivo decía `venv` sin punto, así que quien seguía las instrucciones
-terminaba con DOS entornos: uno que usaba a mano y otro que usaba `npm run`.
+Todo en un comando, con la guía completa en [`docs/LOCAL.md`](docs/LOCAL.md):
 
 ```bash
-cd "d:\Cartera de proyectos\RestoMind-SaaS"
-python -m venv .venv
-.venv\Scripts\activate  # Windows
-source .venv/bin/activate  # macOS/Linux
+npm run local          # Docker (SUNAT) + backend + app web en http://localhost:8000
+npm run verificar      # TODAS las pruebas: Flutter, web/ al día, APK y pytest
+npm run web            # recompila la app Flutter y la publica en web/
+npm run local:parar
 ```
 
-### 2. Instalar dependencias
+Requisitos una sola vez: Docker Desktop, `python -m venv .venv` (con punto: los
+scripts lo buscan por esa ruta) + `pip install -r requirements.txt`,
+`npm install`, Flutter 3.47.7 en `C:\src\flutter` y un `.env` copiado de
+`.env.example`.
 
-```bash
-pip install -r requirements.txt
-```
-
-### 3. Configurar variables de entorno
-
-```bash
-cp .env.example .env
-# Edita .env con tus valores
-```
-
-### 4. Ejecutar servidor backend
-
-```bash
-uvicorn backend.app:app --reload --reload-dir backend --reload-dir frontend --host 0.0.0.0 --port 8000
-```
-
-El backend está disponible en: `http://localhost:8000`
-
-> **Los `--reload-dir` no son opcionales en Windows.** Sin ellos, el
-> vigilante de `--reload` recorre TODO el proyecto en cada ciclo — unos
-> 16.000 archivos, de los cuales ~12.000 están dentro de `.venv` y nunca
-> cambian. Tras varias horas de trabajo eso agota los handles del sistema
-> y el servidor muere con `WinError 1450` / `WinError 10055` ("recursos
-> insuficientes"), que desde el navegador se ve como un simple "Sin
-> conexión" sin explicar la causa. Acotándolo a `backend` y `frontend`,
-> vigila solo el código que de verdad editás.
-Documentación API (Swagger): `http://localhost:8000/docs`
-
-### 5. Abrir frontend
-
-```
-Abre: http://localhost:8000/static/index.html
-```
+> **Sin `--reload` en Windows.** En esta máquina uvicorn detecta el cambio y el
+> proceso nuevo nunca levanta (CLAUDE.md, "--reload NO RECARGA"). `npm run local`
+> reinicia completo, que es un segundo y es confiable.
 
 ## 📁 Estructura del Proyecto
 

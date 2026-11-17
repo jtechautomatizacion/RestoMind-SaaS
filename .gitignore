@@ -76,3 +76,4 @@ apk/
 # regenera con `npm run apk`, pesa 4 MB, y cambia en cada compilación: es
 # justo lo que no debe entrar al historial.
 *.apk
+

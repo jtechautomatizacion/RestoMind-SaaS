@@ -22,6 +22,7 @@ QUÉ BORRA (historia de las pruebas, que en producción sería una mentira):
     audit_log                     quién hizo qué DURANTE LAS PRUEBAS
     clientes_frecuentes           DNI y nombres tipeados probando
     push_subscriptions            tokens de dispositivos que no son los reales
+    sesiones_refresh              sesiones web abiertas durante las pruebas
     agente_tokens                 del agente eliminado en la v4.0
 
 DOS COSAS QUE NO SON OBVIAS Y SÍ IMPORTAN
@@ -71,6 +72,7 @@ TABLAS_A_VACIAR = (
     "audit_log",
     "clientes_frecuentes",
     "push_subscriptions",
+    "sesiones_refresh",
     "agente_tokens",
 )
 

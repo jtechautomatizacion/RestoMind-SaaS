@@ -1,5 +1,6 @@
 # 📋 RESTOMIND SAAS - DOCUMENTACIÓN TÉCNICA
 
+**Versión:** 5.0 — App web en Flutter con la sesión de Sac-Geo (ver la sección "🧩 v5.0 — APP WEB EN FLUTTER", justo abajo)
 **Versión MVP:** 4.0 — Facturación SUNAT 100% en la nube
 **Implementado y probado:** ✅ 100% Autenticación + Seguridad + **Facturación SUNAT en la nube** (firma y envío desde el servidor) + Consulta de RUC contra el Padrón Reducido local + Dashboard Financiero + Validador de Caja + Notificaciones Push + Inventario + Vista Unificada (382/382 tests)
 **Última actualización:** 2026-09-18
@@ -7,6 +8,72 @@
 **[NUEVA] Interruptor de facturación (`Cliente.usar_sunat`):** emitir boleta SUNAT ya no se deduce de "¿tiene RUC?" — es una decisión operativa aparte, con su propio switch en Admin > Boletas. Sin activarlo, el cobro ya no muestra el toast rojo de "boleta no emitida" ni pide DNI/RUC al cliente. Ver sección "Interruptor de Facturación" más abajo.
 **[NUEVA] Vista Unificada ("Todo en uno"):** pantalla única con Mesas + Cocina + Cobro en tres columnas, pensada para el dueño que atiende solo (sin saltar entre pestañas). Interruptor por dispositivo, no reemplaza la vista clásica. Ver sección "Vista Unificada" más abajo.
 **[NUEVA] Inventario Básico:** Entradas/salidas manuales de stock (sin acoplamiento con comandas). Admin registra entrada (compra) o salida (uso/merma/ajuste). Sistema calcula automáticamente estado (ok/bajo/crítico) basado en cantidad actual vs mínimo. Alertas solo al cruzar umbral (no en cada salida). Historial auditable con reversión sin borrar (contra-asiento). Ver sección "Inventario Básico" más abajo.
+
+---
+
+## 🧩 v5.0 — APP WEB EN FLUTTER (2026-11-17)
+
+**Qué cambió:** la interfaz WEB (y la PWA instalable) pasó del HTML/JS de
+`frontend/` a Flutter, con el mismo funcionamiento, y la sesión pasó al modelo
+de seguridad de Sac-Geo. El backend, la API y las reglas de negocio no cambiaron.
+
+| | Dónde vive | Quién lo usa |
+|---|---|---|
+| App web / PWA (Flutter) | fuente en `flutter_app/`, compilada en `web/` | navegador y PWA instalada, en `/` |
+| APK de Android (Capacitor) | `frontend/` + `android/` | los celulares con impresora Bluetooth |
+| Panel del superadmin | `frontend/superadmin.html` | `/static/superadmin.html` |
+
+> **`frontend/` NO es código muerto:** es la fuente del APK. Pasa a Flutter en
+> la próxima etapa, junto con el plugin de la impresora Bluetooth, que un
+> navegador no puede usar (Bluetooth clásico/SPP no existe en la web).
+
+### La sesión (mismas reglas que Sac-Geo)
+
+`backend/sesiones.py` + tabla `sesiones_refresh` + `routes/auth.py`:
+
+- La app web pide `X-Sesion: cookie` al loguearse. Recibe un **access token de
+  15 min que guarda SOLO en memoria** (nunca localStorage) y una cookie
+  `__Secure-restomind_refresh`: `HttpOnly; Secure; SameSite=Strict;
+  Path=/api/auth/sesion`.
+- `POST /api/auth/sesion/refresh` **rota** el secreto en cada uso. Presentar uno
+  ya rotado = robo: se revoca la sesión entera. La rotación es un `UPDATE`
+  condicionado al hash vigente, así que la carrera la resuelve SQLite.
+- `POST /api/auth/sesion/logout` revoca y borra la cookie. Cambiar o resetear la
+  contraseña, o desactivar la cuenta, revoca todas sus sesiones.
+- Caducidad absoluta: 14 días. Renovar no la extiende.
+- **Sin `X-Sesion` el login responde como siempre** (token de 12 h): es lo que
+  mantiene funcionando el APK ya instalado. Cuando el APK pase a Flutter, ese
+  camino se elimina.
+- La app y la API tienen que salir del MISMO origen (SameSite=Strict): FastAPI
+  monta `web/` en `/` (`backend/app.py`, al final, después de todos los routers).
+
+### CSP
+
+`backend/middleware.py` tiene dos: la estricta (`CSP_APP`) para la app y la API
+(`script-src 'self' 'wasm-unsafe-eval'`, `connect-src 'self'`) y la de siempre
+para el HTML viejo de `/static/`, que usa `onclick` en línea. Para que la
+estricta funcione, la app se compila **sin CDN** (CanvasKit y fuentes Inter /
+IBM Plex Mono empaquetadas, las mismas de Sac-Geo) y con `--csp`. Firebase salió
+de la CSP: nunca se configuró.
+
+### Cómo se trabaja
+
+- `npm run local` — todo en local (Docker SUNAT + backend + app). Ver `docs/LOCAL.md`.
+- `npm run verificar` — TODAS las pruebas, en orden, se corta en la primera que falla.
+- `npm run web` — recompila `flutter_app/` y la publica en `web/`, con la huella
+  de la fuente en `web/BUILD.json`. **`web/` va en el commit**: el VPS se
+  actualiza con `git pull` y no tiene SDK de Flutter. `npm run verificar` falla
+  si `web/` quedó atrás del código.
+- Reglas del código Flutter: `flutter_app/README.md`.
+
+### Lo que se eliminó por estar muerto
+
+- Modelo `AgenteToken` (el agente de PowerShell murió en la v4.0).
+- La redirección de `/` a `/static/index.html`; los enlaces del correo de
+  bienvenida y de `crear_cliente.py` ahora apuntan a `/`.
+- Firebase en la CSP.
+
+---
 
 > Este documento describe el diseño original (MVPv1). El estado real de la
 > implementación actual, bugs corregidos, features agregados y decisiones
@@ -2407,7 +2474,7 @@ sin ningún cambio en `backend/config.py`.
 **Versión:** 4.1 (rol `asistente` + switch de facturación blindado)  
 **Estado:** ✅ **COMPLETAMENTE FUNCIONAL Y AUDITADO** — Autenticación, Facturación, Caja, Notificaciones Push, Inventario probados y operativos  
 **Última Actualización:** 2026-09-13  
-**Tests:** 382/382 pasando (`npm test` — corre las DOS suites: 362 de backend con pytest y 20 de frontend con `node --test`, estos últimos sobre lo que sale por la impresora térmica). El mapa de qué cubre cada archivo, y qué NO cubre la suite, está en [`docs/TESTS.md`](docs/TESTS.md)  
+**Tests:** `npm run verificar` corre todo: las pruebas de Flutter (`flutter_app/test/`), que `web/` esté al día, las 20 del APK con `node --test` (lo que sale por la impresora térmica) y pytest. El mapa de qué cubre cada archivo, y qué NO cubre la suite, está en [`docs/TESTS.md`](docs/TESTS.md)  
 **Cobertura:** Autenticación JWT dual + Rate limiting + Auditoría + Facturación SUNAT en la nube (boleta/factura según régimen, correlativos separados por serie) + Padrón Reducido local + Dashboard Financiero + Validador de Caja + Notificaciones Push + Inventario + Vista Unificada
 
 ### ✅ Stack Completo Implementado

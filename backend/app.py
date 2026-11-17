@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from backend.config import settings
 from backend.database import init_db, SessionLocal
@@ -169,12 +169,6 @@ async def health_check():
     }
 
 
-# Root endpoint — redirige a la app
-@app.get("/")
-async def root():
-    return RedirectResponse(url="/static/index.html")
-
-
 # Routers
 app.include_router(auth.router, prefix="/api", tags=["Autenticación"])
 app.include_router(superadmin.router, prefix="/api", tags=["Superadmin"])
@@ -194,6 +188,24 @@ app.include_router(configuracion.router, prefix="/api", tags=["Configuración"])
 app.include_router(ruc.router, prefix="/api", tags=["Consulta RUC"])
 app.include_router(app_version.router, prefix="/api", tags=["Version de la app"])
 app.include_router(impresion.router, prefix="/api", tags=["Cola de impresion"])
+
+
+# La app web (Flutter) en la raíz. Va AL FINAL a propósito: un mount en "/"
+# atrapa todo lo que ninguna ruta anterior reclamó, así que /api, /static y
+# /health tienen que estar registrados antes.
+#
+# `web/` es la compilación que deja `npm run web` (ver tools/flutter-web.mjs) y
+# viaja en el repo: el VPS se actualiza con git pull, sin SDK de Flutter.
+_WEB = Path(__file__).resolve().parent.parent / "web"
+if (_WEB / "index.html").is_file():
+    app.mount("/", StaticFiles(directory=_WEB, html=True), name="web")
+else:
+    @app.get("/", include_in_schema=False)
+    async def sin_app_web():
+        return PlainTextResponse(
+            "Falta compilar la app web: corra `npm run web` en la raíz del repo.",
+            status_code=503,
+        )
 
 
 if __name__ == "__main__":

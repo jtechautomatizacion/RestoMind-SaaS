@@ -1,0 +1,51 @@
+name: restomind
+description: "RestoMind: mesas, cocina, cobro con boleta SUNAT y caja. App web (PWA) en Flutter."
+publish_to: none
+version: 2.0.0+1
+
+environment:
+  sdk: ^3.8.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Textos del sistema en español (selector de fecha, botones de los diálogos).
+  flutter_localizations:
+    sdk: flutter
+  # Cliente HTTP oficial de Dart. En web, BrowserClient con withCredentials para
+  # que el navegador envíe la cookie de refresh (HttpOnly) a /api/auth/sesion.
+  http: ^1.2.2
+  # APIs del navegador: descargar el Excel, imprimir, preferencias del aparato.
+  web: ^1.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/marca/
+  # Fuentes EMPAQUETADAS (las mismas de Sac-Geo, licencia OFL en assets/fonts/):
+  # sin ellas Flutter Web las baja de fonts.gstatic.com, y la CSP de la app no
+  # permite conectarse a ningún origen que no sea el propio.
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Inter-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Inter-ExtraBold.ttf
+          weight: 800
+    - family: IBM Plex Mono
+      fonts:
+        - asset: assets/fonts/IBMPlexMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/IBMPlexMono-Medium.ttf
+          weight: 500

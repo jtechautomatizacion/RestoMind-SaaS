@@ -23,58 +23,38 @@ def test_respuestas_incluyen_cabeceras_de_seguridad(test_client):
     assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
 
 
-def test_static_no_se_cachea_sin_revalidar(test_client):
-    """frontend/sw.js promete 'network-first: siempre la versión más nueva'
-    para HTML/CSS/JS — pero sin Cache-Control, el navegador aplicaba SU
-    PROPIA caché heurística (con solo Last-Modified/ETag) y el fetch() del
-    Service Worker se resolvía contra esa copia sin tocar la red de verdad.
-    "Network-first" se volvía "cache-first silencioso": una cuenta podía
-    seguir corriendo JS de ANTES de un fix (ej. el que evita pedir
-    endpoints admin-only según el rol) sin que ni un F5 lo notara.
-
-    'no-cache' (pese al nombre) sí guarda la respuesta — obliga a
-    revalidarla contra el servidor en cada uso, así que un archivo sin
-    cambios sigue resolviéndose con un 304 casi gratis."""
-    resp = test_client.get('/static/js/app.js')
-    assert resp.headers.get("cache-control") == "no-cache"
-
-    # Solo /static/: la API ya es network-only por el propio Service
-    # Worker, no hace falta (ni conviene) tocarle la caché acá.
+def test_archivos_de_la_app_se_revalidan_y_la_api_no_se_toca(test_client):
+    """Sin Cache-Control el navegador aplica su caché heurística y un aparato
+    puede seguir corriendo código de ANTES de un arreglo sin que ni un F5 lo
+    note. 'no-cache' (pese al nombre) guarda la copia pero obliga a
+    revalidarla: con el ETag, un archivo sin cambios cuesta un 304."""
+    assert test_client.get('/static/js/app.js').headers.get("cache-control") == "no-cache"
     assert test_client.get('/health').headers.get("cache-control") is None
 
 
-def test_csp_permite_cargar_firebase_para_notificaciones_push(test_client):
-    """El SDK de Firebase se sirve desde www.gstatic.com y habla con
-    googleapis.com. Con el CSP original ('script-src self') el navegador
-    bloqueaba esa carga y las notificaciones a cocina quedaban muertas EN
-    SILENCIO — el backend enviaba, pero ningún dispositivo llegaba a
-    registrar su token. No lo atrapó ningún test porque solo se verificaba
-    que el header existiera, no que permitiera lo que la app necesita."""
+def _directiva(csp: str, nombre: str) -> str:
+    return next(p.strip() for p in csp.split(";") if p.strip().startswith(nombre))
+
+
+def test_csp_de_la_app_es_estricta(test_client):
+    """La app Flutter no ejecuta código en línea ni habla con otro origen:
+    fuentes y CanvasKit van empaquetados. 'wasm-unsafe-eval' es lo único
+    extra, y lo exige CanvasKit (WebAssembly)."""
     csp = test_client.get('/health').headers["content-security-policy"]
-    assert "script-src 'self' 'unsafe-inline' https://www.gstatic.com" in csp, \
-        "el SDK de Firebase no podría cargar en la página normal"
-    assert "https://fcm.googleapis.com" in csp, "el registro del token push fallaría"
-
-    # www.gstatic.com tiene que estar TAMBIÉN en connect-src, no solo en
-    # script-src: dentro del Service Worker el SDK se carga con
-    # importScripts(), y Chrome valida esa carga contra connect-src, no
-    # contra script-src (una particularidad real de cómo Chrome aplica CSP
-    # a un Service Worker). Con solo script-src, el SDK cargaba bien en la
-    # página normal pero fallaba siempre dentro del Service Worker — que es
-    # justo donde hace falta para que el push llegue con la app minimizada.
-    connect_src = next(p for p in csp.split(";") if p.strip().startswith("connect-src"))
-    assert "https://www.gstatic.com" in connect_src, \
-        "el SDK de Firebase no podría cargar DENTRO del Service Worker (importScripts)"
-
-
-def test_csp_sigue_bloqueando_origenes_de_terceros(test_client):
-    """La excepción para Firebase se abrió host por host a propósito: si
-    alguien la relaja a 'https:' entero (o a '*'), cualquier script externo
-    podría inyectarse. Este test falla si eso pasa."""
-    csp = test_client.get('/health').headers["content-security-policy"]
-    assert "script-src 'self' 'unsafe-inline' https://www.gstatic.com;" in csp
+    assert _directiva(csp, "script-src") == "script-src 'self' 'wasm-unsafe-eval'"
+    assert _directiva(csp, "connect-src") == "connect-src 'self'"
     assert "*" not in csp
+    assert "https:" not in csp
     assert "object-src 'none'" in csp
+    assert "frame-ancestors 'none'" in csp
+
+
+def test_csp_de_las_paginas_viejas_no_carga_nada_ajeno(test_client):
+    """El HTML viejo de /static/ (superadmin, descarga del APK) usa onclick en
+    línea y necesita 'unsafe-inline', pero nada de otro origen."""
+    csp = test_client.get('/static/superadmin.html').headers["content-security-policy"]
+    assert _directiva(csp, "script-src") == "script-src 'self' 'unsafe-inline'"
+    assert "https:" not in csp and "*" not in csp
     assert "frame-ancestors 'none'" in csp
 
 
@@ -142,12 +122,18 @@ def test_auth_me_devuelve_usuario_del_token(test_client_real_auth, test_cliente)
     assert resp.json()["email"] == TEST_USUARIO_EMAIL
 
 
-def test_root_endpoint(test_client):
-    # "/" redirige al frontend (no devuelve JSON): así el link de credenciales
-    # por email lleva directo a la app, no a un endpoint de la API.
-    response = test_client.get('/', follow_redirects=False)
-    assert response.status_code in (302, 307)
-    assert response.headers['location'] == '/static/index.html'
+def test_la_raiz_sirve_la_app_web(test_client):
+    """"/" es la app Flutter (web/, compilada con `npm run web`). Si falta la
+    compilación, lo dice en vez de servir otra cosa."""
+    from pathlib import Path
+    response = test_client.get('/')
+    if (Path(__file__).resolve().parents[2] / "web" / "index.html").is_file():
+        assert response.status_code == 200
+        assert "flutter_bootstrap.js" in response.text
+        assert response.headers["content-security-policy"].startswith("default-src 'self'; script-src 'self' 'wasm-unsafe-eval'")
+    else:
+        assert response.status_code == 503
+        assert "npm run web" in response.text
 
 
 # ============ CU-01: PLATOS ============

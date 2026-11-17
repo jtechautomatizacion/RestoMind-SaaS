@@ -5,7 +5,7 @@ Onboarding manual de un restaurante nuevo — lo corre el dueño del sistema
 No existe un endpoint público de registro a propósito: en el modelo de
 reventa, cada tenant nuevo se da de alta a mano. El cliente final nunca ve
 este script ni sabe que existe — solo recibe su URL, su email y su
-contraseña para entrar a http://.../static/index.html.
+contraseña para entrar a http://<su-servidor>/
 
 Uso:
     python -m backend.scripts.crear_cliente
@@ -123,7 +123,7 @@ def main() -> None:
         print(f"   Pásale al dueño estas credenciales de acceso:")
         print(f"   Email:      {email_admin}")
         print(f"   Contraseña: (la que acabas de escribir)")
-        print(f"   URL:        http://<tu-servidor>/static/index.html")
+        print(f"   URL:        http://<tu-servidor>/")
 
     finally:
         db.close()

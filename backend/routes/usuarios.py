@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from backend.auth import hash_password, verificar_password
+from backend.sesiones import revocar_de_usuario
 from backend.database import get_db
 from backend.dependencies import get_cliente_id, get_usuario_actual
 from backend.models import Usuario
@@ -211,6 +212,8 @@ def cambiar_mi_password(
         raise HTTPException(status_code=400, detail="Contraseña actual incorrecta")
 
     usuario.password_hash = hash_password(payload.nueva_password)
+    # Cambiar la contraseña cierra las sesiones web abiertas en otros aparatos.
+    revocar_de_usuario(db, usuario.id, "contrasena_cambiada")
     db.commit()
     return {"detail": "Contraseña actualizada exitosamente"}
 
@@ -265,6 +268,11 @@ def editar_usuario(
     for campo, valor in datos.items():
         setattr(usuario, campo, valor)
 
+    # Desactivar una cuenta la saca de la app web en el próximo refresh, sin
+    # esperar a que caduque su sesión de dos semanas.
+    if datos.get("estado") == "inactivo":
+        revocar_de_usuario(db, usuario.id, "cuenta_desactivada")
+
     db.commit()
     db.refresh(usuario)
 
@@ -291,6 +299,7 @@ def cambiar_password_usuario(
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
     usuario.password_hash = hash_password(payload.nueva_password)
+    revocar_de_usuario(db, usuario.id, "contrasena_reseteada")
     db.commit()
 
     registrar_evento(

@@ -163,7 +163,7 @@ def _armar_html(nombre_admin: str, email_login: str, nombre_restaurante: str) ->
 
                 <tr>
                     <td style="padding: 0 32px 24px 32px;">
-                        {_boton(settings.app_url + "/static/index.html", "Entrar a RestoMind", _AZUL, "#FFFFFF")}
+                        {_boton(settings.app_url.rstrip("/") + "/", "Entrar a RestoMind", _AZUL, "#FFFFFF")}
                     </td>
                 </tr>
 {bloque_apk}

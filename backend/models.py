@@ -149,6 +149,8 @@ class Usuario(Base):
     push_subscriptions = relationship(
         "PushSubscription", back_populates="usuario", cascade="all, delete-orphan",
     )
+    # Mismo motivo que push_subscriptions: eliminar la cuenta borra sus sesiones.
+    sesiones = relationship("SesionRefresh", cascade="all, delete-orphan")
 
 
 class Categoria(Base):
@@ -653,42 +655,6 @@ class PushSubscription(Base):
     )
 
 
-class AgenteToken(Base):
-    """
-    Credencial del agente que corre en la PC del restaurante y baja los
-    comprobantes SUNAT para dejárselos al Facturador (ver routes/agente.py).
-
-    Por qué un token propio y no el JWT de un usuario:
-    - Un JWT expira a las 12 h; el agente tiene que poder trabajar meses sin
-      que nadie toque esa PC.
-    - Un JWT de admin daría acceso a TODO el restaurante (caja, personal,
-      finanzas) desde una PC que está en el salón de un local. Este token
-      solo sirve para las rutas de /api/agente/*.
-    - Un JWT no se puede revocar (limitación conocida, ver
-      PRODUCTION_READINESS.md). Este sí: se marca estado='revocado' y deja
-      de funcionar en el próximo request.
-
-    Se guarda HASHEADO con bcrypt, igual que una contraseña: vive en el
-    disco de una PC ajena, así que hay que poder revocarlo pero nunca
-    volver a leerlo. Se muestra una sola vez, al generarlo con
-    backend/scripts/crear_token_agente.py.
-    """
-    __tablename__ = "agente_tokens"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    cliente_id = Column(String, ForeignKey("clientes.id"), nullable=False, index=True)
-    # Para distinguirlos si un restaurante tiene más de una caja con su
-    # propio Facturador ("Caja principal", "Terraza").
-    nombre = Column(String, nullable=False)
-    token_hash = Column(String, nullable=False)
-    creado_en = Column(DateTime, default=datetime.utcnow)
-    # Permite ver desde el VPS si un agente dejó de reportarse (PC apagada,
-    # sin internet, tarea programada borrada) ANTES de que el restaurante
-    # llame porque no le salen las boletas.
-    ultimo_uso_en = Column(DateTime, nullable=True)
-    estado = Column(String, default="activo")  # activo | revocado
-
-
 class FacturaComanda(Base):
     """
     Asociación N:N entre Factura y Comanda (una boleta puede juntar varias
@@ -861,3 +827,33 @@ class TrabajoImpresion(Base):
         # aparato del local, así que conviene que no recorra la tabla entera.
         Index("ix_trabajos_pendientes", "cliente_id", "estado", "estacion", "creado_en"),
     )
+
+
+class SesionRefresh(Base):
+    """
+    Sesión persistente de la app web (Flutter): el refresh token que vive en la
+    cookie HttpOnly `__Secure-restomind_refresh`. Mismo modelo que Sac-Geo
+    (backend/src/sacgeo/security/sesiones.py), adaptado a SQLite.
+
+    El token es `<id>.<secreto>`. Acá se guarda SOLO el SHA-256 del secreto
+    vigente. El `id` sirve para detectar el REUSO: si llega un token cuyo id
+    existe pero cuyo secreto ya no es el vigente, es uno anterior, ya rotado,
+    y alguien más lo tiene. Se revoca la sesión entera.
+
+    Las cuentas del APK (Capacitor) no usan esta tabla: siguen con su token de
+    12 h hasta que el APK pase a Flutter.
+    """
+    __tablename__ = "sesiones_refresh"
+
+    id = Column(String(36), primary_key=True)
+    usuario_id = Column(String, ForeignKey("usuarios.id"), nullable=False, index=True)
+    cliente_id = Column(String, ForeignKey("clientes.id"), nullable=False, index=True)
+    hash_vigente = Column(String(64), nullable=False)
+    generacion = Column(Integer, nullable=False, default=1)
+    creada_en = Column(DateTime, nullable=False, default=datetime.utcnow)
+    renovada_en = Column(DateTime, nullable=True)
+    # Caducidad ABSOLUTA: renovar no la extiende. Pasado este momento hay que
+    # volver a escribir la contraseña.
+    expira_en = Column(DateTime, nullable=False)
+    revocada_en = Column(DateTime, nullable=True)
+    motivo_revocacion = Column(String(30), nullable=True)

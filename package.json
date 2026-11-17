@@ -4,8 +4,7 @@
   "private": true,
   "description": "RestoMind POS - envoltorio Capacitor de la PWA",
   "scripts": {
-    "test": "npm run test:frontend && npm run test:backend",
-    "test:frontend": "node --test \"tests/frontend/*.test.mjs\"",
+    "test": "npm run verificar",
     "test:backend": "node tools/tests-backend.mjs",
     "sync": "node tools/preparar-apk.mjs && cap sync android",
     "abrir": "cap open android",
@@ -17,7 +16,12 @@
     "servir-testing": "node tools/servir-testing.mjs",
     "clonar-a-pruebas": ".venv/Scripts/python.exe tools/clonar-a-pruebas.py",
     "iconos": ".venv/Scripts/python.exe tools/generar-iconos.py",
-    "version": "node tools/subir-version.mjs"
+    "version": "node tools/subir-version.mjs",
+    "verificar": "node tools/verificar.mjs",
+    "web": "node tools/flutter-web.mjs",
+    "local": "node tools/local.mjs",
+    "local:parar": "node tools/local.mjs --parar",
+    "test:apk": "node --test \"tests/frontend/*.test.mjs\""
   },
   "dependencies": {
     "@capacitor/android": "^6.2.2",

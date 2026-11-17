@@ -36,7 +36,16 @@ def verificar_password(password: str, password_hash: str) -> bool:
         return False
 
 
-def crear_token(email: str, cliente_id: str, rol: str) -> str:
+def crear_token(
+    email: str,
+    cliente_id: str,
+    rol: str,
+    duracion: Optional[timedelta] = None,
+    sid: Optional[str] = None,
+) -> str:
+    """`duracion`/`sid` solo los pasa el login de la app web (backend/sesiones.py):
+    access token corto, atado a una sesión con refresh en cookie. Sin ellos es el
+    token de 12 h que sigue usando el APK."""
     ahora = datetime.now(timezone.utc)
     payload = {
         "sub": email,
@@ -44,8 +53,10 @@ def crear_token(email: str, cliente_id: str, rol: str) -> str:
         "rol": rol,
         "tipo": "usuario",
         "iat": ahora,
-        "exp": ahora + timedelta(hours=EXPIRACION_HORAS),
+        "exp": ahora + (duracion or timedelta(hours=EXPIRACION_HORAS)),
     }
+    if sid:
+        payload["sid"] = sid
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITMO)
 
 

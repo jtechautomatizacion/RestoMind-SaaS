@@ -1,9 +1,9 @@
-# Reverse proxy para RestoMind — Nginx delante de Uvicorn (que escucha solo
-# en 127.0.0.1:8000, ver restomind.service).
+# Reverse proxy para RestoMind — Nginx delante de Uvicorn (que escucha solo en
+# 127.0.0.1:8000, ver restomind.service). Mismas reglas de borde que Sac-Geo.
 #
-# Antes de usar: reemplazá TU_DOMINIO por el dominio real (buscar y
-# reemplazar en todo el archivo), copialo a /etc/nginx/sites-available/,
-# symlink a sites-enabled/, y corré certbot (ver deploy/RUNBOOK.md):
+# Antes de usar: reemplace TU_DOMINIO por el dominio real, cópielo a
+# /etc/nginx/sites-available/, enlácelo en sites-enabled/ y corra certbot
+# (ver deploy/RUNBOOK.md):
 #
 #   sudo cp deploy/nginx.conf.template /etc/nginx/sites-available/restomind
 #   sudo sed -i 's/TU_DOMINIO/app.tudominio.com/g' /etc/nginx/sites-available/restomind
@@ -11,45 +11,71 @@
 #   sudo nginx -t && sudo systemctl reload nginx
 #   sudo certbot --nginx -d TU_DOMINIO
 #
-# certbot reescribe este archivo solo para agregar los bloques de SSL —
-# lo de abajo es el estado ANTES de correrlo (server_name + el challenge
-# ACME, todavía sin certificado).
+# certbot agrega el bloque 443 con los certificados y convierte el bloque de
+# abajo en un redirect a HTTPS. Las reglas de las `location` se conservan.
+
+# Los tres logins: 5 peticiones/s por IP, ráfaga 10, sin demorar y con 429. Es
+# la primera barrera; el backend además cuenta los intentos FALLIDOS por IP
+# (backend/utils/rate_limit.py).
+limit_req_zone $binary_remote_addr zone=restomind_login:10m rate=5r/s;
+limit_req_status 429;
+server_tokens off;
 
 server {
     listen 80;
     listen [::]:80;
     server_name TU_DOMINIO;
 
-    # certbot usa esta ruta para el desafío HTTP-01 al emitir/renovar el
-    # certificado — tiene que responder incluso antes de tener HTTPS.
+    # La foto de un plato llega hasta 5 MB cruda (el servidor la recomprime).
+    client_max_body_size 6m;
+
+    # Hacia uvicorn. X-Forwarded-For se SOBRESCRIBE con la IP real de la
+    # conexión: lo que mande el cliente se descarta, nunca se encadena. Si se
+    # encadenara, cualquiera podría inventarse una IP y saltarse el límite de
+    # intentos de login. uvicorn confía en esta cabecera porque llega desde
+    # 127.0.0.1 (su --forwarded-allow-ips por defecto).
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    # backend/middleware.py lo usa para decidir si manda HSTS.
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Forwarded "";
+    proxy_read_timeout 60s;
+
+    # certbot usa esta ruta para el desafío HTTP-01 al emitir/renovar.
     location /.well-known/acme-challenge/ {
         root /var/www/html;
     }
 
-    # El resto de tráfico HTTP se sirve igual HASTA que corras certbot: a
-    # partir de ahí, certbot agrega acá mismo un redirect 301 a HTTPS.
+    location ~ ^/api/(auth/login|auth/login-staff|superadmin/login)$ {
+        limit_req zone=restomind_login burst=10 nodelay;
+        proxy_pass http://127.0.0.1:8000;
+    }
+
+    # La documentación de la API no se publica (FastAPI ya la apaga en
+    # producción; esto es la segunda llave).
+    location ~ ^/(docs|redoc|openapi\.json)$ {
+        return 404;
+    }
+
+    # El APK, fuera del checkout de git (ver RUNBOOK §8). Con su tipo MIME para
+    # que Android ofrezca instalarlo, y sin caché: el nombre no cambia entre
+    # versiones.
+    location /descargas/ {
+        alias /home/restomind/descargas/;
+        autoindex off;
+        types { application/vnd.android.package-archive apk; }
+        default_type application/octet-stream;
+        add_header Cache-Control "no-cache" always;
+        add_header X-Content-Type-Options nosniff always;
+    }
+
+    # Todo lo demás: la API, la app web Flutter (web/, servida por FastAPI en
+    # "/") y el HTML viejo de /static/. FastAPI pone las cabeceras de seguridad
+    # (CSP, X-Frame-Options, Cache-Control) según la ruta; nginx no las repite
+    # para no tener dos fuentes que se contradigan.
     location / {
         proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        # Obligatorio: backend/middleware.py lo usa para decidir si manda
-        # Strict-Transport-Security. Sin este header, esa cabecera nunca
-        # sale aunque el sitio ya esté en HTTPS.
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # El frontend es HTML/JS/CSS estático sin build step — Nginx lo sirve
-    # directo del checkout de git, sin pasar por el proceso Python (más
-    # rápido, y libera a Uvicorn para la API). La ruta tiene que coincidir
-    # con dónde clonaste el repo en setup_vps.sh (APP_DIR).
-    location /static/ {
-        alias /home/restomind/app/frontend/;
-        expires 1h;
-        add_header Cache-Control "public";
     }
 }
-
-# certbot agrega acá un segundo server block (listen 443 ssl) con los
-# certificados de Let's Encrypt, y convierte el bloque de arriba en un
-# simple redirect a HTTPS. No hace falta escribirlo a mano.
